@@ -10,6 +10,9 @@ dependencies = [
     "sqlalchemy>=2.0,<3",
 ]
 
+[project.scripts]
+pjelly = "personality_jelly.cli.main:main"
+
 [dependency-groups]
 dev = [
     "pytest>=9.0,<10",
