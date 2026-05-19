@@ -23,3 +23,11 @@ $env:PJ_LLM_MODEL = "<chat-model>"
 
 Use `personality_jelly.llm.build_llm_provider(Settings())` to construct the configured provider.
 
+Run the end-to-end CLI with the configured provider:
+
+```powershell
+.\.venv\Scripts\pjelly.exe demo .\path\to\novel.md --character 林霜 --provider env
+```
+
+The default `demo` provider is still `stub`, so existing deterministic local demos do not need
+network access or environment variables.
