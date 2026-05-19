@@ -10,3 +10,16 @@ The first implementation phase focuses on stable engineering boundaries:
 - replaceable LLM provider abstraction
 - SQLite-first storage that can migrate toward PostgreSQL
 
+## LLM provider
+
+The real provider entrypoint is OpenAI-compatible and configured with environment variables:
+
+```powershell
+$env:PJ_LLM_PROVIDER = "openai-compatible"
+$env:PJ_LLM_BASE_URL = "https://api.openai.com/v1"
+$env:PJ_LLM_API_KEY = "<api-key>"
+$env:PJ_LLM_MODEL = "<chat-model>"
+```
+
+Use `personality_jelly.llm.build_llm_provider(Settings())` to construct the configured provider.
+
