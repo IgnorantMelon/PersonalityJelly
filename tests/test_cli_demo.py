@@ -2,6 +2,11 @@ from pathlib import Path
 
 from personality_jelly.cli.main import main
 from personality_jelly.llm import ChatMessage, ModelConfig
+from personality_jelly.storage import (
+    MessageRepository,
+    create_database_engine,
+    create_session_factory,
+)
 from personality_jelly.testing.stub_provider import StubProvider
 
 
@@ -180,6 +185,70 @@ def test_cli_demo_rejects_memory_db_with_database_url(tmp_path: Path, capsys) ->
     captured = capsys.readouterr()
     assert exit_code == 2
     assert "--memory-db cannot be combined with --database-url" in captured.err
+
+
+def test_cli_turn_sends_message_to_existing_conversation(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "林霜",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    conversation_id = _output_value(demo_output, "conversation_id")
+
+    turn_exit_code = main(
+        [
+            "turn",
+            conversation_id,
+            "--message",
+            "我们继续聊。",
+        ]
+    )
+    turn_output = capsys.readouterr().out
+
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        messages = MessageRepository(session).list_by_conversation(conversation_id)
+
+    assert demo_exit_code == 0
+    assert turn_exit_code == 0
+    assert f"conversation_id={conversation_id}" in turn_output
+    assert "assistant=我记住了" in turn_output
+    assert [message.role for message in messages] == ["user", "assistant", "user", "assistant"]
+    assert messages[-2].content == "我们继续聊。"
+
+
+def test_cli_turn_reports_missing_conversation(tmp_path: Path, capsys) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+
+    exit_code = main(
+        [
+            "turn",
+            "conv_missing",
+            "--message",
+            "你好。",
+            "--database-url",
+            database_url,
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "conv_missing" in captured.err
 
 
 def _output_value(output: str, key: str) -> str:

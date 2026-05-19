@@ -47,6 +47,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "demo":
             return _run_demo(args)
+        if args.command == "turn":
+            return _run_turn(args)
         parser.print_help()
         return 1
     except CliError as exc:
@@ -76,10 +78,28 @@ def _build_parser() -> argparse.ArgumentParser:
     demo.add_argument(
         "--reuse-existing",
         action="store_true",
-        help="Reuse matching source, character, persona, user, and conversation rows when present.",
+        help=(
+            "Reuse matching source, character, persona, user, and conversation rows "
+            "when present."
+        ),
     )
     demo.add_argument("--user", default="demo-user", help="Display name for the demo user.")
     demo.add_argument(
+        "--provider",
+        choices=("stub", "env"),
+        default="stub",
+        help="LLM provider source: stub for deterministic local output, env for PJ_* settings.",
+    )
+
+    turn = subparsers.add_parser("turn", help="Send one message to an existing conversation.")
+    turn.add_argument("conversation_id", help="Existing conversation id.")
+    turn.add_argument("--message", required=True, help="User message content.")
+    turn.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    turn.add_argument(
         "--provider",
         choices=("stub", "env"),
         default="stub",
@@ -143,10 +163,51 @@ def _run_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_turn(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            conversation = ConversationRepository(session).require(args.conversation_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+        turn = send_roleplay_turn(
+            session,
+            conversation_id=conversation.id,
+            content=args.message,
+            providers=RoleplayTurnProviders(
+                roleplay=provider,
+                critic=provider,
+                memory_curator=provider,
+            ),
+            model_configs=RoleplayTurnModelConfigs(
+                roleplay=model_config,
+                critic=model_config,
+                memory_curator=model_config,
+            ),
+        )
+        session.commit()
+
+    print(f"database_url={database_url}")
+    print(f"conversation_id={conversation.id}")
+    print(f"user_message_id={turn.user_message.id}")
+    print(f"assistant_message_id={turn.assistant_message.id}")
+    print(f"assistant={turn.assistant_message.content}")
+    print(f"critic_action={turn.critic_report.suggested_action if turn.critic_report else 'none'}")
+    print(f"memory_count={len(turn.memories)}")
+    return 0
+
+
 def _resolve_database_url(args: argparse.Namespace, settings: Settings) -> str:
-    if args.memory_db and args.database_url:
+    memory_db = getattr(args, "memory_db", False)
+    if memory_db and args.database_url:
         raise CliError("--memory-db cannot be combined with --database-url")
-    if args.memory_db:
+    if memory_db:
         return "sqlite:///:memory:"
     return args.database_url or settings.database_url
 
