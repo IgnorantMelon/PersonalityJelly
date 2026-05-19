@@ -218,6 +218,10 @@ class PersonaVersionRepository(Repository[PersonaVersion, orm.PersonaVersionORM]
         row = self.session.scalars(statement).first()
         return mappers.persona_version_from_orm(row) if row is not None else None
 
+    def next_version_number(self, character_id: str) -> int:
+        latest = self.latest_for_character(character_id)
+        return 1 if latest is None else latest.version_number + 1
+
 
 class UserRepository(Repository[User, orm.UserORM]):
     def __init__(self, session: Session) -> None:
