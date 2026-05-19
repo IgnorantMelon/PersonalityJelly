@@ -8,15 +8,25 @@ from personality_jelly.runtime.conversation import (
     create_user,
 )
 from personality_jelly.runtime.roleplay import RoleplayTurnResult, send_message
+from personality_jelly.runtime.turn import (
+    RoleplayTurnModelConfigs,
+    RoleplayTurnOrchestrationResult,
+    RoleplayTurnProviders,
+    send_roleplay_turn,
+)
 
 __all__ = [
     "ContextBuildResult",
     "ConversationCreationResult",
     "RoleplayTurnResult",
+    "RoleplayTurnModelConfigs",
+    "RoleplayTurnOrchestrationResult",
+    "RoleplayTurnProviders",
     "UserCreationResult",
     "build_context_package",
     "create_conversation",
     "create_user",
     "send_message",
+    "send_roleplay_turn",
 ]
 
