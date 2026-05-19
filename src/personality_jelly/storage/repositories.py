@@ -49,6 +49,7 @@ class Repository(Generic[ModelT, OrmT]):
 
     def add(self, model: ModelT) -> ModelT:
         self.session.add(self._to_orm(model))
+        self.session.flush()
         return model
 
     def get(self, model_id: str) -> ModelT | None:
@@ -89,6 +90,7 @@ class SourceChunkRepository(Repository[SourceChunk, orm.SourceChunkORM]):
 
     def add_many(self, chunks: list[SourceChunk]) -> list[SourceChunk]:
         self.session.add_all(mappers.source_chunk_to_orm(chunk) for chunk in chunks)
+        self.session.flush()
         return chunks
 
     def list_by_source_work(self, source_work_id: str) -> list[SourceChunk]:
