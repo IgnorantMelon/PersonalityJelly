@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from personality_jelly.domain import (
     CanonClaim,
     Character,
+    ClaimConflict,
     ClaimStatus,
     ClaimType,
     ContextPackage,
@@ -142,6 +143,25 @@ class CanonClaimRepository(Repository[CanonClaim, orm.CanonClaimORM]):
             statement = statement.where(orm.CanonClaimORM.claim_type == claim_type.value)
         return self._all(statement)
 
+    def update_status(
+        self,
+        claim_id: str,
+        *,
+        status: ClaimStatus | str,
+        reasoning: str | None = None,
+        confidence: float | None = None,
+    ) -> CanonClaim:
+        row = self.session.get(orm.CanonClaimORM, claim_id)
+        if row is None:
+            raise LookupError(f"CanonClaimORM {claim_id!r} was not found")
+        row.status = status.value if isinstance(status, ClaimStatus) else status
+        if reasoning is not None:
+            row.reasoning = reasoning
+        if confidence is not None:
+            row.confidence = confidence
+        self.session.flush()
+        return mappers.canon_claim_from_orm(row)
+
 
 class EvidenceRefRepository(Repository[EvidenceRef, orm.EvidenceRefORM]):
     def __init__(self, session: Session) -> None:
@@ -160,6 +180,23 @@ class EvidenceRefRepository(Repository[EvidenceRef, orm.EvidenceRefORM]):
         self.session.add_all(mappers.evidence_ref_to_orm(evidence) for evidence in evidence_refs)
         self.session.flush()
         return evidence_refs
+
+
+class ClaimConflictRepository(Repository[ClaimConflict, orm.ClaimConflictORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.ClaimConflictORM,
+            mappers.claim_conflict_to_orm,
+            mappers.claim_conflict_from_orm,
+        )
+
+    def list_by_claim(self, claim_id: str) -> list[ClaimConflict]:
+        statement = select(orm.ClaimConflictORM).where(
+            (orm.ClaimConflictORM.claim_a_id == claim_id)
+            | (orm.ClaimConflictORM.claim_b_id == claim_id)
+        )
+        return self._all(statement)
 
 
 class PersonaVersionRepository(Repository[PersonaVersion, orm.PersonaVersionORM]):

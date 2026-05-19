@@ -5,6 +5,7 @@ from personality_jelly.storage.orm import Base, create_all
 from personality_jelly.storage.repositories import (
     CanonClaimRepository,
     CharacterRepository,
+    ClaimConflictRepository,
     ContextPackageRepository,
     ConversationRepository,
     CriticReportRepository,
@@ -21,6 +22,7 @@ __all__ = [
     "Base",
     "CanonClaimRepository",
     "CharacterRepository",
+    "ClaimConflictRepository",
     "ContextPackageRepository",
     "ConversationRepository",
     "CriticReportRepository",
