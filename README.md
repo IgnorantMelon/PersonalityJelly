@@ -33,5 +33,11 @@ The CLI uses `PJ_DATABASE_URL` by default, falling back to `sqlite:///personalit
 Use `--memory-db` for a one-shot isolated run, or `--reuse-existing` to reuse matching source,
 character, persona, user, and conversation rows in a persistent database.
 
+Continue an existing conversation with one more user turn:
+
+```powershell
+.\.venv\Scripts\pjelly.exe turn conv_... --message "我们继续聊。" --provider env
+```
+
 The default `demo` provider is still `stub`, so existing deterministic local demos do not need
 network access or environment variables.
