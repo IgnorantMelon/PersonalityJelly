@@ -1,0 +1,29 @@
+[project]
+name = "personality-jelly"
+version = "0.1.0"
+description = "A novel character brain MVP with canon, persona, memory, and critic boundaries."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "pydantic>=2.12,<3",
+    "pydantic-settings>=2.11,<3",
+    "sqlalchemy>=2.0,<3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0,<10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
