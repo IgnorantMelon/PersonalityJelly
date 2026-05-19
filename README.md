@@ -29,5 +29,9 @@ Run the end-to-end CLI with the configured provider:
 .\.venv\Scripts\pjelly.exe demo .\path\to\novel.md --character 林霜 --provider env
 ```
 
+The CLI uses `PJ_DATABASE_URL` by default, falling back to `sqlite:///personality_jelly.db`.
+Use `--memory-db` for a one-shot isolated run, or `--reuse-existing` to reuse matching source,
+character, persona, user, and conversation rows in a persistent database.
+
 The default `demo` provider is still `stub`, so existing deterministic local demos do not need
 network access or environment variables.
