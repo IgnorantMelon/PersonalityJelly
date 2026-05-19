@@ -1,0 +1,104 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from pydantic import TypeAdapter
+from sqlalchemy.orm import Session
+
+from personality_jelly.core import EntityKind, generate_id
+from personality_jelly.domain import Memory, MessageRole
+from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
+from personality_jelly.memory.prompts import CURATOR_SYSTEM_PROMPT, build_curator_user_prompt
+from personality_jelly.memory.schemas import MemoryCuration
+from personality_jelly.storage import (
+    ConversationRepository,
+    ContextPackageRepository,
+    CriticReportRepository,
+    MemoryRepository,
+    MessageRepository,
+)
+
+
+@dataclass(frozen=True)
+class MemoryCurationResult:
+    memories: list[Memory]
+
+
+def curate_memories_for_message(
+    session: Session,
+    *,
+    provider: LLMProvider,
+    model_config: ModelConfig,
+    message_id: str,
+    critic_report_id: str | None = None,
+) -> MemoryCurationResult:
+    message_repository = MessageRepository(session)
+    assistant_message = message_repository.require(message_id)
+    if assistant_message.role != MessageRole.ASSISTANT:
+        raise ValueError("Memory Curator expects an assistant message")
+    if assistant_message.context_package_id is None:
+        raise ValueError("Assistant message has no context_package_id")
+
+    context_package = ContextPackageRepository(session).require(assistant_message.context_package_id)
+    conversation = ConversationRepository(session).require(assistant_message.conversation_id)
+    user_message = _previous_user_message(
+        message_repository.list_by_conversation(assistant_message.conversation_id),
+        assistant_message.id,
+    )
+    if user_message is None:
+        raise ValueError("Could not find a previous user message for the assistant response")
+
+    critic_report = (
+        CriticReportRepository(session).require(critic_report_id)
+        if critic_report_id is not None
+        else None
+    )
+
+    raw = provider.generate_json(
+        messages=[
+            ChatMessage(role=MessageRole.SYSTEM, content=CURATOR_SYSTEM_PROMPT),
+            ChatMessage(
+                role=MessageRole.USER,
+                content=build_curator_user_prompt(
+                    context_package=context_package,
+                    user_message=user_message,
+                    assistant_message=assistant_message,
+                    critic_report=critic_report,
+                ),
+            ),
+        ],
+        schema=MemoryCuration.model_json_schema(),
+        model_config=model_config,
+    )
+    curation = TypeAdapter(MemoryCuration).validate_python(raw)
+
+    memories = [
+        Memory(
+            id=generate_id(EntityKind.MEMORY),
+            user_id=conversation.user_id,
+            character_id=conversation.character_id,
+            conversation_id=assistant_message.conversation_id,
+            scope=candidate.scope,
+            status=candidate.status,
+            content=candidate.content,
+            importance=candidate.importance,
+            reason=candidate.reason,
+        )
+        for candidate in curation.memories
+    ]
+    repository = MemoryRepository(session)
+    for memory in memories:
+        repository.add(memory)
+    return MemoryCurationResult(memories=memories)
+
+
+def _previous_user_message(messages, assistant_message_id: str):
+    previous = []
+    for message in messages:
+        if message.id == assistant_message_id:
+            break
+        previous.append(message)
+    for message in reversed(previous):
+        if message.role == MessageRole.USER:
+            return message
+    return None
