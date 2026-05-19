@@ -101,7 +101,12 @@ def test_repository_roundtrip_for_source_character_conversation_and_memory() -> 
         assert len(SourceChunkRepository(session).list_by_source_work("sw_001")) == 2
         assert CharacterRepository(session).list_by_source_work("sw_001")[0].aliases == ["主角"]
         assert PersonaVersionRepository(session).latest_for_character("char_001").id == "pv_001"
-        assert len(ConversationRepository(session).list_for_user_character("user_001", "char_001")) == 1
+        conversations = ConversationRepository(session).list_for_user_character(
+            "user_001",
+            "char_001",
+        )
+        assert len(conversations) == 1
+        assert ConversationRepository(session).list_recent(limit=1)[0].id == "conv_001"
         assert MessageRepository(session).list_by_conversation("conv_001")[0].content == "我今天很累。"
         assert (
             MemoryRepository(session)

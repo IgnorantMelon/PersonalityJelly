@@ -281,6 +281,12 @@ class ConversationRepository(Repository[Conversation, orm.ConversationORM]):
         )
         return self._all(statement)
 
+    def list_recent(self, limit: int | None = None) -> list[Conversation]:
+        statement = select(orm.ConversationORM).order_by(orm.ConversationORM.updated_at.desc())
+        if limit is not None:
+            statement = statement.limit(limit)
+        return self._all(statement)
+
     def latest_for_user_character(
         self,
         user_id: str,

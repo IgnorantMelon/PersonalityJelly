@@ -23,6 +23,7 @@ from personality_jelly.storage import create_all, create_database_engine, create
 from personality_jelly.storage.repositories import (
     CharacterRepository,
     ConversationRepository,
+    MessageRepository,
     PersonaVersionRepository,
     SourceWorkRepository,
     UserRepository,
@@ -49,6 +50,10 @@ def main(argv: list[str] | None = None) -> int:
             return _run_demo(args)
         if args.command == "turn":
             return _run_turn(args)
+        if args.command == "list":
+            return _run_list(args)
+        if args.command == "show":
+            return _run_show(args)
         parser.print_help()
         return 1
     except CliError as exc:
@@ -104,6 +109,43 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("stub", "env"),
         default="stub",
         help="LLM provider source: stub for deterministic local output, env for PJ_* settings.",
+    )
+
+    list_parser = subparsers.add_parser("list", help="List persisted resources.")
+    list_subparsers = list_parser.add_subparsers(dest="resource")
+    list_conversations = list_subparsers.add_parser(
+        "conversations",
+        help="List recent conversations.",
+    )
+    list_conversations.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    list_conversations.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of conversations to print.",
+    )
+
+    show_parser = subparsers.add_parser("show", help="Show a persisted resource.")
+    show_subparsers = show_parser.add_subparsers(dest="resource")
+    show_conversation = show_subparsers.add_parser(
+        "conversation",
+        help="Show conversation details and recent messages.",
+    )
+    show_conversation.add_argument("conversation_id", help="Existing conversation id.")
+    show_conversation.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_conversation.add_argument(
+        "--messages",
+        type=int,
+        default=10,
+        help="Maximum number of recent messages to print.",
     )
     return parser
 
@@ -200,6 +242,80 @@ def _run_turn(args: argparse.Namespace) -> int:
     print(f"assistant={turn.assistant_message.content}")
     print(f"critic_action={turn.critic_report.suggested_action if turn.critic_report else 'none'}")
     print(f"memory_count={len(turn.memories)}")
+    return 0
+
+
+def _run_list(args: argparse.Namespace) -> int:
+    if args.resource == "conversations":
+        return _run_list_conversations(args)
+    raise CliError("list resource is required")
+
+
+def _run_show(args: argparse.Namespace) -> int:
+    if args.resource == "conversation":
+        return _run_show_conversation(args)
+    raise CliError("show resource is required")
+
+
+def _run_list_conversations(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        raise CliError("--limit must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        conversations = ConversationRepository(session).list_recent(limit=args.limit)
+        users = UserRepository(session)
+        characters = CharacterRepository(session)
+
+        print(f"database_url={database_url}")
+        print(f"conversation_count={len(conversations)}")
+        for index, conversation in enumerate(conversations, start=1):
+            user = users.require(conversation.user_id)
+            character = characters.require(conversation.character_id)
+            print(f"conversation.{index}.id={conversation.id}")
+            print(f"conversation.{index}.user={user.display_name or user.id}")
+            print(f"conversation.{index}.character={character.canonical_name}")
+            print(f"conversation.{index}.mode={conversation.current_mode}")
+            print(f"conversation.{index}.persona_version_id={conversation.persona_version_id}")
+    return 0
+
+
+def _run_show_conversation(args: argparse.Namespace) -> int:
+    if args.messages < 0:
+        raise CliError("--messages must be 0 or greater")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            conversation = ConversationRepository(session).require(args.conversation_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+        user = UserRepository(session).require(conversation.user_id)
+        character = CharacterRepository(session).require(conversation.character_id)
+        messages = MessageRepository(session).list_by_conversation(conversation.id)
+        recent_messages = messages[-args.messages :] if args.messages else []
+
+        print(f"database_url={database_url}")
+        print(f"conversation_id={conversation.id}")
+        print(f"user_id={user.id}")
+        print(f"user={user.display_name or user.id}")
+        print(f"character_id={character.id}")
+        print(f"character={character.canonical_name}")
+        print(f"persona_version_id={conversation.persona_version_id}")
+        print(f"mode={conversation.current_mode}")
+        print(f"message_count={len(messages)}")
+        for index, message in enumerate(recent_messages, start=1):
+            print(f"message.{index}.id={message.id}")
+            print(f"message.{index}.role={message.role}")
+            print(f"message.{index}.content={message.content}")
     return 0
 
 
