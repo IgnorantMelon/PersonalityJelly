@@ -39,5 +39,12 @@ Continue an existing conversation with one more user turn:
 .\.venv\Scripts\pjelly.exe turn conv_... --message "我们继续聊。" --provider env
 ```
 
+Find and inspect persisted conversations:
+
+```powershell
+.\.venv\Scripts\pjelly.exe list conversations
+.\.venv\Scripts\pjelly.exe show conversation conv_... --messages 5
+```
+
 The default `demo` provider is still `stub`, so existing deterministic local demos do not need
 network access or environment variables.

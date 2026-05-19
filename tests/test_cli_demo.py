@@ -251,6 +251,77 @@ def test_cli_turn_reports_missing_conversation(tmp_path: Path, capsys) -> None:
     assert "conv_missing" in captured.err
 
 
+def test_cli_lists_and_shows_conversations(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "林霜",
+            "--reuse-existing",
+            "--user",
+            "测试用户",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    conversation_id = _output_value(demo_output, "conversation_id")
+
+    list_exit_code = main(["list", "conversations"])
+    list_output = capsys.readouterr().out
+
+    show_exit_code = main(
+        [
+            "show",
+            "conversation",
+            conversation_id,
+            "--messages",
+            "2",
+        ]
+    )
+    show_output = capsys.readouterr().out
+
+    assert demo_exit_code == 0
+    assert list_exit_code == 0
+    assert show_exit_code == 0
+    assert "conversation_count=1" in list_output
+    assert f"conversation.1.id={conversation_id}" in list_output
+    assert "conversation.1.user=测试用户" in list_output
+    assert "conversation.1.character=林霜" in list_output
+    assert f"conversation_id={conversation_id}" in show_output
+    assert "user=测试用户" in show_output
+    assert "character=林霜" in show_output
+    assert "message_count=2" in show_output
+    assert "message.1.role=user" in show_output
+    assert "message.2.role=assistant" in show_output
+
+
+def test_cli_show_conversation_reports_missing_conversation(tmp_path: Path, capsys) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+
+    exit_code = main(
+        [
+            "show",
+            "conversation",
+            "conv_missing",
+            "--database-url",
+            database_url,
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "conv_missing" in captured.err
+
+
 def _output_value(output: str, key: str) -> str:
     prefix = f"{key}="
     for line in output.splitlines():
