@@ -1,0 +1,258 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Generic, TypeVar
+
+from sqlalchemy import Select, select
+from sqlalchemy.orm import Session
+
+from personality_jelly.domain import (
+    CanonClaim,
+    Character,
+    ClaimStatus,
+    ClaimType,
+    ContextPackage,
+    Conversation,
+    CriticReport,
+    EvidenceRef,
+    Memory,
+    MemoryScope,
+    MemoryStatus,
+    Message,
+    PersonaVersion,
+    SourceChunk,
+    SourceWork,
+    User,
+)
+from personality_jelly.storage import mappers
+from personality_jelly.storage import orm
+
+
+ModelT = TypeVar("ModelT")
+OrmT = TypeVar("OrmT")
+
+
+class Repository(Generic[ModelT, OrmT]):
+    orm_model: type[OrmT]
+
+    def __init__(
+        self,
+        session: Session,
+        orm_model: type[OrmT],
+        to_orm: Callable[[ModelT], OrmT],
+        from_orm: Callable[[OrmT], ModelT],
+    ) -> None:
+        self.session = session
+        self.orm_model = orm_model
+        self._to_orm = to_orm
+        self._from_orm = from_orm
+
+    def add(self, model: ModelT) -> ModelT:
+        self.session.add(self._to_orm(model))
+        return model
+
+    def get(self, model_id: str) -> ModelT | None:
+        row = self.session.get(self.orm_model, model_id)
+        return self._from_orm(row) if row is not None else None
+
+    def require(self, model_id: str) -> ModelT:
+        row = self.get(model_id)
+        if row is None:
+            raise LookupError(f"{self.orm_model.__name__} {model_id!r} was not found")
+        return row
+
+    def list_all(self) -> list[ModelT]:
+        return self._all(select(self.orm_model))
+
+    def _all(self, statement: Select) -> list[ModelT]:
+        return [self._from_orm(row) for row in self.session.scalars(statement).all()]
+
+
+class SourceWorkRepository(Repository[SourceWork, orm.SourceWorkORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.SourceWorkORM,
+            mappers.source_work_to_orm,
+            mappers.source_work_from_orm,
+        )
+
+
+class SourceChunkRepository(Repository[SourceChunk, orm.SourceChunkORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.SourceChunkORM,
+            mappers.source_chunk_to_orm,
+            mappers.source_chunk_from_orm,
+        )
+
+    def add_many(self, chunks: list[SourceChunk]) -> list[SourceChunk]:
+        self.session.add_all(mappers.source_chunk_to_orm(chunk) for chunk in chunks)
+        return chunks
+
+    def list_by_source_work(self, source_work_id: str) -> list[SourceChunk]:
+        statement = (
+            select(orm.SourceChunkORM)
+            .where(orm.SourceChunkORM.source_work_id == source_work_id)
+            .order_by(
+                orm.SourceChunkORM.chapter_index.asc().nullsfirst(),
+                orm.SourceChunkORM.paragraph_index.asc(),
+                orm.SourceChunkORM.char_start.asc().nullsfirst(),
+            )
+        )
+        return self._all(statement)
+
+
+class CharacterRepository(Repository[Character, orm.CharacterORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.CharacterORM,
+            mappers.character_to_orm,
+            mappers.character_from_orm,
+        )
+
+    def list_by_source_work(self, source_work_id: str) -> list[Character]:
+        statement = select(orm.CharacterORM).where(orm.CharacterORM.source_work_id == source_work_id)
+        return self._all(statement)
+
+
+class CanonClaimRepository(Repository[CanonClaim, orm.CanonClaimORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.CanonClaimORM,
+            mappers.canon_claim_to_orm,
+            mappers.canon_claim_from_orm,
+        )
+
+    def list_by_character(
+        self,
+        character_id: str,
+        status: ClaimStatus | None = None,
+        claim_type: ClaimType | None = None,
+    ) -> list[CanonClaim]:
+        statement = select(orm.CanonClaimORM).where(orm.CanonClaimORM.character_id == character_id)
+        if status is not None:
+            statement = statement.where(orm.CanonClaimORM.status == status.value)
+        if claim_type is not None:
+            statement = statement.where(orm.CanonClaimORM.claim_type == claim_type.value)
+        return self._all(statement)
+
+
+class EvidenceRefRepository(Repository[EvidenceRef, orm.EvidenceRefORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.EvidenceRefORM,
+            mappers.evidence_ref_to_orm,
+            mappers.evidence_ref_from_orm,
+        )
+
+    def list_by_claim(self, claim_id: str) -> list[EvidenceRef]:
+        statement = select(orm.EvidenceRefORM).where(orm.EvidenceRefORM.claim_id == claim_id)
+        return self._all(statement)
+
+
+class PersonaVersionRepository(Repository[PersonaVersion, orm.PersonaVersionORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.PersonaVersionORM,
+            mappers.persona_version_to_orm,
+            mappers.persona_version_from_orm,
+        )
+
+    def latest_for_character(self, character_id: str) -> PersonaVersion | None:
+        statement = (
+            select(orm.PersonaVersionORM)
+            .where(orm.PersonaVersionORM.character_id == character_id)
+            .order_by(orm.PersonaVersionORM.version_number.desc())
+            .limit(1)
+        )
+        row = self.session.scalars(statement).first()
+        return mappers.persona_version_from_orm(row) if row is not None else None
+
+
+class UserRepository(Repository[User, orm.UserORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(session, orm.UserORM, mappers.user_to_orm, mappers.user_from_orm)
+
+
+class ConversationRepository(Repository[Conversation, orm.ConversationORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.ConversationORM,
+            mappers.conversation_to_orm,
+            mappers.conversation_from_orm,
+        )
+
+    def list_for_user_character(self, user_id: str, character_id: str) -> list[Conversation]:
+        statement = select(orm.ConversationORM).where(
+            orm.ConversationORM.user_id == user_id,
+            orm.ConversationORM.character_id == character_id,
+        )
+        return self._all(statement)
+
+
+class MessageRepository(Repository[Message, orm.MessageORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.MessageORM,
+            mappers.message_to_orm,
+            mappers.message_from_orm,
+        )
+
+    def list_by_conversation(self, conversation_id: str) -> list[Message]:
+        statement = (
+            select(orm.MessageORM)
+            .where(orm.MessageORM.conversation_id == conversation_id)
+            .order_by(orm.MessageORM.created_at.asc())
+        )
+        return self._all(statement)
+
+
+class MemoryRepository(Repository[Memory, orm.MemoryORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(session, orm.MemoryORM, mappers.memory_to_orm, mappers.memory_from_orm)
+
+    def list_for_user_character(
+        self,
+        user_id: str,
+        character_id: str,
+        scope: MemoryScope | None = None,
+        status: MemoryStatus | None = None,
+    ) -> list[Memory]:
+        statement = select(orm.MemoryORM).where(
+            orm.MemoryORM.user_id == user_id,
+            orm.MemoryORM.character_id == character_id,
+        )
+        if scope is not None:
+            statement = statement.where(orm.MemoryORM.scope == scope.value)
+        if status is not None:
+            statement = statement.where(orm.MemoryORM.status == status.value)
+        return self._all(statement)
+
+
+class ContextPackageRepository(Repository[ContextPackage, orm.ContextPackageORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.ContextPackageORM,
+            mappers.context_package_to_orm,
+            mappers.context_package_from_orm,
+        )
+
+
+class CriticReportRepository(Repository[CriticReport, orm.CriticReportORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.CriticReportORM,
+            mappers.critic_report_to_orm,
+            mappers.critic_report_from_orm,
+        )
+
