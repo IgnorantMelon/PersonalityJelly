@@ -156,6 +156,11 @@ class EvidenceRefRepository(Repository[EvidenceRef, orm.EvidenceRefORM]):
         statement = select(orm.EvidenceRefORM).where(orm.EvidenceRefORM.claim_id == claim_id)
         return self._all(statement)
 
+    def add_many(self, evidence_refs: list[EvidenceRef]) -> list[EvidenceRef]:
+        self.session.add_all(mappers.evidence_ref_to_orm(evidence) for evidence in evidence_refs)
+        self.session.flush()
+        return evidence_refs
+
 
 class PersonaVersionRepository(Repository[PersonaVersion, orm.PersonaVersionORM]):
     def __init__(self, session: Session) -> None:
