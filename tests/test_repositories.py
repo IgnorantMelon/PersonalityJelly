@@ -115,3 +115,62 @@ def test_repository_roundtrip_for_source_character_conversation_and_memory() -> 
             == "用户说过自己今天很累。"
         )
 
+
+def test_repositories_find_reusable_cli_records() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        SourceWorkRepository(session).add(
+            SourceWork(
+                id="sw_001",
+                title="测试作品",
+                source_type="markdown",
+            )
+        )
+        CharacterRepository(session).add(
+            Character(
+                id="char_001",
+                source_work_id="sw_001",
+                canonical_name="林霜",
+            )
+        )
+        PersonaVersionRepository(session).add(
+            PersonaVersion(
+                id="pv_001",
+                character_id="char_001",
+                source_work_id="sw_001",
+                version_number=1,
+                core_self="林霜谨慎敏锐。",
+            )
+        )
+        UserRepository(session).add(User(id="user_001", display_name="demo-user"))
+        ConversationRepository(session).add(
+            Conversation(
+                id="conv_001",
+                user_id="user_001",
+                character_id="char_001",
+                persona_version_id="pv_001",
+                current_mode=InteractionMode.REALITY_CHAT,
+            )
+        )
+        session.commit()
+
+    with session_factory() as session:
+        source_work = SourceWorkRepository(session).find_by_title("测试作品")
+        character = CharacterRepository(session).find_by_source_work_and_name(
+            "sw_001",
+            "林霜",
+        )
+        user = UserRepository(session).find_by_display_name("demo-user")
+        conversation = ConversationRepository(session).latest_for_user_character(
+            "user_001",
+            "char_001",
+        )
+
+    assert source_work.id == "sw_001"
+    assert character.id == "char_001"
+    assert user.id == "user_001"
+    assert conversation.id == "conv_001"
+

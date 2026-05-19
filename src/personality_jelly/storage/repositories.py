@@ -79,6 +79,16 @@ class SourceWorkRepository(Repository[SourceWork, orm.SourceWorkORM]):
             mappers.source_work_from_orm,
         )
 
+    def find_by_title(self, title: str) -> SourceWork | None:
+        statement = (
+            select(orm.SourceWorkORM)
+            .where(orm.SourceWorkORM.title == title)
+            .order_by(orm.SourceWorkORM.created_at.desc())
+            .limit(1)
+        )
+        row = self.session.scalars(statement).first()
+        return mappers.source_work_from_orm(row) if row is not None else None
+
 
 class SourceChunkRepository(Repository[SourceChunk, orm.SourceChunkORM]):
     def __init__(self, session: Session) -> None:
@@ -119,6 +129,23 @@ class CharacterRepository(Repository[Character, orm.CharacterORM]):
     def list_by_source_work(self, source_work_id: str) -> list[Character]:
         statement = select(orm.CharacterORM).where(orm.CharacterORM.source_work_id == source_work_id)
         return self._all(statement)
+
+    def find_by_source_work_and_name(
+        self,
+        source_work_id: str,
+        canonical_name: str,
+    ) -> Character | None:
+        statement = (
+            select(orm.CharacterORM)
+            .where(
+                orm.CharacterORM.source_work_id == source_work_id,
+                orm.CharacterORM.canonical_name == canonical_name,
+            )
+            .order_by(orm.CharacterORM.created_at.desc())
+            .limit(1)
+        )
+        row = self.session.scalars(statement).first()
+        return mappers.character_from_orm(row) if row is not None else None
 
 
 class CanonClaimRepository(Repository[CanonClaim, orm.CanonClaimORM]):
@@ -227,6 +254,16 @@ class UserRepository(Repository[User, orm.UserORM]):
     def __init__(self, session: Session) -> None:
         super().__init__(session, orm.UserORM, mappers.user_to_orm, mappers.user_from_orm)
 
+    def find_by_display_name(self, display_name: str) -> User | None:
+        statement = (
+            select(orm.UserORM)
+            .where(orm.UserORM.display_name == display_name)
+            .order_by(orm.UserORM.created_at.desc())
+            .limit(1)
+        )
+        row = self.session.scalars(statement).first()
+        return mappers.user_from_orm(row) if row is not None else None
+
 
 class ConversationRepository(Repository[Conversation, orm.ConversationORM]):
     def __init__(self, session: Session) -> None:
@@ -243,6 +280,23 @@ class ConversationRepository(Repository[Conversation, orm.ConversationORM]):
             orm.ConversationORM.character_id == character_id,
         )
         return self._all(statement)
+
+    def latest_for_user_character(
+        self,
+        user_id: str,
+        character_id: str,
+    ) -> Conversation | None:
+        statement = (
+            select(orm.ConversationORM)
+            .where(
+                orm.ConversationORM.user_id == user_id,
+                orm.ConversationORM.character_id == character_id,
+            )
+            .order_by(orm.ConversationORM.updated_at.desc())
+            .limit(1)
+        )
+        row = self.session.scalars(statement).first()
+        return mappers.conversation_from_orm(row) if row is not None else None
 
 
 class MessageRepository(Repository[Message, orm.MessageORM]):
