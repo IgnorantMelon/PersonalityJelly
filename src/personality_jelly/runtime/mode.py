@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from personality_jelly.domain import InteractionMode, MessageRole
 from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
+from personality_jelly.llm.tracing import LLMTraceRecorder, record_structured_output
 
 
+MODE_CLASSIFIER_OPERATION = "runtime.mode.classify_interaction_mode"
 MODE_CLASSIFIER_SYSTEM_PROMPT = """Classify the user's requested interaction mode.
 
 Choose exactly one mode:
@@ -32,12 +34,14 @@ def infer_interaction_mode(
     provider: LLMProvider,
     model_config: ModelConfig,
     current_mode: InteractionMode = InteractionMode.REALITY_CHAT,
+    trace_recorder: LLMTraceRecorder | None = None,
 ) -> InteractionMode:
     classification = classify_interaction_mode(
         user_message,
         provider=provider,
         model_config=model_config,
         current_mode=current_mode,
+        trace_recorder=trace_recorder,
     )
     return InteractionMode(classification.mode)
 
@@ -48,7 +52,9 @@ def classify_interaction_mode(
     provider: LLMProvider,
     model_config: ModelConfig,
     current_mode: InteractionMode = InteractionMode.REALITY_CHAT,
+    trace_recorder: LLMTraceRecorder | None = None,
 ) -> InteractionModeClassification:
+    schema = InteractionModeClassification.model_json_schema()
     raw = provider.generate_json(
         messages=[
             ChatMessage(role=MessageRole.SYSTEM, content=MODE_CLASSIFIER_SYSTEM_PROMPT),
@@ -64,10 +70,34 @@ def classify_interaction_mode(
                 ),
             ),
         ],
-        schema=InteractionModeClassification.model_json_schema(),
+        schema=schema,
         model_config=model_config,
     )
-    return TypeAdapter(InteractionModeClassification).validate_python(raw)
+    try:
+        classification = TypeAdapter(InteractionModeClassification).validate_python(raw)
+    except ValidationError as exc:
+        record_structured_output(
+            recorder=trace_recorder,
+            operation=MODE_CLASSIFIER_OPERATION,
+            schema_name="InteractionModeClassification",
+            provider=provider,
+            model_config=model_config,
+            response_schema=schema,
+            raw_output=raw,
+            validation_error=exc,
+        )
+        raise
+    record_structured_output(
+        recorder=trace_recorder,
+        operation=MODE_CLASSIFIER_OPERATION,
+        schema_name="InteractionModeClassification",
+        provider=provider,
+        model_config=model_config,
+        response_schema=schema,
+        raw_output=raw,
+        parsed_output=classification,
+    )
+    return classification
 
 
 def resolve_interaction_mode(
@@ -77,6 +107,7 @@ def resolve_interaction_mode(
     current_mode: InteractionMode,
     provider: LLMProvider | None = None,
     model_config: ModelConfig | None = None,
+    trace_recorder: LLMTraceRecorder | None = None,
 ) -> InteractionMode:
     if explicit_mode is not None:
         return explicit_mode
@@ -87,4 +118,5 @@ def resolve_interaction_mode(
         provider=provider,
         model_config=model_config,
         current_mode=current_mode,
+        trace_recorder=trace_recorder,
     )

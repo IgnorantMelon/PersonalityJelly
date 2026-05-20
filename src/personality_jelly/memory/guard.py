@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from personality_jelly.domain import CriticReport, InteractionMode, MemoryStatus, Message, MessageRole
 from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
+from personality_jelly.llm.tracing import LLMTraceRecorder, record_structured_output
 from personality_jelly.memory.schemas import MemoryCandidate
 
 
+MEMORY_GUARD_OPERATION = "memory.guard.semantic_decision"
 MEMORY_GUARD_SYSTEM_PROMPT = """Evaluate whether a proposed long-term memory should be saved.
 
 Judge semantically. Do not use fixed trigger words or literal text matching. Consider:
@@ -51,6 +53,7 @@ def guard_memory_candidate(
     critic_report: CriticReport | None,
     provider: LLMProvider | None,
     model_config: ModelConfig | None,
+    trace_recorder: LLMTraceRecorder | None = None,
 ) -> GuardedMemoryCandidate:
     if candidate.status == MemoryStatus.REJECTED:
         return GuardedMemoryCandidate(
@@ -86,6 +89,7 @@ def guard_memory_candidate(
         critic_report=critic_report,
         provider=provider,
         model_config=model_config,
+        trace_recorder=trace_recorder,
     )
     if decision.decision == "accept":
         return GuardedMemoryCandidate(candidate=candidate, rejection_reasons=[], decision="accept")
@@ -113,6 +117,7 @@ def guard_memory_candidates(
     critic_report: CriticReport | None,
     provider: LLMProvider | None,
     model_config: ModelConfig | None,
+    trace_recorder: LLMTraceRecorder | None = None,
 ) -> list[GuardedMemoryCandidate]:
     return [
         guard_memory_candidate(
@@ -123,6 +128,7 @@ def guard_memory_candidates(
             critic_report=critic_report,
             provider=provider,
             model_config=model_config,
+            trace_recorder=trace_recorder,
         )
         for candidate in candidates
     ]
@@ -137,7 +143,9 @@ def _semantic_guard_decision(
     critic_report: CriticReport | None,
     provider: LLMProvider,
     model_config: ModelConfig,
+    trace_recorder: LLMTraceRecorder | None = None,
 ) -> MemoryGuardDecision:
+    schema = MemoryGuardDecision.model_json_schema()
     raw = provider.generate_json(
         messages=[
             ChatMessage(role=MessageRole.SYSTEM, content=MEMORY_GUARD_SYSTEM_PROMPT),
@@ -152,10 +160,34 @@ def _semantic_guard_decision(
                 ),
             ),
         ],
-        schema=MemoryGuardDecision.model_json_schema(),
+        schema=schema,
         model_config=model_config,
     )
-    return TypeAdapter(MemoryGuardDecision).validate_python(raw)
+    try:
+        decision = TypeAdapter(MemoryGuardDecision).validate_python(raw)
+    except ValidationError as exc:
+        record_structured_output(
+            recorder=trace_recorder,
+            operation=MEMORY_GUARD_OPERATION,
+            schema_name="MemoryGuardDecision",
+            provider=provider,
+            model_config=model_config,
+            response_schema=schema,
+            raw_output=raw,
+            validation_error=exc,
+        )
+        raise
+    record_structured_output(
+        recorder=trace_recorder,
+        operation=MEMORY_GUARD_OPERATION,
+        schema_name="MemoryGuardDecision",
+        provider=provider,
+        model_config=model_config,
+        response_schema=schema,
+        raw_output=raw,
+        parsed_output=decision,
+    )
+    return decision
 
 
 def _build_guard_prompt(

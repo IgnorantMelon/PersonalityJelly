@@ -5,6 +5,7 @@ from personality_jelly.domain import (
     CriticReport,
     FailureCase,
     InteractionMode,
+    LLMRawOutput,
     Memory,
     MemoryScope,
     MemoryStatus,
@@ -21,6 +22,7 @@ from personality_jelly.storage import (
     ContextPackageRepository,
     CriticReportRepository,
     FailureCaseRepository,
+    LLMRawOutputRepository,
     MemoryRepository,
     MessageRepository,
     PersonaVersionRepository,
@@ -350,4 +352,35 @@ def test_failure_case_repository_lists_recent_and_by_conversation() -> None:
     assert stored.assistant_message_id == "msg_assistant_001"
     assert recent[0].id == "fail_001"
     assert by_conversation[0].reason == "Assistant broke character."
+
+
+def test_llm_raw_output_repository_roundtrips_structured_trace() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        trace = LLMRawOutput(
+            id="llmraw_001",
+            operation="runtime.mode.classify_interaction_mode",
+            schema_name="InteractionModeClassification",
+            model_name="fake-mode",
+            provider_name="mode-fake",
+            response_schema={"title": "InteractionModeClassification"},
+            raw_output='{"mode": "roleplay_scene"}',
+            parsed_output={"mode": "roleplay_scene", "confidence": 0.9},
+            validation_errors=[],
+        )
+        LLMRawOutputRepository(session).add(trace)
+        session.commit()
+
+    with session_factory() as session:
+        repository = LLMRawOutputRepository(session)
+        stored = repository.require("llmraw_001")
+        traces = repository.list_by_operation("runtime.mode.classify_interaction_mode", limit=1)
+
+    assert stored.provider_name == "mode-fake"
+    assert stored.response_schema["title"] == "InteractionModeClassification"
+    assert stored.parsed_output["mode"] == "roleplay_scene"
+    assert traces[0].id == "llmraw_001"
 

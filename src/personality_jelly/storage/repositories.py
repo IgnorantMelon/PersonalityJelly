@@ -21,6 +21,7 @@ from personality_jelly.domain import (
     EvaluationRun,
     EvaluationStatus,
     FailureCase,
+    LLMRawOutput,
     Memory,
     MemoryScope,
     MemoryStatus,
@@ -448,6 +449,26 @@ class FailureCaseRepository(Repository[FailureCase, orm.FailureCaseORM]):
             .where(orm.FailureCaseORM.conversation_id == conversation_id)
             .order_by(orm.FailureCaseORM.created_at.desc())
         )
+        return self._all(statement)
+
+
+class LLMRawOutputRepository(Repository[LLMRawOutput, orm.LLMRawOutputORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.LLMRawOutputORM,
+            mappers.llm_raw_output_to_orm,
+            mappers.llm_raw_output_from_orm,
+        )
+
+    def list_by_operation(self, operation: str, *, limit: int | None = None) -> list[LLMRawOutput]:
+        statement = (
+            select(orm.LLMRawOutputORM)
+            .where(orm.LLMRawOutputORM.operation == operation)
+            .order_by(orm.LLMRawOutputORM.created_at.desc())
+        )
+        if limit is not None:
+            statement = statement.limit(limit)
         return self._all(statement)
 
 

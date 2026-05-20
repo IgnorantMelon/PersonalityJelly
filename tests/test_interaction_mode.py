@@ -1,6 +1,10 @@
+import pytest
+from pydantic import ValidationError
+
 from personality_jelly.domain import InteractionMode
 from personality_jelly.llm import ChatMessage, EmbeddingConfig, ModelConfig
 from personality_jelly.runtime import infer_interaction_mode, resolve_interaction_mode
+from personality_jelly.runtime.mode import classify_interaction_mode
 
 
 class ModeClassifierFakeProvider:
@@ -21,6 +25,27 @@ class ModeClassifierFakeProvider:
 
     def embed_texts(self, texts: list[str], embedding_config: EmbeddingConfig) -> list[list[float]]:
         raise NotImplementedError
+
+
+class InvalidModeClassifierFakeProvider(ModeClassifierFakeProvider):
+    def __init__(self) -> None:
+        super().__init__(InteractionMode.REALITY_CHAT)
+
+    def generate_json(self, messages, schema, model_config):
+        return {
+            "mode": "not_a_mode",
+            "confidence": 0.93,
+            "reasoning": "invalid structured output for validation tracing.",
+        }
+
+
+class CollectingTraceRecorder:
+    def __init__(self) -> None:
+        self.records = []
+
+    def record(self, **kwargs):
+        self.records.append(kwargs)
+        return kwargs
 
 
 def test_infer_interaction_mode_uses_structured_classifier_result() -> None:
@@ -54,3 +79,23 @@ def test_resolve_interaction_mode_prefers_explicit_override() -> None:
         )
         == InteractionMode.REALITY_CHAT
     )
+
+
+def test_classify_interaction_mode_traces_validation_errors() -> None:
+    recorder = CollectingTraceRecorder()
+
+    with pytest.raises(ValidationError):
+        classify_interaction_mode(
+            "模型返回不符合 schema 的结构时应记录错误。",
+            provider=InvalidModeClassifierFakeProvider(),
+            model_config=ModelConfig(model="fake-mode"),
+            trace_recorder=recorder,
+        )
+
+    assert len(recorder.records) == 1
+    trace = recorder.records[0]
+    assert trace["operation"] == "runtime.mode.classify_interaction_mode"
+    assert trace["schema_name"] == "InteractionModeClassification"
+    assert trace["parsed_output"] is None
+    assert trace["validation_errors"]
+    assert '"mode": "not_a_mode"' in trace["raw_output"]

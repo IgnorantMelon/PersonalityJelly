@@ -230,6 +230,24 @@ class FailureCaseORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class LLMRawOutputORM(Base):
+    __tablename__ = "llm_raw_outputs"
+    __table_args__ = (
+        Index("ix_llm_raw_outputs_operation_created", "operation", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    operation: Mapped[str] = mapped_column(String(128), nullable=False)
+    schema_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    model_name: Mapped[str | None] = mapped_column(String(128))
+    provider_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    raw_output: Mapped[str] = mapped_column(Text, nullable=False)
+    response_schema: Mapped[dict] = mapped_column(SAJSON, nullable=False, default=dict)
+    parsed_output: Mapped[dict | None] = mapped_column(SAJSON)
+    validation_errors: Mapped[list[str]] = mapped_column(SAJSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class EvaluationRunORM(Base):
     __tablename__ = "evaluation_runs"
     __table_args__ = (

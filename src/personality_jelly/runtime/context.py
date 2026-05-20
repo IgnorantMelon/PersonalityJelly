@@ -12,6 +12,7 @@ from personality_jelly.domain import (
     MemoryStatus,
 )
 from personality_jelly.llm import EmbeddingConfig, LLMProvider, ModelConfig
+from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder
 from personality_jelly.retrieval import retrieve_source_chunks
 from personality_jelly.runtime.mode import resolve_interaction_mode
 from personality_jelly.storage import (
@@ -19,6 +20,7 @@ from personality_jelly.storage import (
     CharacterRepository,
     ContextPackageRepository,
     ConversationRepository,
+    LLMRawOutputRepository,
     MemoryRepository,
     PersonaVersionRepository,
 )
@@ -47,6 +49,7 @@ def build_context_package(
         current_mode=conversation.current_mode,
         provider=mode_provider,
         model_config=mode_model_config,
+        trace_recorder=RepositoryLLMTraceRecorder(LLMRawOutputRepository(session)),
     )
     persona = PersonaVersionRepository(session).require(conversation.persona_version_id)
     character = CharacterRepository(session).require(conversation.character_id)

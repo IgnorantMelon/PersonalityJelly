@@ -99,7 +99,7 @@ Implemented:
 
 - SQLite + SQLAlchemy repositories for source works, chunks, characters, canon claims, evidence,
   persona versions, conversations, messages, memories, context packages, critic reports, failure
-  cases, and evaluation runs.
+  cases, LLM raw outputs, and evaluation runs.
 - TXT/Markdown ingestion with chapter/paragraph chunking and stable chunk IDs.
 - Character creation, Reader extraction, Verifier canon validation, evidence references, and
   conflict recording.
@@ -118,8 +118,11 @@ Implemented:
   not mechanically derived from critic actions.
 - Critic `suggested_action` is a domain enum with `accept`, `retry`, and `log` as the only valid
   workflow actions.
+- Structured semantic operations now persist tracing records for the interaction-mode classifier,
+  memory guard, and benchmark evaluator, including operation, schema, provider, model, raw output,
+  parsed output, and validation errors.
 - CLI coverage for demo, turn, list, show, eval, archive, edit, and summarize.
-- Full test suite currently passes: `72 passed`.
+- Full test suite currently passes: `74 passed`.
 
 ## Next development tasks
 
@@ -127,13 +130,12 @@ P0:
 
 - Add database migrations. `create_all` is acceptable for the MVP loop, but schema evolution needs
   Alembic or an equivalent migration path before persistent data matters.
-- Add tracing for structured semantic operations: mode classifier, memory guard, benchmark
-  evaluator, and future retrieval evaluators should record operation, schema, provider, model,
-  parsed output, raw output, and validation errors.
 
 P1:
 
 - Persist source chunk embeddings and avoid re-embedding every retrieval call.
+- Extend semantic tracing to future retrieval evaluators and expose trace inspection through CLI
+  diagnostics.
 - Add retrieval-quality benchmarks for recall, ranking, and empty-result fallback without using
   fixed word matching as the quality signal.
 - Expand the benchmark library for OOC, canon pollution, memory pollution, mode confusion, and

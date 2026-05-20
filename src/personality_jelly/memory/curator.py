@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from personality_jelly.core import EntityKind, generate_id
 from personality_jelly.domain import Memory, MessageRole
 from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
+from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder
 from personality_jelly.memory.guard import guard_memory_candidates
 from personality_jelly.memory.prompts import CURATOR_SYSTEM_PROMPT, build_curator_user_prompt
 from personality_jelly.memory.schemas import MemoryCuration
@@ -15,6 +16,7 @@ from personality_jelly.storage import (
     ConversationRepository,
     ContextPackageRepository,
     CriticReportRepository,
+    LLMRawOutputRepository,
     MemoryRepository,
     MessageRepository,
 )
@@ -82,6 +84,7 @@ def curate_memories_for_message(
         critic_report=critic_report,
         provider=guard_provider or provider,
         model_config=guard_model_config or model_config,
+        trace_recorder=RepositoryLLMTraceRecorder(LLMRawOutputRepository(session)),
     )
 
     memories = [
