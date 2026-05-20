@@ -54,6 +54,13 @@ Find and inspect persisted conversations:
 .\.venv\Scripts\pjelly.exe show critic-report cr_...
 ```
 
+Inspect character profile assets and canon claims:
+
+```powershell
+.\.venv\Scripts\pjelly.exe show character char_...
+.\.venv\Scripts\pjelly.exe list claims --character-id char_... --status verified
+```
+
 Summarize a conversation into its stored context summary:
 
 ```powershell
