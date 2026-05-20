@@ -92,6 +92,23 @@ class CompilerFakeProvider:
         raise NotImplementedError
 
 
+class ModeClassifierFakeProvider:
+    name = "mode-classifier-fake"
+
+    def generate_text(self, messages: list[ChatMessage], model_config: ModelConfig) -> str:
+        raise NotImplementedError
+
+    def generate_json(self, messages, schema, model_config):
+        return {
+            "mode": "roleplay_scene",
+            "confidence": 0.92,
+            "reasoning": "fake provider classified the requested mode.",
+        }
+
+    def embed_texts(self, texts: list[str], embedding_config: EmbeddingConfig) -> list[list[float]]:
+        raise NotImplementedError
+
+
 def test_build_context_package_persists_prompt_with_persona_claims_and_memory(tmp_path) -> None:
     source_file = tmp_path / "sample.md"
     source_file.write_text(
@@ -216,6 +233,8 @@ def test_build_context_package_infers_interaction_mode(tmp_path) -> None:
             session,
             conversation_id=conversation.id,
             user_message="假设我们现在进入你的原作场景，你会怎么行动？",
+            mode_provider=ModeClassifierFakeProvider(),
+            mode_model_config=ModelConfig(model="fake-mode"),
         ).context_package
         session.commit()
 

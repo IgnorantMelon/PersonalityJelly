@@ -1,54 +1,73 @@
 from __future__ import annotations
 
-from personality_jelly.domain import InteractionMode
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+
+from personality_jelly.domain import InteractionMode, MessageRole
+from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
 
 
-ROLEPLAY_MARKERS = (
-    "进入",
-    "场景",
-    "原作场景",
-    "剧情",
-    "扮演",
-    "你会怎么行动",
-    "设定我们在",
-    "假设我们现在",
-)
+MODE_CLASSIFIER_SYSTEM_PROMPT = """Classify the user's requested interaction mode.
 
-CO_CREATION_MARKERS = (
-    "共同创作",
-    "一起创作",
-    "一起写",
-    "共创",
-    "新剧情",
-    "续写",
-    "改写一段",
-    "设计一个情节",
-)
+Choose exactly one mode:
+- reality_chat: ordinary conversation with the character in the user's real context.
+- roleplay_scene: acting inside a fictional scene or in-world situation.
+- co_creation: collaboratively writing, designing, or revising story content.
+- meta_discussion: discussing prompts, settings, model behavior, OOC issues, or system design.
 
-META_MARKERS = (
-    "作者",
-    "设定",
-    "人设",
-    "系统",
-    "提示词",
-    "prompt",
-    "ai",
-    "模型",
-    "ooc",
-)
+Do not classify by fixed trigger words. Use the user's intent in context.
+"""
 
 
-def infer_interaction_mode(user_message: str) -> InteractionMode:
-    normalized = user_message.strip().lower()
-    if not normalized:
-        return InteractionMode.REALITY_CHAT
-    if _contains_any(normalized, CO_CREATION_MARKERS):
-        return InteractionMode.CO_CREATION
-    if _contains_any(normalized, ROLEPLAY_MARKERS):
-        return InteractionMode.ROLEPLAY_SCENE
-    if _contains_any(normalized, META_MARKERS):
-        return InteractionMode.META_DISCUSSION
-    return InteractionMode.REALITY_CHAT
+class InteractionModeClassification(BaseModel):
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+
+    mode: InteractionMode
+    confidence: float = Field(ge=0.0, le=1.0)
+    reasoning: str
+
+
+def infer_interaction_mode(
+    user_message: str,
+    *,
+    provider: LLMProvider,
+    model_config: ModelConfig,
+    current_mode: InteractionMode = InteractionMode.REALITY_CHAT,
+) -> InteractionMode:
+    classification = classify_interaction_mode(
+        user_message,
+        provider=provider,
+        model_config=model_config,
+        current_mode=current_mode,
+    )
+    return InteractionMode(classification.mode)
+
+
+def classify_interaction_mode(
+    user_message: str,
+    *,
+    provider: LLMProvider,
+    model_config: ModelConfig,
+    current_mode: InteractionMode = InteractionMode.REALITY_CHAT,
+) -> InteractionModeClassification:
+    raw = provider.generate_json(
+        messages=[
+            ChatMessage(role=MessageRole.SYSTEM, content=MODE_CLASSIFIER_SYSTEM_PROMPT),
+            ChatMessage(
+                role=MessageRole.USER,
+                content="\n".join(
+                    [
+                        f"current_mode: {current_mode}",
+                        "",
+                        "user_message:",
+                        user_message,
+                    ]
+                ),
+            ),
+        ],
+        schema=InteractionModeClassification.model_json_schema(),
+        model_config=model_config,
+    )
+    return TypeAdapter(InteractionModeClassification).validate_python(raw)
 
 
 def resolve_interaction_mode(
@@ -56,9 +75,16 @@ def resolve_interaction_mode(
     *,
     explicit_mode: InteractionMode | None,
     current_mode: InteractionMode,
+    provider: LLMProvider | None = None,
+    model_config: ModelConfig | None = None,
 ) -> InteractionMode:
-    return explicit_mode or infer_interaction_mode(user_message) or current_mode
-
-
-def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
-    return any(marker in text for marker in markers)
+    if explicit_mode is not None:
+        return explicit_mode
+    if provider is None or model_config is None:
+        return current_mode
+    return infer_interaction_mode(
+        user_message,
+        provider=provider,
+        model_config=model_config,
+        current_mode=current_mode,
+    )

@@ -32,6 +32,8 @@ def curate_memories_for_message(
     model_config: ModelConfig,
     message_id: str,
     critic_report_id: str | None = None,
+    guard_provider: LLMProvider | None = None,
+    guard_model_config: ModelConfig | None = None,
 ) -> MemoryCurationResult:
     message_repository = MessageRepository(session)
     assistant_message = message_repository.require(message_id)
@@ -76,7 +78,10 @@ def curate_memories_for_message(
         curation.memories,
         user_message=user_message,
         assistant_message=assistant_message,
+        interaction_mode=context_package.interaction_mode,
         critic_report=critic_report,
+        provider=guard_provider or provider,
+        model_config=guard_model_config or model_config,
     )
 
     memories = [

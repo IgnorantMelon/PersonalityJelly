@@ -22,7 +22,7 @@ from personality_jelly.domain import (
 from personality_jelly.extraction import run_reader_extraction, verify_candidate_claims
 from personality_jelly.evaluation import run_ooc_benchmark
 from personality_jelly.ingestion import SourceIngestionResult, ingest_text_file
-from personality_jelly.llm import LLMProvider, ModelConfig, build_llm_provider
+from personality_jelly.llm import EmbeddingConfig, LLMProvider, ModelConfig, build_llm_provider
 from personality_jelly.runtime import (
     RoleplayTurnModelConfigs,
     RoleplayTurnProviders,
@@ -464,11 +464,15 @@ def _run_demo(args: argparse.Namespace) -> int:
                 roleplay=provider,
                 critic=provider,
                 memory_curator=provider,
+                mode_classifier=provider,
+                retriever=provider if _resolve_embedding_config(settings) is not None else None,
             ),
             model_configs=RoleplayTurnModelConfigs(
                 roleplay=model_config,
                 critic=model_config,
                 memory_curator=model_config,
+                mode_classifier=model_config,
+                retrieval_embedding=_resolve_embedding_config(settings),
             ),
             interaction_mode=(
                 InteractionMode(args.interaction_mode)
@@ -528,11 +532,15 @@ def _run_turn(args: argparse.Namespace) -> int:
                 roleplay=provider,
                 critic=provider,
                 memory_curator=provider,
+                mode_classifier=provider,
+                retriever=provider if _resolve_embedding_config(settings) is not None else None,
             ),
             model_configs=RoleplayTurnModelConfigs(
                 roleplay=model_config,
                 critic=model_config,
                 memory_curator=model_config,
+                mode_classifier=model_config,
+                retrieval_embedding=_resolve_embedding_config(settings),
             ),
             interaction_mode=(
                 InteractionMode(args.interaction_mode)
@@ -1122,6 +1130,13 @@ def _resolve_database_url(args: argparse.Namespace, settings: Settings) -> str:
     if memory_db:
         return "sqlite:///:memory:"
     return args.database_url or settings.database_url
+
+
+def _resolve_embedding_config(settings: Settings) -> EmbeddingConfig | None:
+    embedding_model = settings.embedding_model.strip() if settings.embedding_model else ""
+    if not embedding_model:
+        return None
+    return EmbeddingConfig(model=embedding_model)
 
 
 def _resolve_demo_provider(

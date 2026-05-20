@@ -138,6 +138,16 @@ class CuratorFakeProvider:
 
     def generate_json(self, messages, schema, model_config):
         self.prompt = messages[1].content
+        if schema.get("title") == "MemoryGuardDecision":
+            return {
+                "decision": "accept",
+                "source_grounding": "fake guard accepts the memory as grounded.",
+                "stability": "fake guard accepts it as durable.",
+                "scope_fit": "fake guard accepts the requested scope.",
+                "canon_pollution_risk": "low",
+                "roleplay_contamination_risk": "low",
+                "reasoning": "fake guard accepts this memory candidate.",
+            }
         return {
             "memories": [
                 {
