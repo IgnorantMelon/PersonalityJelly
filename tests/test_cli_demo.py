@@ -568,6 +568,64 @@ def test_cli_shows_context_package_and_critic_report(
     assert "reasons<<END" in critic_output
 
 
+def test_cli_shows_character_profile_and_lists_claims(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "林霜",
+            "--alias",
+            "阿霜",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+    persona_version_id = _output_value(demo_output, "persona_version_id")
+
+    show_exit_code = main(["show", "character", character_id])
+    show_output = capsys.readouterr().out
+
+    list_exit_code = main(
+        [
+            "list",
+            "claims",
+            "--character-id",
+            character_id,
+            "--status",
+            "verified",
+        ]
+    )
+    list_output = capsys.readouterr().out
+
+    assert demo_exit_code == 0
+    assert show_exit_code == 0
+    assert f"character_id={character_id}" in show_output
+    assert "canonical_name=林霜" in show_output
+    assert "aliases=阿霜" in show_output
+    assert f"latest_persona_version_id={persona_version_id}" in show_output
+    assert "claim_status.verified=1" in show_output
+    assert "claim_type.personality=1" in show_output
+    assert "evidence_count=1" in show_output
+    assert "core_self<<END" in show_output
+    assert list_exit_code == 0
+    assert f"character_id={character_id}" in list_output
+    assert "claim_count=1" in list_output
+    assert "claim.1.status=verified" in list_output
+    assert "claim.1.type=personality" in list_output
+    assert "claim.1.evidence_count=1" in list_output
+
+
 def test_cli_show_conversation_reports_missing_conversation(tmp_path: Path, capsys) -> None:
     database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
 

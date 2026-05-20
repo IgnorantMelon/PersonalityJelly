@@ -9,6 +9,8 @@ from personality_jelly.characters import create_character
 from personality_jelly.core import Settings
 from personality_jelly.domain import (
     Character,
+    ClaimStatus,
+    ClaimType,
     Conversation,
     InteractionMode,
     MemoryScope,
@@ -33,9 +35,11 @@ from personality_jelly.persona import compile_persona_version
 from personality_jelly.storage import create_all, create_database_engine, create_session_factory
 from personality_jelly.storage.repositories import (
     CharacterRepository,
+    CanonClaimRepository,
     ConversationRepository,
     ContextPackageRepository,
     CriticReportRepository,
+    EvidenceRefRepository,
     MemoryRepository,
     MessageRepository,
     PersonaVersionRepository,
@@ -185,6 +189,28 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
     )
+    list_claims = list_subparsers.add_parser(
+        "claims",
+        help="List canon claims for a character.",
+    )
+    list_claims.add_argument("--character-id", required=True, help="Character id.")
+    list_claims.add_argument(
+        "--status",
+        choices=[status.value for status in ClaimStatus],
+        default=None,
+        help="Optional claim status filter.",
+    )
+    list_claims.add_argument(
+        "--claim-type",
+        choices=[claim_type.value for claim_type in ClaimType],
+        default=None,
+        help="Optional claim type filter.",
+    )
+    list_claims.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
 
     archive_parser = subparsers.add_parser("archive", help="Archive persisted resources.")
     archive_subparsers = archive_parser.add_subparsers(dest="resource")
@@ -274,6 +300,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     show_critic.add_argument("critic_report_id", help="Critic report id.")
     show_critic.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_character = show_subparsers.add_parser(
+        "character",
+        help="Show a character profile summary.",
+    )
+    show_character.add_argument("character_id", help="Character id.")
+    show_character.add_argument(
         "--database-url",
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
@@ -426,6 +462,8 @@ def _run_list(args: argparse.Namespace) -> int:
         return _run_list_conversations(args)
     if args.resource == "memories":
         return _run_list_memories(args)
+    if args.resource == "claims":
+        return _run_list_claims(args)
     raise CliError("list resource is required")
 
 
@@ -454,6 +492,8 @@ def _run_show(args: argparse.Namespace) -> int:
         return _run_show_context_package(args)
     if args.resource == "critic-report":
         return _run_show_critic_report(args)
+    if args.resource == "character":
+        return _run_show_character(args)
     raise CliError("show resource is required")
 
 
@@ -519,6 +559,43 @@ def _run_list_memories(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_list_claims(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+    status = ClaimStatus(args.status) if args.status is not None else None
+    claim_type = ClaimType(args.claim_type) if args.claim_type is not None else None
+
+    with session_factory() as session:
+        try:
+            CharacterRepository(session).require(args.character_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+
+        claims = CanonClaimRepository(session).list_by_character(
+            args.character_id,
+            status=status,
+            claim_type=claim_type,
+        )
+        evidence_repository = EvidenceRefRepository(session)
+
+        print(f"database_url={database_url}")
+        print(f"character_id={args.character_id}")
+        print(f"claim_count={len(claims)}")
+        for index, claim in enumerate(claims, start=1):
+            evidence_refs = evidence_repository.list_by_claim(claim.id)
+            print(f"claim.{index}.id={claim.id}")
+            print(f"claim.{index}.type={claim.claim_type}")
+            print(f"claim.{index}.status={claim.status}")
+            print(f"claim.{index}.confidence={claim.confidence}")
+            print(f"claim.{index}.evidence_count={len(evidence_refs)}")
+            print(f"claim.{index}.content={claim.content}")
+            print(f"claim.{index}.reasoning={claim.reasoning or ''}")
+    return 0
+
+
 def _run_show_conversation(args: argparse.Namespace) -> int:
     if args.messages < 0:
         raise CliError("--messages must be 0 or greater")
@@ -551,6 +628,51 @@ def _run_show_conversation(args: argparse.Namespace) -> int:
             print(f"message.{index}.id={message.id}")
             print(f"message.{index}.role={message.role}")
             print(f"message.{index}.content={message.content}")
+    return 0
+
+
+def _run_show_character(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            character = CharacterRepository(session).require(args.character_id)
+            source_work = SourceWorkRepository(session).require(character.source_work_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+
+        persona = PersonaVersionRepository(session).latest_for_character(character.id)
+        claims = CanonClaimRepository(session).list_by_character(character.id)
+        evidence_repository = EvidenceRefRepository(session)
+        status_counts = _claim_status_counts(claims)
+        type_counts = _claim_type_counts(claims)
+        evidence_count = sum(
+            len(evidence_repository.list_by_claim(claim.id))
+            for claim in claims
+        )
+
+        print(f"database_url={database_url}")
+        print(f"character_id={character.id}")
+        print(f"canonical_name={character.canonical_name}")
+        print(f"aliases={','.join(character.aliases)}")
+        print(f"source_work_id={source_work.id}")
+        print(f"source_work_title={source_work.title}")
+        print(f"latest_persona_version_id={persona.id if persona else 'none'}")
+        print(f"latest_persona_version_number={persona.version_number if persona else 'none'}")
+        print(f"claim_count={len(claims)}")
+        for status in ClaimStatus:
+            print(f"claim_status.{status.value}={status_counts[status.value]}")
+        for claim_type in ClaimType:
+            print(f"claim_type.{claim_type.value}={type_counts[claim_type.value]}")
+        print(f"evidence_count={evidence_count}")
+        if persona is not None:
+            print("core_self<<END")
+            print(persona.core_self)
+            print("END")
     return 0
 
 
@@ -856,6 +978,20 @@ def _resolve_demo_conversation(
         character_id=character_id,
         persona_version_id=persona_version_id,
     ).conversation
+
+
+def _claim_status_counts(claims) -> dict[str, int]:
+    counts = {status.value: 0 for status in ClaimStatus}
+    for claim in claims:
+        counts[str(claim.status)] += 1
+    return counts
+
+
+def _claim_type_counts(claims) -> dict[str, int]:
+    counts = {claim_type.value: 0 for claim_type in ClaimType}
+    for claim in claims:
+        counts[str(claim.claim_type)] += 1
+    return counts
 
 
 if __name__ == "__main__":
