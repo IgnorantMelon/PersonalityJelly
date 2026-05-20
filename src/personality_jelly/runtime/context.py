@@ -11,9 +11,11 @@ from personality_jelly.domain import (
     InteractionMode,
     MemoryStatus,
 )
+from personality_jelly.retrieval import retrieve_source_chunks
 from personality_jelly.runtime.mode import resolve_interaction_mode
 from personality_jelly.storage import (
     CanonClaimRepository,
+    CharacterRepository,
     ContextPackageRepository,
     ConversationRepository,
     MemoryRepository,
@@ -40,6 +42,7 @@ def build_context_package(
         current_mode=conversation.current_mode,
     )
     persona = PersonaVersionRepository(session).require(conversation.persona_version_id)
+    character = CharacterRepository(session).require(conversation.character_id)
     claims = CanonClaimRepository(session).list_by_character(
         conversation.character_id,
         status=ClaimStatus.VERIFIED,
@@ -49,6 +52,12 @@ def build_context_package(
         conversation.character_id,
         status=MemoryStatus.ACCEPTED,
     )
+    retrieval = retrieve_source_chunks(
+        session,
+        source_work_id=character.source_work_id,
+        character=character,
+        query=user_message,
+    )
 
     context_package = ContextPackage(
         id=generate_id(EntityKind.CONTEXT_PACKAGE),
@@ -57,7 +66,7 @@ def build_context_package(
         persona_version_id=persona.id,
         claim_ids=[claim.id for claim in claims],
         memory_ids=[memory.id for memory in memories],
-        retrieved_chunk_ids=[],
+        retrieved_chunk_ids=[chunk.id for chunk in retrieval.chunks],
         assembled_prompt=_assemble_prompt(
             user_message=user_message,
             interaction_mode=mode,
@@ -68,6 +77,10 @@ def build_context_package(
             forbidden_rules=persona.forbidden_rules,
             claim_contents=[claim.content for claim in claims],
             memory_contents=[memory.content for memory in memories],
+            retrieved_chunks=[
+                _format_retrieved_chunk(chunk)
+                for chunk in retrieval.chunks
+            ],
             conversation_summary=conversation.summary,
         ),
     )
@@ -86,6 +99,7 @@ def _assemble_prompt(
     forbidden_rules: list[str],
     claim_contents: list[str],
     memory_contents: list[str],
+    retrieved_chunks: list[str],
     conversation_summary: str | None,
 ) -> str:
     sections = [
@@ -117,6 +131,9 @@ def _assemble_prompt(
         "# Accepted User/Relationship Memories",
         _format_items(memory_contents),
         "",
+        "# Retrieved Source Chunks",
+        _format_items(retrieved_chunks),
+        "",
         "# Conversation Summary",
         conversation_summary or "none",
         "",
@@ -128,4 +145,9 @@ def _assemble_prompt(
 
 def _format_items(items: list[str]) -> str:
     return "\n".join(f"- {item}" for item in items) if items else "- none"
+
+
+def _format_retrieved_chunk(chunk) -> str:
+    location = f"chapter={chunk.chapter_index}, paragraph={chunk.paragraph_index}"
+    return f"{chunk.id} ({location}): {chunk.text}"
 
