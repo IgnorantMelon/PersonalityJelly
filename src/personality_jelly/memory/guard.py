@@ -2,57 +2,44 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from personality_jelly.domain import CriticReport, MemoryStatus, Message
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+
+from personality_jelly.domain import CriticReport, InteractionMode, MemoryStatus, Message, MessageRole
+from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
 from personality_jelly.memory.schemas import MemoryCandidate
+
+
+MEMORY_GUARD_SYSTEM_PROMPT = """Evaluate whether a proposed long-term memory should be saved.
+
+Judge semantically. Do not use fixed trigger words or literal text matching. Consider:
+- source_grounding: whether the memory is grounded in the user's statement or a durable shared event.
+- stability: whether it is durable enough for long-term memory.
+- scope_fit: whether the proposed memory belongs in the requested memory scope.
+- canon_pollution_risk: whether it would rewrite or contaminate original canon/persona.
+- roleplay_contamination_risk: whether temporary scenes, jokes, or co-created fiction are being stored as durable memory.
+
+Return a structured decision. Use reject for unsafe or unsupported memories, candidate for uncertain
+items needing review, and accept only for clearly grounded durable memories.
+"""
 
 
 @dataclass(frozen=True)
 class GuardedMemoryCandidate:
     candidate: MemoryCandidate
     rejection_reasons: list[str]
+    decision: str
 
 
-CANON_POLLUTION_TERMS = (
-    "canon",
-    "original canon",
-    "source canon",
-    "原作",
-    "正史",
-    "设定",
-    "真实过去",
-    "真实经历",
-    "核心人格",
-)
+class MemoryGuardDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-UNSAFE_ACTION_TERMS = (
-    "rewrite",
-    "override",
-    "replace",
-    "alter",
-    "change",
-    "改写",
-    "覆盖",
-    "替换",
-    "更改",
-    "改变",
-    "当成",
-    "记为",
-    "写入",
-)
-
-EPHEMERAL_TERMS = (
-    "joke",
-    "just kidding",
-    "pretend",
-    "temporary",
-    "one-off",
-    "玩笑",
-    "开玩笑",
-    "假装",
-    "临时",
-    "刚才",
-    "随口",
-)
+    decision: str = Field(pattern="^(accept|candidate|reject)$")
+    source_grounding: str
+    stability: str
+    scope_fit: str
+    canon_pollution_risk: str
+    roleplay_contamination_risk: str
+    reasoning: str
 
 
 def guard_memory_candidate(
@@ -60,27 +47,61 @@ def guard_memory_candidate(
     *,
     user_message: Message,
     assistant_message: Message,
+    interaction_mode: InteractionMode,
     critic_report: CriticReport | None,
+    provider: LLMProvider | None,
+    model_config: ModelConfig | None,
 ) -> GuardedMemoryCandidate:
-    reasons = _rejection_reasons(
+    if candidate.status == MemoryStatus.REJECTED:
+        return GuardedMemoryCandidate(
+            candidate=candidate,
+            rejection_reasons=[],
+            decision="reject",
+        )
+
+    if critic_report is not None and critic_report.memory_risk == "high":
+        return _apply_guard_decision(
+            candidate,
+            decision="reject",
+            reason="deterministic policy: critic reported high memory risk",
+        )
+
+    if provider is None or model_config is None:
+        updated = candidate.model_copy(
+            update={
+                "status": MemoryStatus.CANDIDATE,
+                "reason": _append_guard_reason(
+                    candidate.reason,
+                    "semantic guard unavailable; queued for review",
+                ),
+            }
+        )
+        return GuardedMemoryCandidate(candidate=updated, rejection_reasons=[], decision="candidate")
+
+    decision = _semantic_guard_decision(
         candidate,
         user_message=user_message,
         assistant_message=assistant_message,
+        interaction_mode=interaction_mode,
         critic_report=critic_report,
+        provider=provider,
+        model_config=model_config,
     )
-    if not reasons:
-        return GuardedMemoryCandidate(candidate=candidate, rejection_reasons=[])
-
-    return GuardedMemoryCandidate(
-        candidate=candidate.model_copy(
+    if decision.decision == "accept":
+        return GuardedMemoryCandidate(candidate=candidate, rejection_reasons=[], decision="accept")
+    if decision.decision == "candidate":
+        updated = candidate.model_copy(
             update={
-                "status": MemoryStatus.REJECTED,
-                "importance": min(candidate.importance, 0.2),
-                "reason": _append_guard_reason(candidate.reason, reasons),
+                "status": MemoryStatus.CANDIDATE,
+                "reason": _append_guard_reason(candidate.reason, decision.reasoning),
             }
-        ),
-        rejection_reasons=reasons,
-    )
+        )
+        return GuardedMemoryCandidate(
+            candidate=updated,
+            rejection_reasons=[],
+            decision="candidate",
+        )
+    return _apply_guard_decision(candidate, decision="reject", reason=decision.reasoning)
 
 
 def guard_memory_candidates(
@@ -88,62 +109,117 @@ def guard_memory_candidates(
     *,
     user_message: Message,
     assistant_message: Message,
+    interaction_mode: InteractionMode,
     critic_report: CriticReport | None,
+    provider: LLMProvider | None,
+    model_config: ModelConfig | None,
 ) -> list[GuardedMemoryCandidate]:
     return [
         guard_memory_candidate(
             candidate,
             user_message=user_message,
             assistant_message=assistant_message,
+            interaction_mode=interaction_mode,
             critic_report=critic_report,
+            provider=provider,
+            model_config=model_config,
         )
         for candidate in candidates
     ]
 
 
-def _rejection_reasons(
+def _semantic_guard_decision(
     candidate: MemoryCandidate,
     *,
     user_message: Message,
     assistant_message: Message,
+    interaction_mode: InteractionMode,
     critic_report: CriticReport | None,
-) -> list[str]:
-    if candidate.status == MemoryStatus.REJECTED:
-        return []
+    provider: LLMProvider,
+    model_config: ModelConfig,
+) -> MemoryGuardDecision:
+    raw = provider.generate_json(
+        messages=[
+            ChatMessage(role=MessageRole.SYSTEM, content=MEMORY_GUARD_SYSTEM_PROMPT),
+            ChatMessage(
+                role=MessageRole.USER,
+                content=_build_guard_prompt(
+                    candidate,
+                    user_message=user_message,
+                    assistant_message=assistant_message,
+                    interaction_mode=interaction_mode,
+                    critic_report=critic_report,
+                ),
+            ),
+        ],
+        schema=MemoryGuardDecision.model_json_schema(),
+        model_config=model_config,
+    )
+    return TypeAdapter(MemoryGuardDecision).validate_python(raw)
 
-    context_text = " ".join(
+
+def _build_guard_prompt(
+    candidate: MemoryCandidate,
+    *,
+    user_message: Message,
+    assistant_message: Message,
+    interaction_mode: InteractionMode,
+    critic_report: CriticReport | None,
+) -> str:
+    critic_text = (
+        "\n".join(
+            [
+                f"memory_risk: {critic_report.memory_risk}",
+                f"suggested_action: {critic_report.suggested_action}",
+                "reasons:",
+                *[f"- {reason}" for reason in critic_report.reasons],
+            ]
+        )
+        if critic_report is not None
+        else "none"
+    )
+    return "\n".join(
         [
-            candidate.content,
-            candidate.reason,
+            f"interaction_mode: {interaction_mode}",
+            "",
+            "candidate:",
+            f"scope: {candidate.scope}",
+            f"status: {candidate.status}",
+            f"content: {candidate.content}",
+            f"importance: {candidate.importance}",
+            f"reason: {candidate.reason}",
+            "",
+            "user_message:",
             user_message.content,
+            "",
+            "assistant_message:",
             assistant_message.content,
-            " ".join(critic_report.reasons if critic_report is not None else []),
+            "",
+            "critic_report:",
+            critic_text,
         ]
     )
-    normalized = context_text.casefold()
-    reasons: list[str] = []
-
-    if _contains_any(normalized, CANON_POLLUTION_TERMS) and _contains_any(
-        normalized,
-        UNSAFE_ACTION_TERMS,
-    ):
-        reasons.append("deterministic guard: possible canon rewrite or canon pollution")
-
-    if _contains_any(normalized, EPHEMERAL_TERMS) and _contains_any(
-        normalized,
-        UNSAFE_ACTION_TERMS,
-    ):
-        reasons.append("deterministic guard: temporary joke or roleplay should not be saved")
-
-    if critic_report is not None and critic_report.memory_risk == "high":
-        reasons.append("deterministic guard: critic reported high memory risk")
-
-    return reasons
 
 
-def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
-    return any(term.casefold() in text for term in terms)
+def _apply_guard_decision(
+    candidate: MemoryCandidate,
+    *,
+    decision: str,
+    reason: str,
+) -> GuardedMemoryCandidate:
+    updated = candidate.model_copy(
+        update={
+            "status": MemoryStatus.REJECTED,
+            "importance": min(candidate.importance, 0.2),
+            "reason": _append_guard_reason(candidate.reason, reason),
+        }
+    )
+    return GuardedMemoryCandidate(
+        candidate=updated,
+        rejection_reasons=[reason],
+        decision=decision,
+    )
 
 
-def _append_guard_reason(reason: str, rejection_reasons: list[str]) -> str:
-    return f"{reason} Guard rejected: {'; '.join(rejection_reasons)}"
+def _append_guard_reason(reason: str, guard_reason: str) -> str:
+    return f"{reason} Guard decision: {guard_reason}"

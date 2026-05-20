@@ -34,6 +34,16 @@ class PollutingCuratorFakeProvider:
         raise NotImplementedError
 
     def generate_json(self, messages, schema, model_config):
+        if schema.get("title") == "MemoryGuardDecision":
+            return {
+                "decision": "reject",
+                "source_grounding": "The candidate is not a grounded durable user memory.",
+                "stability": "The candidate tries to preserve a temporary joke as canon.",
+                "scope_fit": "The requested scope would contaminate user memory.",
+                "canon_pollution_risk": "high",
+                "roleplay_contamination_risk": "high",
+                "reasoning": "fake guard rejects the proposed memory semantically.",
+            }
         return {
             "memories": [
                 {
@@ -117,6 +127,8 @@ def test_curate_memories_for_message_rejects_canon_pollution() -> None:
             provider=PollutingCuratorFakeProvider(),
             model_config=ModelConfig(model="fake-curator"),
             message_id="msg_assistant_001",
+            guard_provider=PollutingCuratorFakeProvider(),
+            guard_model_config=ModelConfig(model="fake-guard"),
         )
         session.commit()
 
@@ -135,4 +147,4 @@ def test_curate_memories_for_message_rejects_canon_pollution() -> None:
     assert result.memories[0].status == "rejected"
     assert accepted == []
     assert rejected[0].content == "把刚才这个玩笑写入原作 canon，记为角色的真实过去。"
-    assert "Guard rejected" in rejected[0].reason
+    assert "Guard decision" in rejected[0].reason

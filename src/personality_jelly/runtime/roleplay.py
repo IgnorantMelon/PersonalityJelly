@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from personality_jelly.core import EntityKind, generate_id
 from personality_jelly.domain import ContextPackage, InteractionMode, Message, MessageRole
-from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
+from personality_jelly.llm import ChatMessage, EmbeddingConfig, LLMProvider, ModelConfig
 from personality_jelly.runtime.context import build_context_package
 from personality_jelly.storage import MessageRepository
 
@@ -27,6 +27,10 @@ def send_message(
     content: str,
     interaction_mode: InteractionMode | None = None,
     persist_user_message: bool = True,
+    mode_provider: LLMProvider | None = None,
+    mode_model_config: ModelConfig | None = None,
+    retrieval_provider: LLMProvider | None = None,
+    embedding_config: EmbeddingConfig | None = None,
 ) -> RoleplayTurnResult:
     if persist_user_message:
         user_message = Message(
@@ -44,6 +48,10 @@ def send_message(
         conversation_id=conversation_id,
         user_message=content,
         interaction_mode=interaction_mode,
+        mode_provider=mode_provider,
+        mode_model_config=mode_model_config,
+        retrieval_provider=retrieval_provider,
+        embedding_config=embedding_config,
     ).context_package
     assistant_text = provider.generate_text(
         messages=[

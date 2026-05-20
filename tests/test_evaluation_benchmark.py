@@ -100,6 +100,11 @@ class BenchmarkFakeProvider:
         return "我会先观察，再回答。"
 
     def generate_json(self, messages, schema, model_config):
+        if schema.get("title") == "BenchmarkCaseEvaluation":
+            return {
+                "passed": True,
+                "reasons": ["Fake benchmark evaluator accepted the response semantically."],
+            }
         return {
             "ooc_risk": "low",
             "fact_risk": "low",

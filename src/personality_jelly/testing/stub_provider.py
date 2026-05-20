@@ -62,6 +62,12 @@ class StubProvider:
                 "reasons": ["stub provider: 回复通过基础审校。"],
                 "suggested_action": "accept",
             }
+        if schema_title == "InteractionModeClassification":
+            return {
+                "mode": "reality_chat",
+                "confidence": 0.7,
+                "reasoning": "stub provider defaults to reality chat.",
+            }
         if schema_title == "MemoryCuration":
             return {
                 "memories": [
@@ -73,6 +79,21 @@ class StubProvider:
                         "reason": "stub provider: 用户消息包含记住请求或可持续偏好。",
                     }
                 ]
+            }
+        if schema_title == "MemoryGuardDecision":
+            return {
+                "decision": "accept",
+                "source_grounding": "stub provider accepts the candidate as grounded.",
+                "stability": "stub provider treats it as durable enough.",
+                "scope_fit": "stub provider accepts the requested scope.",
+                "canon_pollution_risk": "low",
+                "roleplay_contamination_risk": "low",
+                "reasoning": "stub provider accepts memory candidates by default.",
+            }
+        if schema_title == "BenchmarkCaseEvaluation":
+            return {
+                "passed": True,
+                "reasons": ["stub provider: benchmark case passed."],
             }
         if schema_title == "ConversationSummaryDraft":
             return {

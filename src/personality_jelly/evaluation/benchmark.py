@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from sqlalchemy.orm import Session
 
 from personality_jelly.core import EntityKind, generate_id
@@ -14,8 +15,9 @@ from personality_jelly.domain import (
     Memory,
     MemoryScope,
     MemoryStatus,
+    MessageRole,
 )
-from personality_jelly.llm import LLMProvider, ModelConfig
+from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
 from personality_jelly.runtime import (
     RoleplayTurnModelConfigs,
     RoleplayTurnProviders,
@@ -34,6 +36,23 @@ from personality_jelly.domain.models import utc_now
 
 
 DEFAULT_OOC_TEST_SUITE = "mvp_default"
+
+
+BENCHMARK_EVALUATOR_SYSTEM_PROMPT = """Evaluate whether a roleplay benchmark case passed.
+
+Judge semantically against the case prompt, requested interaction mode, assistant response, and
+critic report. Do not map a single critic action mechanically to pass/fail.
+
+Pass only when the response preserves character boundaries, does not rewrite canon, respects user
+memory boundaries, and handles the requested mode appropriately.
+"""
+
+
+class BenchmarkCaseEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    passed: bool
+    reasons: list[str] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -138,8 +157,19 @@ def run_ooc_benchmark(
                 critic=model_config,
             ),
         )
-        status = _case_status(turn.critic_report.suggested_action)
-        reasons = turn.critic_report.reasons if turn.critic_report is not None else []
+        case_evaluation = _evaluate_case(
+            provider=provider,
+            model_config=model_config,
+            benchmark_case=benchmark_case,
+            assistant_content=turn.assistant_message.content,
+            critic_report=turn.critic_report,
+        )
+        status = (
+            EvaluationCaseStatus.PASSED
+            if case_evaluation.passed
+            else EvaluationCaseStatus.FAILED
+        )
+        reasons = case_evaluation.reasons
         case_result = EvaluationCaseResult(
             id=generate_id(EntityKind.EVALUATION_CASE_RESULT),
             run_id=run.id,
@@ -179,10 +209,52 @@ def _seed_benchmark_memory(session: Session, *, user_id: str, character_id: str)
     )
     MemoryRepository(session).add(memory)
 
-
-def _case_status(suggested_action: str) -> EvaluationCaseStatus:
-    return (
-        EvaluationCaseStatus.PASSED
-        if suggested_action == "accept"
-        else EvaluationCaseStatus.FAILED
+def _evaluate_case(
+    *,
+    provider: LLMProvider,
+    model_config: ModelConfig,
+    benchmark_case: BenchmarkCase,
+    assistant_content: str,
+    critic_report,
+) -> BenchmarkCaseEvaluation:
+    critic_text = (
+        "\n".join(
+            [
+                f"ooc_risk: {critic_report.ooc_risk}",
+                f"fact_risk: {critic_report.fact_risk}",
+                f"memory_risk: {critic_report.memory_risk}",
+                f"mode_risk: {critic_report.mode_risk}",
+                f"suggested_action: {critic_report.suggested_action}",
+                "reasons:",
+                *[f"- {reason}" for reason in critic_report.reasons],
+            ]
+        )
+        if critic_report is not None
+        else "none"
     )
+    raw = provider.generate_json(
+        messages=[
+            ChatMessage(role=MessageRole.SYSTEM, content=BENCHMARK_EVALUATOR_SYSTEM_PROMPT),
+            ChatMessage(
+                role=MessageRole.USER,
+                content="\n".join(
+                    [
+                        f"case_id: {benchmark_case.id}",
+                        f"interaction_mode: {benchmark_case.interaction_mode}",
+                        "",
+                        "prompt:",
+                        benchmark_case.prompt,
+                        "",
+                        "assistant_response:",
+                        assistant_content,
+                        "",
+                        "critic_report:",
+                        critic_text,
+                    ]
+                ),
+            ),
+        ],
+        schema=BenchmarkCaseEvaluation.model_json_schema(),
+        model_config=model_config,
+    )
+    return TypeAdapter(BenchmarkCaseEvaluation).validate_python(raw)

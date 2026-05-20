@@ -11,6 +11,7 @@ from personality_jelly.domain import (
     InteractionMode,
     MemoryStatus,
 )
+from personality_jelly.llm import EmbeddingConfig, LLMProvider, ModelConfig
 from personality_jelly.retrieval import retrieve_source_chunks
 from personality_jelly.runtime.mode import resolve_interaction_mode
 from personality_jelly.storage import (
@@ -34,12 +35,18 @@ def build_context_package(
     conversation_id: str,
     user_message: str,
     interaction_mode: InteractionMode | None = None,
+    mode_provider: LLMProvider | None = None,
+    mode_model_config: ModelConfig | None = None,
+    retrieval_provider: LLMProvider | None = None,
+    embedding_config: EmbeddingConfig | None = None,
 ) -> ContextBuildResult:
     conversation = ConversationRepository(session).require(conversation_id)
     mode = resolve_interaction_mode(
         user_message,
         explicit_mode=interaction_mode,
         current_mode=conversation.current_mode,
+        provider=mode_provider,
+        model_config=mode_model_config,
     )
     persona = PersonaVersionRepository(session).require(conversation.persona_version_id)
     character = CharacterRepository(session).require(conversation.character_id)
@@ -57,6 +64,8 @@ def build_context_package(
         source_work_id=character.source_work_id,
         character=character,
         query=user_message,
+        provider=retrieval_provider,
+        embedding_config=embedding_config,
     )
 
     context_package = ContextPackage(

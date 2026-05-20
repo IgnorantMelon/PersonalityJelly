@@ -14,7 +14,7 @@ from personality_jelly.domain import (
     Memory,
     Message,
 )
-from personality_jelly.llm import LLMProvider, ModelConfig
+from personality_jelly.llm import EmbeddingConfig, LLMProvider, ModelConfig
 from personality_jelly.memory import curate_memories_for_message
 from personality_jelly.runtime.roleplay import send_message
 from personality_jelly.storage import FailureCaseRepository
@@ -25,6 +25,8 @@ class RoleplayTurnProviders:
     roleplay: LLMProvider
     critic: LLMProvider | None = None
     memory_curator: LLMProvider | None = None
+    mode_classifier: LLMProvider | None = None
+    retriever: LLMProvider | None = None
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,8 @@ class RoleplayTurnModelConfigs:
     roleplay: ModelConfig
     critic: ModelConfig | None = None
     memory_curator: ModelConfig | None = None
+    mode_classifier: ModelConfig | None = None
+    retrieval_embedding: EmbeddingConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +68,10 @@ def send_roleplay_turn(
         conversation_id=conversation_id,
         content=content,
         interaction_mode=interaction_mode,
+        mode_provider=providers.mode_classifier,
+        mode_model_config=model_configs.mode_classifier,
+        retrieval_provider=providers.retriever,
+        embedding_config=model_configs.retrieval_embedding,
     )
 
     critic_report = None
@@ -105,6 +113,10 @@ def send_roleplay_turn(
                 content=content,
                 interaction_mode=interaction_mode,
                 persist_user_message=False,
+                mode_provider=providers.mode_classifier,
+                mode_model_config=model_configs.mode_classifier,
+                retrieval_provider=providers.retriever,
+                embedding_config=model_configs.retrieval_embedding,
             )
             critic_report = None
             if providers.critic is not None:
@@ -167,6 +179,8 @@ def send_roleplay_turn(
             model_config=model_configs.memory_curator,
             message_id=turn.assistant_message.id,
             critic_report_id=critic_report.id if critic_report is not None else None,
+            guard_provider=providers.memory_curator,
+            guard_model_config=model_configs.memory_curator,
         ).memories
 
     return RoleplayTurnOrchestrationResult(
