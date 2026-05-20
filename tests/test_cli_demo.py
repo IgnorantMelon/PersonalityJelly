@@ -11,6 +11,7 @@ from personality_jelly.storage import (
     create_all,
     create_database_engine,
     create_session_factory,
+    get_migration_status,
 )
 from personality_jelly.testing.stub_provider import StubProvider
 
@@ -223,6 +224,29 @@ def test_cli_demo_rejects_memory_db_with_database_url(tmp_path: Path, capsys) ->
     assert "--memory-db cannot be combined with --database-url" in captured.err
 
 
+def test_cli_db_status_and_migrate_report_schema_versions(tmp_path: Path, capsys) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+
+    status_exit_code = main(["db", "status", "--database-url", database_url])
+    status_output = capsys.readouterr().out
+
+    migrate_exit_code = main(["db", "migrate", "--database-url", database_url])
+    migrate_output = capsys.readouterr().out
+
+    migrated_status_exit_code = main(["db", "status", "--database-url", database_url])
+    migrated_status_output = capsys.readouterr().out
+
+    assert status_exit_code == 0
+    assert "current_version=none" in status_output
+    assert "pending_count=1" in status_output
+    assert migrate_exit_code == 0
+    assert "applied_count=1" in migrate_output
+    assert "pending_count=0" in migrate_output
+    assert migrated_status_exit_code == 0
+    assert "current_version=0001_initial_schema" in migrated_status_output
+    assert "pending_count=0" in migrated_status_output
+
+
 def test_cli_turn_sends_message_to_existing_conversation(
     tmp_path: Path,
     capsys,
@@ -269,6 +293,35 @@ def test_cli_turn_sends_message_to_existing_conversation(
     assert "retry_count=0" in turn_output
     assert [message.role for message in messages] == ["user", "assistant", "user", "assistant"]
     assert messages[-2].content == "我们继续聊。"
+
+
+def test_cli_demo_auto_migrates_configured_database(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "林霜",
+            "--reuse-existing",
+        ]
+    )
+    capsys.readouterr()
+
+    engine = create_database_engine(database_url)
+    status = get_migration_status(engine)
+
+    assert exit_code == 0
+    assert status.current_version == "0001_initial_schema"
+    assert status.pending == ()
 
 
 def test_cli_turn_accepts_interaction_mode_override(

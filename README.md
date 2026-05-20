@@ -74,6 +74,13 @@ Run the MVP OOC and canon-pollution benchmark against an existing character:
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_...
 ```
 
+Inspect or apply database schema migrations:
+
+```powershell
+.\.venv\Scripts\pjelly.exe db status
+.\.venv\Scripts\pjelly.exe db migrate
+```
+
 Inspect, correct, or archive user memories:
 
 ```powershell
@@ -100,6 +107,8 @@ Implemented:
 - SQLite + SQLAlchemy repositories for source works, chunks, characters, canon claims, evidence,
   persona versions, conversations, messages, memories, context packages, critic reports, failure
   cases, LLM raw outputs, and evaluation runs.
+- Database schema migrations are tracked through `schema_migrations`; CLI database commands
+  auto-apply pending migrations, and `pjelly db status/migrate` exposes explicit migration control.
 - TXT/Markdown ingestion with chapter/paragraph chunking and stable chunk IDs.
 - Character creation, Reader extraction, Verifier canon validation, evidence references, and
   conflict recording.
@@ -122,14 +131,13 @@ Implemented:
   memory guard, and benchmark evaluator, including operation, schema, provider, model, raw output,
   parsed output, and validation errors.
 - CLI coverage for demo, turn, list, show, eval, archive, edit, and summarize.
-- Full test suite currently passes: `74 passed`.
+- Full test suite currently passes: `79 passed`.
 
 ## Next development tasks
 
 P0:
 
-- Add database migrations. `create_all` is acceptable for the MVP loop, but schema evolution needs
-  Alembic or an equivalent migration path before persistent data matters.
+- No open P0 items.
 
 P1:
 
