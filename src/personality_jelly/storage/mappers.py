@@ -10,6 +10,8 @@ from personality_jelly.domain import (
     Conversation,
     CriticReport,
     EvidenceRef,
+    EvaluationCaseResult,
+    EvaluationRun,
     Memory,
     Message,
     PersonaVersion,
@@ -35,6 +37,8 @@ DomainT = TypeVar(
     Memory,
     ContextPackage,
     CriticReport,
+    EvaluationRun,
+    EvaluationCaseResult,
 )
 
 
@@ -140,6 +144,26 @@ def critic_report_to_orm(model: CriticReport) -> orm.CriticReportORM:
 
 def critic_report_from_orm(row: orm.CriticReportORM) -> CriticReport:
     return CriticReport.model_validate(_column_dict(row))
+
+
+def evaluation_run_to_orm(model: EvaluationRun) -> orm.EvaluationRunORM:
+    return orm.EvaluationRunORM(**model.model_dump())
+
+
+def evaluation_run_from_orm(row: orm.EvaluationRunORM) -> EvaluationRun:
+    return EvaluationRun.model_validate(_column_dict(row))
+
+
+def evaluation_case_result_to_orm(
+    model: EvaluationCaseResult,
+) -> orm.EvaluationCaseResultORM:
+    return orm.EvaluationCaseResultORM(**model.model_dump())
+
+
+def evaluation_case_result_from_orm(
+    row: orm.EvaluationCaseResultORM,
+) -> EvaluationCaseResult:
+    return EvaluationCaseResult.model_validate(_column_dict(row))
 
 
 def _column_dict(row) -> dict:

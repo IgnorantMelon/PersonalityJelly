@@ -16,6 +16,8 @@ class EntityKind(StrEnum):
     MEMORY = "memory"
     CONTEXT_PACKAGE = "context_package"
     CRITIC_REPORT = "critic_report"
+    EVALUATION_RUN = "evaluation_run"
+    EVALUATION_CASE_RESULT = "evaluation_case_result"
 
 
 ID_PREFIXES: dict[EntityKind, str] = {
@@ -32,6 +34,8 @@ ID_PREFIXES: dict[EntityKind, str] = {
     EntityKind.MEMORY: "mem",
     EntityKind.CONTEXT_PACKAGE: "ctx",
     EntityKind.CRITIC_REPORT: "cr",
+    EntityKind.EVALUATION_RUN: "eval",
+    EntityKind.EVALUATION_CASE_RESULT: "evalcase",
 }
 
 

@@ -11,6 +11,7 @@ from personality_jelly.domain import (
     InteractionMode,
     MemoryStatus,
 )
+from personality_jelly.runtime.mode import resolve_interaction_mode
 from personality_jelly.storage import (
     CanonClaimRepository,
     ContextPackageRepository,
@@ -33,7 +34,11 @@ def build_context_package(
     interaction_mode: InteractionMode | None = None,
 ) -> ContextBuildResult:
     conversation = ConversationRepository(session).require(conversation_id)
-    mode = interaction_mode or conversation.current_mode
+    mode = resolve_interaction_mode(
+        user_message,
+        explicit_mode=interaction_mode,
+        current_mode=conversation.current_mode,
+    )
     persona = PersonaVersionRepository(session).require(conversation.persona_version_id)
     claims = CanonClaimRepository(session).list_by_character(
         conversation.character_id,
