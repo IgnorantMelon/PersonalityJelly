@@ -179,3 +179,37 @@ def test_repositories_find_reusable_cli_records() -> None:
     assert user.id == "user_001"
     assert conversation.id == "conv_001"
 
+
+def test_memory_repository_updates_content_and_status() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        memory = Memory(
+            id="mem_001",
+            user_id="user_001",
+            character_id="char_001",
+            scope=MemoryScope.USER_MEMORY,
+            status=MemoryStatus.ACCEPTED,
+            content="用户喜欢清晨写作。",
+            importance=0.7,
+            reason="原始记录。",
+        )
+        repository = MemoryRepository(session)
+        repository.add(memory)
+        repository.update_content(
+            "mem_001",
+            content="用户喜欢夜里写作。",
+            reason="用户修正了记忆。",
+        )
+        repository.update_status("mem_001", status=MemoryStatus.ARCHIVED)
+        session.commit()
+
+    with session_factory() as session:
+        updated = MemoryRepository(session).require("mem_001")
+
+    assert updated.content == "用户喜欢夜里写作。"
+    assert updated.reason == "用户修正了记忆。"
+    assert updated.status == "archived"
+

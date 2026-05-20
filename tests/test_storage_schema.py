@@ -24,5 +24,7 @@ def test_create_all_creates_mvp_tables() -> None:
         "memories",
         "context_packages",
         "critic_reports",
+        "evaluation_runs",
+        "evaluation_case_results",
     } <= table_names
 

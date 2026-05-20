@@ -9,6 +9,8 @@ from personality_jelly.domain.enums import (
     ClaimStatus,
     ClaimType,
     CriticRiskLevel,
+    EvaluationCaseStatus,
+    EvaluationStatus,
     InteractionMode,
     MemoryScope,
     MemoryStatus,
@@ -168,5 +170,31 @@ class LLMRawOutput(DomainModel):
     raw_output: str
     parsed_output: dict[str, Any] | None = None
     validation_errors: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class EvaluationRun(DomainModel):
+    id: str
+    character_id: str
+    persona_version_id: str
+    test_suite: str
+    status: EvaluationStatus = EvaluationStatus.RUNNING
+    total_cases: int = Field(ge=0)
+    passed_cases: int = Field(default=0, ge=0)
+    failed_cases: int = Field(default=0, ge=0)
+    created_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = None
+
+
+class EvaluationCaseResult(DomainModel):
+    id: str
+    run_id: str
+    case_id: str
+    prompt: str
+    interaction_mode: InteractionMode
+    assistant_message_id: str
+    critic_report_id: str | None = None
+    status: EvaluationCaseStatus
+    reasons: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utc_now)
 

@@ -208,5 +208,43 @@ class CriticReportORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class EvaluationRunORM(Base):
+    __tablename__ = "evaluation_runs"
+    __table_args__ = (
+        Index(
+            "ix_evaluation_runs_character_persona",
+            "character_id",
+            "persona_version_id",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    character_id: Mapped[str] = mapped_column(ForeignKey("characters.id"), nullable=False)
+    persona_version_id: Mapped[str] = mapped_column(ForeignKey("persona_versions.id"), nullable=False)
+    test_suite: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    total_cases: Mapped[int] = mapped_column(Integer, nullable=False)
+    passed_cases: Mapped[int] = mapped_column(Integer, nullable=False)
+    failed_cases: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EvaluationCaseResultORM(Base):
+    __tablename__ = "evaluation_case_results"
+    __table_args__ = (Index("ix_evaluation_case_results_run", "run_id"),)
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("evaluation_runs.id"), nullable=False)
+    case_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    interaction_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    assistant_message_id: Mapped[str] = mapped_column(ForeignKey("messages.id"), nullable=False)
+    critic_report_id: Mapped[str | None] = mapped_column(ForeignKey("critic_reports.id"))
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    reasons: Mapped[list[str]] = mapped_column(SAJSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 def create_all(bind) -> None:
     Base.metadata.create_all(bind=bind)

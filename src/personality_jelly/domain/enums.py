@@ -51,3 +51,14 @@ class MessageRole(StrEnum):
     ASSISTANT = "assistant"
     SYSTEM = "system"
 
+
+class EvaluationStatus(StrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class EvaluationCaseStatus(StrEnum):
+    PASSED = "passed"
+    FAILED = "failed"
+

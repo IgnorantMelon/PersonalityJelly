@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from personality_jelly.critic import evaluate_message
-from personality_jelly.domain import CriticReport, InteractionMode, Memory, Message
+from personality_jelly.domain import ContextPackage, CriticReport, InteractionMode, Memory, Message
 from personality_jelly.llm import LLMProvider, ModelConfig
 from personality_jelly.memory import curate_memories_for_message
 from personality_jelly.runtime.roleplay import send_message
@@ -29,6 +29,7 @@ class RoleplayTurnModelConfigs:
 class RoleplayTurnOrchestrationResult:
     user_message: Message
     assistant_message: Message
+    context_package: ContextPackage
     critic_report: CriticReport | None
     memories: list[Memory]
 
@@ -79,6 +80,7 @@ def send_roleplay_turn(
     return RoleplayTurnOrchestrationResult(
         user_message=turn.user_message,
         assistant_message=turn.assistant_message,
+        context_package=turn.context_package,
         critic_report=critic_report,
         memories=memories,
     )

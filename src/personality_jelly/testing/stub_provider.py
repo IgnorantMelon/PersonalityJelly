@@ -74,6 +74,10 @@ class StubProvider:
                     }
                 ]
             }
+        if schema_title == "ConversationSummaryDraft":
+            return {
+                "summary": "stub provider: 用户希望角色记住当前偏好，角色以克制方式回应。",
+            }
         raise ValueError(f"Unsupported schema title: {schema_title!r}")
 
     def embed_texts(self, texts: list[str], embedding_config: EmbeddingConfig) -> list[list[float]]:

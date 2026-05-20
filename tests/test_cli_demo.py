@@ -3,6 +3,9 @@ from pathlib import Path
 from personality_jelly.cli.main import main
 from personality_jelly.llm import ChatMessage, ModelConfig
 from personality_jelly.storage import (
+    ConversationRepository,
+    ContextPackageRepository,
+    MemoryRepository,
     MessageRepository,
     create_database_engine,
     create_session_factory,
@@ -43,6 +46,8 @@ def test_cli_demo_runs_end_to_end(tmp_path: Path, capsys) -> None:
     assert exit_code == 0
     assert "source_work_id=sw_" in output
     assert "character_id=char_" in output
+    assert "context_package_id=ctx_" in output
+    assert "critic_report_id=cr_" in output
     assert "assistant=我记住了" in output
     assert "critic_action=accept" in output
     assert "memory_count=1" in output
@@ -227,9 +232,56 @@ def test_cli_turn_sends_message_to_existing_conversation(
     assert demo_exit_code == 0
     assert turn_exit_code == 0
     assert f"conversation_id={conversation_id}" in turn_output
+    assert "context_package_id=ctx_" in turn_output
+    assert "critic_report_id=cr_" in turn_output
     assert "assistant=我记住了" in turn_output
     assert [message.role for message in messages] == ["user", "assistant", "user", "assistant"]
     assert messages[-2].content == "我们继续聊。"
+
+
+def test_cli_turn_accepts_interaction_mode_override(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "林霜",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    conversation_id = _output_value(demo_output, "conversation_id")
+
+    turn_exit_code = main(
+        [
+            "turn",
+            conversation_id,
+            "--message",
+            "我们一起写一段新剧情。",
+            "--interaction-mode",
+            "reality_chat",
+        ]
+    )
+    capsys.readouterr()
+
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        messages = MessageRepository(session).list_by_conversation(conversation_id)
+        context = ContextPackageRepository(session).require(messages[-1].context_package_id)
+
+    assert demo_exit_code == 0
+    assert turn_exit_code == 0
+    assert context.interaction_mode == "reality_chat"
 
 
 def test_cli_turn_reports_missing_conversation(tmp_path: Path, capsys) -> None:
@@ -302,6 +354,218 @@ def test_cli_lists_and_shows_conversations(
     assert "message_count=2" in show_output
     assert "message.1.role=user" in show_output
     assert "message.2.role=assistant" in show_output
+
+
+def test_cli_runs_ooc_benchmark(tmp_path: Path, capsys, monkeypatch) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "林霜",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+    persona_version_id = _output_value(demo_output, "persona_version_id")
+
+    eval_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            character_id,
+        ]
+    )
+    eval_output = capsys.readouterr().out
+
+    assert demo_exit_code == 0
+    assert eval_exit_code == 0
+    assert "run_id=eval_" in eval_output
+    assert "status=completed" in eval_output
+    assert f"character_id={character_id}" in eval_output
+    assert f"persona_version_id={persona_version_id}" in eval_output
+    assert "total=10" in eval_output
+    assert "passed=10" in eval_output
+    assert "failed=0" in eval_output
+    assert "case.10.id=joke_pollution" in eval_output
+    assert "case.10.status=passed" in eval_output
+
+
+def test_cli_lists_edits_and_archives_memories(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "林霜",
+            "--reuse-existing",
+            "--user-message",
+            "请记住，我喜欢在夜里写作。",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+    conversation_id = _output_value(demo_output, "conversation_id")
+
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        user_id = ConversationRepository(session).require(conversation_id).user_id
+        memories = MemoryRepository(session).list_for_user_character(
+            user_id,
+            character_id,
+        )
+    memory_id = memories[0].id
+
+    list_exit_code = main(
+        [
+            "list",
+            "memories",
+            "--user-id",
+            user_id,
+            "--character-id",
+            character_id,
+        ]
+    )
+    list_output = capsys.readouterr().out
+
+    edit_exit_code = main(
+        [
+            "edit",
+            "memory",
+            memory_id,
+            "--content",
+            "用户喜欢夜里写作。",
+            "--reason",
+            "用户修正了记忆。",
+        ]
+    )
+    edit_output = capsys.readouterr().out
+
+    archive_exit_code = main(["archive", "memory", memory_id])
+    archive_output = capsys.readouterr().out
+
+    with session_factory() as session:
+        archived = MemoryRepository(session).require(memory_id)
+
+    assert demo_exit_code == 0
+    assert list_exit_code == 0
+    assert "memory_count=1" in list_output
+    assert f"memory.1.id={memory_id}" in list_output
+    assert "memory.1.status=accepted" in list_output
+    assert edit_exit_code == 0
+    assert f"memory_id={memory_id}" in edit_output
+    assert "content=用户喜欢夜里写作。" in edit_output
+    assert "reason=用户修正了记忆。" in edit_output
+    assert archive_exit_code == 0
+    assert f"memory_id={memory_id}" in archive_output
+    assert "status=archived" in archive_output
+    assert archived.content == "用户喜欢夜里写作。"
+    assert archived.reason == "用户修正了记忆。"
+    assert archived.status == "archived"
+
+
+def test_cli_summarizes_conversation(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "林霜",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    conversation_id = _output_value(demo_output, "conversation_id")
+
+    summarize_exit_code = main(
+        [
+            "summarize",
+            "conversation",
+            conversation_id,
+            "--messages",
+            "2",
+        ]
+    )
+    summarize_output = capsys.readouterr().out
+
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        conversation = ConversationRepository(session).require(conversation_id)
+
+    assert demo_exit_code == 0
+    assert summarize_exit_code == 0
+    assert f"conversation_id={conversation_id}" in summarize_output
+    assert "summary=stub provider:" in summarize_output
+    assert conversation.summary.startswith("stub provider:")
+
+
+def test_cli_shows_context_package_and_critic_report(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "林霜",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    context_package_id = _output_value(demo_output, "context_package_id")
+    critic_report_id = _output_value(demo_output, "critic_report_id")
+
+    show_context_exit_code = main(["show", "context-package", context_package_id])
+    context_output = capsys.readouterr().out
+
+    show_critic_exit_code = main(["show", "critic-report", critic_report_id])
+    critic_output = capsys.readouterr().out
+
+    assert demo_exit_code == 0
+    assert show_context_exit_code == 0
+    assert f"context_package_id={context_package_id}" in context_output
+    assert "interaction_mode=reality_chat" in context_output
+    assert "assembled_prompt<<END" in context_output
+    assert "# Persona Core Self" in context_output
+    assert show_critic_exit_code == 0
+    assert f"critic_report_id={critic_report_id}" in critic_output
+    assert "ooc_risk=low" in critic_output
+    assert "suggested_action=accept" in critic_output
+    assert "reasons<<END" in critic_output
 
 
 def test_cli_show_conversation_reports_missing_conversation(tmp_path: Path, capsys) -> None:

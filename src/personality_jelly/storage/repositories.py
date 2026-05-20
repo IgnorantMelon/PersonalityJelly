@@ -16,6 +16,10 @@ from personality_jelly.domain import (
     Conversation,
     CriticReport,
     EvidenceRef,
+    EvaluationCaseResult,
+    EvaluationCaseStatus,
+    EvaluationRun,
+    EvaluationStatus,
     Memory,
     MemoryScope,
     MemoryStatus,
@@ -304,6 +308,15 @@ class ConversationRepository(Repository[Conversation, orm.ConversationORM]):
         row = self.session.scalars(statement).first()
         return mappers.conversation_from_orm(row) if row is not None else None
 
+    def update_summary(self, conversation_id: str, *, summary: str, updated_at) -> Conversation:
+        row = self.session.get(orm.ConversationORM, conversation_id)
+        if row is None:
+            raise LookupError(f"ConversationORM {conversation_id!r} was not found")
+        row.summary = summary
+        row.updated_at = updated_at
+        self.session.flush()
+        return mappers.conversation_from_orm(row)
+
 
 class MessageRepository(Repository[Message, orm.MessageORM]):
     def __init__(self, session: Session) -> None:
@@ -344,6 +357,24 @@ class MemoryRepository(Repository[Memory, orm.MemoryORM]):
             statement = statement.where(orm.MemoryORM.status == status.value)
         return self._all(statement)
 
+    def update_status(self, memory_id: str, *, status: MemoryStatus | str) -> Memory:
+        row = self.session.get(orm.MemoryORM, memory_id)
+        if row is None:
+            raise LookupError(f"MemoryORM {memory_id!r} was not found")
+        row.status = status.value if isinstance(status, MemoryStatus) else status
+        self.session.flush()
+        return mappers.memory_from_orm(row)
+
+    def update_content(self, memory_id: str, *, content: str, reason: str | None = None) -> Memory:
+        row = self.session.get(orm.MemoryORM, memory_id)
+        if row is None:
+            raise LookupError(f"MemoryORM {memory_id!r} was not found")
+        row.content = content
+        if reason is not None:
+            row.reason = reason
+        self.session.flush()
+        return mappers.memory_from_orm(row)
+
 
 class ContextPackageRepository(Repository[ContextPackage, orm.ContextPackageORM]):
     def __init__(self, session: Session) -> None:
@@ -363,4 +394,66 @@ class CriticReportRepository(Repository[CriticReport, orm.CriticReportORM]):
             mappers.critic_report_to_orm,
             mappers.critic_report_from_orm,
         )
+
+
+class EvaluationRunRepository(Repository[EvaluationRun, orm.EvaluationRunORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.EvaluationRunORM,
+            mappers.evaluation_run_to_orm,
+            mappers.evaluation_run_from_orm,
+        )
+
+    def list_recent(self, limit: int | None = None) -> list[EvaluationRun]:
+        statement = select(orm.EvaluationRunORM).order_by(orm.EvaluationRunORM.created_at.desc())
+        if limit is not None:
+            statement = statement.limit(limit)
+        return self._all(statement)
+
+    def update_summary(
+        self,
+        run_id: str,
+        *,
+        status: EvaluationStatus,
+        passed_cases: int,
+        failed_cases: int,
+        completed_at,
+    ) -> EvaluationRun:
+        row = self.session.get(orm.EvaluationRunORM, run_id)
+        if row is None:
+            raise LookupError(f"EvaluationRunORM {run_id!r} was not found")
+        row.status = status.value
+        row.passed_cases = passed_cases
+        row.failed_cases = failed_cases
+        row.completed_at = completed_at
+        self.session.flush()
+        return mappers.evaluation_run_from_orm(row)
+
+
+class EvaluationCaseResultRepository(
+    Repository[EvaluationCaseResult, orm.EvaluationCaseResultORM],
+):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.EvaluationCaseResultORM,
+            mappers.evaluation_case_result_to_orm,
+            mappers.evaluation_case_result_from_orm,
+        )
+
+    def list_by_run(self, run_id: str) -> list[EvaluationCaseResult]:
+        statement = (
+            select(orm.EvaluationCaseResultORM)
+            .where(orm.EvaluationCaseResultORM.run_id == run_id)
+            .order_by(orm.EvaluationCaseResultORM.created_at.asc())
+        )
+        return self._all(statement)
+
+    def count_by_status(self, run_id: str, status: EvaluationCaseStatus) -> int:
+        statement = select(orm.EvaluationCaseResultORM).where(
+            orm.EvaluationCaseResultORM.run_id == run_id,
+            orm.EvaluationCaseResultORM.status == status.value,
+        )
+        return len(self.session.scalars(statement).all())
 

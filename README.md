@@ -39,11 +39,39 @@ Continue an existing conversation with one more user turn:
 .\.venv\Scripts\pjelly.exe turn conv_... --message "我们继续聊。" --provider env
 ```
 
+Conversation turns classify interaction mode automatically. Override it when needed:
+
+```powershell
+.\.venv\Scripts\pjelly.exe turn conv_... --message "我们一起写一段新剧情。" --interaction-mode co_creation
+```
+
 Find and inspect persisted conversations:
 
 ```powershell
 .\.venv\Scripts\pjelly.exe list conversations
 .\.venv\Scripts\pjelly.exe show conversation conv_... --messages 5
+.\.venv\Scripts\pjelly.exe show context-package ctx_...
+.\.venv\Scripts\pjelly.exe show critic-report cr_...
+```
+
+Summarize a conversation into its stored context summary:
+
+```powershell
+.\.venv\Scripts\pjelly.exe summarize conversation conv_... --messages 20
+```
+
+Run the MVP OOC and canon-pollution benchmark against an existing character:
+
+```powershell
+.\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_...
+```
+
+Inspect, correct, or archive user memories:
+
+```powershell
+.\.venv\Scripts\pjelly.exe list memories --user-id user_... --character-id char_...
+.\.venv\Scripts\pjelly.exe edit memory mem_... --content "用户喜欢夜里写作。"
+.\.venv\Scripts\pjelly.exe archive memory mem_...
 ```
 
 The default `demo` provider is still `stub`, so existing deterministic local demos do not need

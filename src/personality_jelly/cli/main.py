@@ -7,8 +7,18 @@ from pathlib import Path
 
 from personality_jelly.characters import create_character
 from personality_jelly.core import Settings
-from personality_jelly.domain import Character, Conversation, PersonaVersion, SourceWork, User
+from personality_jelly.domain import (
+    Character,
+    Conversation,
+    InteractionMode,
+    MemoryScope,
+    MemoryStatus,
+    PersonaVersion,
+    SourceWork,
+    User,
+)
 from personality_jelly.extraction import run_reader_extraction, verify_candidate_claims
+from personality_jelly.evaluation import run_ooc_benchmark
 from personality_jelly.ingestion import SourceIngestionResult, ingest_text_file
 from personality_jelly.llm import LLMProvider, ModelConfig, build_llm_provider
 from personality_jelly.runtime import (
@@ -17,12 +27,16 @@ from personality_jelly.runtime import (
     create_conversation,
     create_user,
     send_roleplay_turn,
+    summarize_conversation,
 )
 from personality_jelly.persona import compile_persona_version
 from personality_jelly.storage import create_all, create_database_engine, create_session_factory
 from personality_jelly.storage.repositories import (
     CharacterRepository,
     ConversationRepository,
+    ContextPackageRepository,
+    CriticReportRepository,
+    MemoryRepository,
     MessageRepository,
     PersonaVersionRepository,
     SourceWorkRepository,
@@ -54,6 +68,14 @@ def main(argv: list[str] | None = None) -> int:
             return _run_list(args)
         if args.command == "show":
             return _run_show(args)
+        if args.command == "eval":
+            return _run_eval(args)
+        if args.command == "archive":
+            return _run_archive(args)
+        if args.command == "edit":
+            return _run_edit(args)
+        if args.command == "summarize":
+            return _run_summarize(args)
         parser.print_help()
         return 1
     except CliError as exc:
@@ -90,6 +112,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     demo.add_argument("--user", default="demo-user", help="Display name for the demo user.")
     demo.add_argument(
+        "--interaction-mode",
+        choices=[mode.value for mode in InteractionMode],
+        default=None,
+        help="Optional interaction mode override. Defaults to automatic classification.",
+    )
+    demo.add_argument(
         "--provider",
         choices=("stub", "env"),
         default="stub",
@@ -99,6 +127,12 @@ def _build_parser() -> argparse.ArgumentParser:
     turn = subparsers.add_parser("turn", help="Send one message to an existing conversation.")
     turn.add_argument("conversation_id", help="Existing conversation id.")
     turn.add_argument("--message", required=True, help="User message content.")
+    turn.add_argument(
+        "--interaction-mode",
+        choices=[mode.value for mode in InteractionMode],
+        default=None,
+        help="Optional interaction mode override. Defaults to automatic classification.",
+    )
     turn.add_argument(
         "--database-url",
         default=None,
@@ -128,6 +162,83 @@ def _build_parser() -> argparse.ArgumentParser:
         default=20,
         help="Maximum number of conversations to print.",
     )
+    list_memories = list_subparsers.add_parser(
+        "memories",
+        help="List memories for a user and character.",
+    )
+    list_memories.add_argument("--user-id", required=True, help="User id.")
+    list_memories.add_argument("--character-id", required=True, help="Character id.")
+    list_memories.add_argument(
+        "--scope",
+        choices=[scope.value for scope in MemoryScope],
+        default=None,
+        help="Optional memory scope filter.",
+    )
+    list_memories.add_argument(
+        "--status",
+        choices=[status.value for status in MemoryStatus],
+        default=MemoryStatus.ACCEPTED.value,
+        help="Optional memory status filter. Defaults to accepted.",
+    )
+    list_memories.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+
+    archive_parser = subparsers.add_parser("archive", help="Archive persisted resources.")
+    archive_subparsers = archive_parser.add_subparsers(dest="resource")
+    archive_memory = archive_subparsers.add_parser("memory", help="Archive a memory.")
+    archive_memory.add_argument("memory_id", help="Memory id.")
+    archive_memory.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+
+    edit_parser = subparsers.add_parser("edit", help="Edit persisted resources.")
+    edit_subparsers = edit_parser.add_subparsers(dest="resource")
+    edit_memory = edit_subparsers.add_parser("memory", help="Edit a memory.")
+    edit_memory.add_argument("memory_id", help="Memory id.")
+    edit_memory.add_argument("--content", required=True, help="Corrected memory content.")
+    edit_memory.add_argument(
+        "--reason",
+        default="User corrected this memory.",
+        help="Reason recorded for the correction.",
+    )
+    edit_memory.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+
+    summarize_parser = subparsers.add_parser(
+        "summarize",
+        help="Summarize persisted resources.",
+    )
+    summarize_subparsers = summarize_parser.add_subparsers(dest="resource")
+    summarize_conversation_parser = summarize_subparsers.add_parser(
+        "conversation",
+        help="Summarize a conversation into its stored summary field.",
+    )
+    summarize_conversation_parser.add_argument("conversation_id", help="Existing conversation id.")
+    summarize_conversation_parser.add_argument(
+        "--messages",
+        type=int,
+        default=20,
+        help="Maximum number of recent messages to include.",
+    )
+    summarize_conversation_parser.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    summarize_conversation_parser.add_argument(
+        "--provider",
+        choices=("stub", "env"),
+        default="stub",
+        help="LLM provider source: stub for deterministic local output, env for PJ_* settings.",
+    )
 
     show_parser = subparsers.add_parser("show", help="Show a persisted resource.")
     show_subparsers = show_parser.add_subparsers(dest="resource")
@@ -146,6 +257,55 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=10,
         help="Maximum number of recent messages to print.",
+    )
+    show_context = show_subparsers.add_parser(
+        "context-package",
+        help="Show a stored context package.",
+    )
+    show_context.add_argument("context_package_id", help="Context package id.")
+    show_context.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_critic = show_subparsers.add_parser(
+        "critic-report",
+        help="Show a stored critic report.",
+    )
+    show_critic.add_argument("critic_report_id", help="Critic report id.")
+    show_critic.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+
+    eval_parser = subparsers.add_parser("eval", help="Run evaluation tasks.")
+    eval_subparsers = eval_parser.add_subparsers(dest="resource")
+    ooc_benchmark = eval_subparsers.add_parser(
+        "ooc-benchmark",
+        help="Run the MVP OOC and canon pollution benchmark.",
+    )
+    ooc_benchmark.add_argument("--character-id", required=True, help="Character id to evaluate.")
+    ooc_benchmark.add_argument(
+        "--persona-version-id",
+        default=None,
+        help="Persona version id. Defaults to the latest version for the character.",
+    )
+    ooc_benchmark.add_argument(
+        "--test-suite",
+        default="mvp_default",
+        help="Test suite label to record with the run.",
+    )
+    ooc_benchmark.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    ooc_benchmark.add_argument(
+        "--provider",
+        choices=("stub", "env"),
+        default="stub",
+        help="LLM provider source: stub for deterministic local output, env for PJ_* settings.",
     )
     return parser
 
@@ -191,6 +351,11 @@ def _run_demo(args: argparse.Namespace) -> int:
                 critic=model_config,
                 memory_curator=model_config,
             ),
+            interaction_mode=(
+                InteractionMode(args.interaction_mode)
+                if args.interaction_mode is not None
+                else None
+            ),
         )
         session.commit()
 
@@ -199,7 +364,11 @@ def _run_demo(args: argparse.Namespace) -> int:
     print(f"character_id={demo_context.character.id}")
     print(f"persona_version_id={demo_context.persona_version.id}")
     print(f"conversation_id={conversation.id}")
+    print(f"context_package_id={turn.context_package.id}")
+    print(f"user_message_id={turn.user_message.id}")
+    print(f"assistant_message_id={turn.assistant_message.id}")
     print(f"assistant={turn.assistant_message.content}")
+    print(f"critic_report_id={turn.critic_report.id if turn.critic_report else 'none'}")
     print(f"critic_action={turn.critic_report.suggested_action if turn.critic_report else 'none'}")
     print(f"memory_count={len(turn.memories)}")
     return 0
@@ -232,14 +401,21 @@ def _run_turn(args: argparse.Namespace) -> int:
                 critic=model_config,
                 memory_curator=model_config,
             ),
+            interaction_mode=(
+                InteractionMode(args.interaction_mode)
+                if args.interaction_mode is not None
+                else None
+            ),
         )
         session.commit()
 
     print(f"database_url={database_url}")
     print(f"conversation_id={conversation.id}")
+    print(f"context_package_id={turn.context_package.id}")
     print(f"user_message_id={turn.user_message.id}")
     print(f"assistant_message_id={turn.assistant_message.id}")
     print(f"assistant={turn.assistant_message.content}")
+    print(f"critic_report_id={turn.critic_report.id if turn.critic_report else 'none'}")
     print(f"critic_action={turn.critic_report.suggested_action if turn.critic_report else 'none'}")
     print(f"memory_count={len(turn.memories)}")
     return 0
@@ -248,13 +424,43 @@ def _run_turn(args: argparse.Namespace) -> int:
 def _run_list(args: argparse.Namespace) -> int:
     if args.resource == "conversations":
         return _run_list_conversations(args)
+    if args.resource == "memories":
+        return _run_list_memories(args)
     raise CliError("list resource is required")
+
+
+def _run_archive(args: argparse.Namespace) -> int:
+    if args.resource == "memory":
+        return _run_archive_memory(args)
+    raise CliError("archive resource is required")
+
+
+def _run_edit(args: argparse.Namespace) -> int:
+    if args.resource == "memory":
+        return _run_edit_memory(args)
+    raise CliError("edit resource is required")
+
+
+def _run_summarize(args: argparse.Namespace) -> int:
+    if args.resource == "conversation":
+        return _run_summarize_conversation(args)
+    raise CliError("summarize resource is required")
 
 
 def _run_show(args: argparse.Namespace) -> int:
     if args.resource == "conversation":
         return _run_show_conversation(args)
+    if args.resource == "context-package":
+        return _run_show_context_package(args)
+    if args.resource == "critic-report":
+        return _run_show_critic_report(args)
     raise CliError("show resource is required")
+
+
+def _run_eval(args: argparse.Namespace) -> int:
+    if args.resource == "ooc-benchmark":
+        return _run_ooc_benchmark(args)
+    raise CliError("eval resource is required")
 
 
 def _run_list_conversations(args: argparse.Namespace) -> int:
@@ -281,6 +487,35 @@ def _run_list_conversations(args: argparse.Namespace) -> int:
             print(f"conversation.{index}.character={character.canonical_name}")
             print(f"conversation.{index}.mode={conversation.current_mode}")
             print(f"conversation.{index}.persona_version_id={conversation.persona_version_id}")
+    return 0
+
+
+def _run_list_memories(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+    scope = MemoryScope(args.scope) if args.scope is not None else None
+    status = MemoryStatus(args.status) if args.status is not None else None
+
+    with session_factory() as session:
+        memories = MemoryRepository(session).list_for_user_character(
+            args.user_id,
+            args.character_id,
+            scope=scope,
+            status=status,
+        )
+
+        print(f"database_url={database_url}")
+        print(f"memory_count={len(memories)}")
+        for index, memory in enumerate(memories, start=1):
+            print(f"memory.{index}.id={memory.id}")
+            print(f"memory.{index}.scope={memory.scope}")
+            print(f"memory.{index}.status={memory.status}")
+            print(f"memory.{index}.importance={memory.importance}")
+            print(f"memory.{index}.content={memory.content}")
+            print(f"memory.{index}.reason={memory.reason}")
     return 0
 
 
@@ -316,6 +551,184 @@ def _run_show_conversation(args: argparse.Namespace) -> int:
             print(f"message.{index}.id={message.id}")
             print(f"message.{index}.role={message.role}")
             print(f"message.{index}.content={message.content}")
+    return 0
+
+
+def _run_show_context_package(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            context_package = ContextPackageRepository(session).require(args.context_package_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"context_package_id={context_package.id}")
+        print(f"conversation_id={context_package.conversation_id}")
+        print(f"interaction_mode={context_package.interaction_mode}")
+        print(f"persona_version_id={context_package.persona_version_id}")
+        print(f"claim_ids={','.join(context_package.claim_ids)}")
+        print(f"memory_ids={','.join(context_package.memory_ids)}")
+        print(f"retrieved_chunk_ids={','.join(context_package.retrieved_chunk_ids)}")
+        print("assembled_prompt<<END")
+        print(context_package.assembled_prompt)
+        print("END")
+    return 0
+
+
+def _run_show_critic_report(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            critic_report = CriticReportRepository(session).require(args.critic_report_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"critic_report_id={critic_report.id}")
+        print(f"message_id={critic_report.message_id}")
+        print(f"ooc_risk={critic_report.ooc_risk}")
+        print(f"fact_risk={critic_report.fact_risk}")
+        print(f"memory_risk={critic_report.memory_risk}")
+        print(f"mode_risk={critic_report.mode_risk}")
+        print(f"suggested_action={critic_report.suggested_action}")
+        print("reasons<<END")
+        for reason in critic_report.reasons:
+            print(f"- {reason}")
+        print("END")
+    return 0
+
+
+def _run_archive_memory(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            memory = MemoryRepository(session).update_status(
+                args.memory_id,
+                status=MemoryStatus.ARCHIVED,
+            )
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+        session.commit()
+
+    print(f"database_url={database_url}")
+    print(f"memory_id={memory.id}")
+    print(f"status={memory.status}")
+    return 0
+
+
+def _run_edit_memory(args: argparse.Namespace) -> int:
+    content = args.content.strip()
+    if not content:
+        raise CliError("--content cannot be empty")
+    reason = args.reason.strip()
+    if not reason:
+        raise CliError("--reason cannot be empty")
+
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            memory = MemoryRepository(session).update_content(
+                args.memory_id,
+                content=content,
+                reason=reason,
+            )
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+        session.commit()
+
+    print(f"database_url={database_url}")
+    print(f"memory_id={memory.id}")
+    print(f"status={memory.status}")
+    print(f"content={memory.content}")
+    print(f"reason={memory.reason}")
+    return 0
+
+
+def _run_summarize_conversation(args: argparse.Namespace) -> int:
+    if args.messages < 1:
+        raise CliError("--messages must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            result = summarize_conversation(
+                session,
+                conversation_id=args.conversation_id,
+                provider=provider,
+                model_config=model_config,
+                max_messages=args.messages,
+            )
+        except (LookupError, ValueError) as exc:
+            raise CliError(str(exc)) from exc
+        session.commit()
+
+    print(f"database_url={database_url}")
+    print(f"conversation_id={result.conversation.id}")
+    print(f"summary={result.conversation.summary}")
+    return 0
+
+
+def _run_ooc_benchmark(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            result = run_ooc_benchmark(
+                session,
+                character_id=args.character_id,
+                persona_version_id=args.persona_version_id,
+                provider=provider,
+                model_config=model_config,
+                test_suite=args.test_suite,
+            )
+        except (LookupError, ValueError) as exc:
+            raise CliError(str(exc)) from exc
+        session.commit()
+
+    print(f"database_url={database_url}")
+    print(f"run_id={result.run.id}")
+    print(f"status={result.run.status}")
+    print(f"test_suite={result.run.test_suite}")
+    print(f"character_id={result.run.character_id}")
+    print(f"persona_version_id={result.run.persona_version_id}")
+    print(f"total={result.run.total_cases}")
+    print(f"passed={result.run.passed_cases}")
+    print(f"failed={result.run.failed_cases}")
+    for index, case_result in enumerate(result.case_results, start=1):
+        print(f"case.{index}.id={case_result.case_id}")
+        print(f"case.{index}.status={case_result.status}")
+        print(f"case.{index}.critic_report_id={case_result.critic_report_id or 'none'}")
     return 0
 
 
