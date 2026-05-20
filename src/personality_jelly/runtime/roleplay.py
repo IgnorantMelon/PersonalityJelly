@@ -26,14 +26,18 @@ def send_message(
     conversation_id: str,
     content: str,
     interaction_mode: InteractionMode | None = None,
+    persist_user_message: bool = True,
 ) -> RoleplayTurnResult:
-    user_message = Message(
-        id=generate_id(EntityKind.MESSAGE),
-        conversation_id=conversation_id,
-        role=MessageRole.USER,
-        content=content,
-    )
-    MessageRepository(session).add(user_message)
+    if persist_user_message:
+        user_message = Message(
+            id=generate_id(EntityKind.MESSAGE),
+            conversation_id=conversation_id,
+            role=MessageRole.USER,
+            content=content,
+        )
+        MessageRepository(session).add(user_message)
+    else:
+        user_message = _latest_user_message(session, conversation_id, content)
 
     context_package = build_context_package(
         session,
@@ -62,4 +66,12 @@ def send_message(
         assistant_message=assistant_message,
         context_package=context_package,
     )
+
+
+def _latest_user_message(session: Session, conversation_id: str, content: str) -> Message:
+    messages = MessageRepository(session).list_by_conversation(conversation_id)
+    for message in reversed(messages):
+        if message.role == MessageRole.USER and message.content == content:
+            return message
+    raise ValueError("Could not find existing user message for retry")
 

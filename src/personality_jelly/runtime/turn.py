@@ -32,6 +32,9 @@ class RoleplayTurnOrchestrationResult:
     context_package: ContextPackage
     critic_report: CriticReport | None
     memories: list[Memory]
+    retry_count: int = 0
+    rejected_assistant_message: Message | None = None
+    rejected_critic_report: CriticReport | None = None
 
 
 def send_roleplay_turn(
@@ -42,6 +45,7 @@ def send_roleplay_turn(
     providers: RoleplayTurnProviders,
     model_configs: RoleplayTurnModelConfigs,
     interaction_mode: InteractionMode | None = None,
+    retry_on_critic: bool = False,
 ) -> RoleplayTurnOrchestrationResult:
     turn = send_message(
         session,
@@ -63,6 +67,33 @@ def send_roleplay_turn(
             message_id=turn.assistant_message.id,
         ).critic_report
 
+    retry_count = 0
+    rejected_assistant_message = None
+    rejected_critic_report = None
+    if retry_on_critic and _critic_requests_retry(critic_report):
+        retry_count = 1
+        rejected_assistant_message = turn.assistant_message
+        rejected_critic_report = critic_report
+        turn = send_message(
+            session,
+            provider=providers.roleplay,
+            model_config=model_configs.roleplay,
+            conversation_id=conversation_id,
+            content=content,
+            interaction_mode=interaction_mode,
+            persist_user_message=False,
+        )
+        critic_report = None
+        if providers.critic is not None:
+            if model_configs.critic is None:
+                raise ValueError("critic model config is required when critic provider is supplied")
+            critic_report = evaluate_message(
+                session,
+                provider=providers.critic,
+                model_config=model_configs.critic,
+                message_id=turn.assistant_message.id,
+            ).critic_report
+
     memories: list[Memory] = []
     if providers.memory_curator is not None:
         if model_configs.memory_curator is None:
@@ -83,5 +114,12 @@ def send_roleplay_turn(
         context_package=turn.context_package,
         critic_report=critic_report,
         memories=memories,
+        retry_count=retry_count,
+        rejected_assistant_message=rejected_assistant_message,
+        rejected_critic_report=rejected_critic_report,
     )
+
+
+def _critic_requests_retry(critic_report: CriticReport | None) -> bool:
+    return critic_report is not None and critic_report.suggested_action == "retry"
 

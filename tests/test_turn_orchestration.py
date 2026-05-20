@@ -156,6 +156,58 @@ class MemoryCuratorFakeProvider:
         raise NotImplementedError
 
 
+class RetryingRoleplayProvider:
+    name = "retrying-roleplay-fake"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_text(self, messages: list[ChatMessage], model_config: ModelConfig) -> str:
+        self.calls += 1
+        if self.calls == 1:
+            return "我是通用助手，不记得林霜。"
+        return "我会按林霜的方式，先观察，再回答。"
+
+    def generate_json(self, messages, schema, model_config):
+        raise NotImplementedError
+
+    def embed_texts(self, texts: list[str], embedding_config: EmbeddingConfig) -> list[list[float]]:
+        raise NotImplementedError
+
+
+class RetryThenAcceptCriticProvider:
+    name = "retry-then-accept-critic-fake"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_text(self, messages: list[ChatMessage], model_config: ModelConfig) -> str:
+        raise NotImplementedError
+
+    def generate_json(self, messages, schema, model_config):
+        self.calls += 1
+        if self.calls == 1:
+            return {
+                "ooc_risk": "high",
+                "fact_risk": "medium",
+                "memory_risk": "low",
+                "mode_risk": "low",
+                "reasons": ["回复退化成通用助手。"],
+                "suggested_action": "retry",
+            }
+        return {
+            "ooc_risk": "low",
+            "fact_risk": "low",
+            "memory_risk": "low",
+            "mode_risk": "low",
+            "reasons": ["重试回复保持角色边界。"],
+            "suggested_action": "accept",
+        }
+
+    def embed_texts(self, texts: list[str], embedding_config: EmbeddingConfig) -> list[list[float]]:
+        raise NotImplementedError
+
+
 def test_send_roleplay_turn_runs_optional_critic_and_memory_curator(tmp_path) -> None:
     source_file = tmp_path / "sample.md"
     source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
@@ -230,4 +282,87 @@ def test_send_roleplay_turn_runs_optional_critic_and_memory_curator(tmp_path) ->
     assert critic_report.suggested_action == "accept"
     assert memories[0].content == "用户喜欢在夜里写作。"
     assert result.memories[0].id == memories[0].id
+
+
+def test_send_roleplay_turn_retries_once_when_critic_requests_retry(tmp_path) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    roleplay_provider = RetryingRoleplayProvider()
+    critic_provider = RetryThenAcceptCriticProvider()
+
+    with session_factory() as session:
+        ingestion_result = ingest_text_file(session, source_file, title="样本文本")
+        create_character(
+            session,
+            source_work_id=ingestion_result.source_work.id,
+            canonical_name="林霜",
+            character_id="char_001",
+        )
+        run_reader_extraction(
+            session,
+            provider=ReaderFakeProvider(ingestion_result.chunks[0].id),
+            model_config=ModelConfig(model="fake-reader"),
+            character_id="char_001",
+        )
+        character = CharacterRepository(session).require("char_001")
+        verify_candidate_claims(
+            session,
+            provider=VerifierFakeProvider(),
+            model_config=ModelConfig(model="fake-verifier"),
+            character=character,
+        )
+        persona = compile_persona_version(
+            session,
+            provider=CompilerFakeProvider(),
+            model_config=ModelConfig(model="fake-compiler"),
+            character_id="char_001",
+        ).persona_version
+        user = create_user(session, user_id="user_001").user
+        conversation = create_conversation(
+            session,
+            user_id=user.id,
+            character_id="char_001",
+            persona_version_id=persona.id,
+            conversation_id="conv_001",
+        ).conversation
+
+        result = send_roleplay_turn(
+            session,
+            conversation_id=conversation.id,
+            content="你是谁？",
+            providers=RoleplayTurnProviders(
+                roleplay=roleplay_provider,
+                critic=critic_provider,
+                memory_curator=MemoryCuratorFakeProvider(),
+            ),
+            model_configs=RoleplayTurnModelConfigs(
+                roleplay=ModelConfig(model="fake-roleplay"),
+                critic=ModelConfig(model="fake-critic"),
+                memory_curator=ModelConfig(model="fake-memory"),
+            ),
+            retry_on_critic=True,
+        )
+        session.commit()
+
+    with session_factory() as session:
+        messages = MessageRepository(session).list_by_conversation("conv_001")
+        memories = MemoryRepository(session).list_for_user_character(
+            "user_001",
+            "char_001",
+            status=MemoryStatus.ACCEPTED,
+        )
+
+    assert roleplay_provider.calls == 2
+    assert critic_provider.calls == 2
+    assert result.retry_count == 1
+    assert result.rejected_assistant_message.content == "我是通用助手，不记得林霜。"
+    assert result.rejected_critic_report.suggested_action == "retry"
+    assert result.assistant_message.content == "我会按林霜的方式，先观察，再回答。"
+    assert result.critic_report.suggested_action == "accept"
+    assert [message.role for message in messages] == ["user", "assistant", "assistant"]
+    assert memories[0].conversation_id == "conv_001"
 

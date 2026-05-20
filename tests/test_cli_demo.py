@@ -50,6 +50,9 @@ def test_cli_demo_runs_end_to_end(tmp_path: Path, capsys) -> None:
     assert "critic_report_id=cr_" in output
     assert "assistant=我记住了" in output
     assert "critic_action=accept" in output
+    assert "retry_count=0" in output
+    assert "rejected_assistant_message_id=none" in output
+    assert "rejected_critic_report_id=none" in output
     assert "memory_count=1" in output
 
 
@@ -235,6 +238,7 @@ def test_cli_turn_sends_message_to_existing_conversation(
     assert "context_package_id=ctx_" in turn_output
     assert "critic_report_id=cr_" in turn_output
     assert "assistant=我记住了" in turn_output
+    assert "retry_count=0" in turn_output
     assert [message.role for message in messages] == ["user", "assistant", "user", "assistant"]
     assert messages[-2].content == "我们继续聊。"
 
