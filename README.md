@@ -37,6 +37,7 @@ Continue an existing conversation with one more user turn:
 
 ```powershell
 .\.venv\Scripts\pjelly.exe turn conv_... --message "我们继续聊。" --provider env
+.\.venv\Scripts\pjelly.exe turn conv_... --message "你是谁？" --retry-on-critic
 ```
 
 Conversation turns classify interaction mode automatically. Override it when needed:

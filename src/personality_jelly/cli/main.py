@@ -127,6 +127,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default="stub",
         help="LLM provider source: stub for deterministic local output, env for PJ_* settings.",
     )
+    demo.add_argument(
+        "--retry-on-critic",
+        action="store_true",
+        help="Retry once when Critic suggests retry.",
+    )
 
     turn = subparsers.add_parser("turn", help="Send one message to an existing conversation.")
     turn.add_argument("conversation_id", help="Existing conversation id.")
@@ -147,6 +152,11 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("stub", "env"),
         default="stub",
         help="LLM provider source: stub for deterministic local output, env for PJ_* settings.",
+    )
+    turn.add_argument(
+        "--retry-on-critic",
+        action="store_true",
+        help="Retry once when Critic suggests retry.",
     )
 
     list_parser = subparsers.add_parser("list", help="List persisted resources.")
@@ -392,6 +402,7 @@ def _run_demo(args: argparse.Namespace) -> int:
                 if args.interaction_mode is not None
                 else None
             ),
+            retry_on_critic=args.retry_on_critic,
         )
         session.commit()
 
@@ -406,6 +417,15 @@ def _run_demo(args: argparse.Namespace) -> int:
     print(f"assistant={turn.assistant_message.content}")
     print(f"critic_report_id={turn.critic_report.id if turn.critic_report else 'none'}")
     print(f"critic_action={turn.critic_report.suggested_action if turn.critic_report else 'none'}")
+    print(f"retry_count={turn.retry_count}")
+    print(
+        "rejected_assistant_message_id="
+        f"{turn.rejected_assistant_message.id if turn.rejected_assistant_message else 'none'}"
+    )
+    print(
+        "rejected_critic_report_id="
+        f"{turn.rejected_critic_report.id if turn.rejected_critic_report else 'none'}"
+    )
     print(f"memory_count={len(turn.memories)}")
     return 0
 
@@ -442,6 +462,7 @@ def _run_turn(args: argparse.Namespace) -> int:
                 if args.interaction_mode is not None
                 else None
             ),
+            retry_on_critic=args.retry_on_critic,
         )
         session.commit()
 
@@ -453,6 +474,15 @@ def _run_turn(args: argparse.Namespace) -> int:
     print(f"assistant={turn.assistant_message.content}")
     print(f"critic_report_id={turn.critic_report.id if turn.critic_report else 'none'}")
     print(f"critic_action={turn.critic_report.suggested_action if turn.critic_report else 'none'}")
+    print(f"retry_count={turn.retry_count}")
+    print(
+        "rejected_assistant_message_id="
+        f"{turn.rejected_assistant_message.id if turn.rejected_assistant_message else 'none'}"
+    )
+    print(
+        "rejected_critic_report_id="
+        f"{turn.rejected_critic_report.id if turn.rejected_critic_report else 'none'}"
+    )
     print(f"memory_count={len(turn.memories)}")
     return 0
 
