@@ -437,8 +437,18 @@ class EvaluationRunRepository(Repository[EvaluationRun, orm.EvaluationRunORM]):
             mappers.evaluation_run_from_orm,
         )
 
-    def list_recent(self, limit: int | None = None) -> list[EvaluationRun]:
+    def list_recent(
+        self,
+        limit: int | None = None,
+        *,
+        character_id: str | None = None,
+        test_suite: str | None = None,
+    ) -> list[EvaluationRun]:
         statement = select(orm.EvaluationRunORM).order_by(orm.EvaluationRunORM.created_at.desc())
+        if character_id is not None:
+            statement = statement.where(orm.EvaluationRunORM.character_id == character_id)
+        if test_suite is not None:
+            statement = statement.where(orm.EvaluationRunORM.test_suite == test_suite)
         if limit is not None:
             statement = statement.limit(limit)
         return self._all(statement)

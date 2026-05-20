@@ -39,6 +39,8 @@ from personality_jelly.storage.repositories import (
     ConversationRepository,
     ContextPackageRepository,
     CriticReportRepository,
+    EvaluationCaseResultRepository,
+    EvaluationRunRepository,
     EvidenceRefRepository,
     FailureCaseRepository,
     MemoryRepository,
@@ -247,6 +249,31 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
     )
+    list_eval_runs = list_subparsers.add_parser(
+        "eval-runs",
+        help="List evaluation runs.",
+    )
+    list_eval_runs.add_argument(
+        "--character-id",
+        default=None,
+        help="Optional character id filter.",
+    )
+    list_eval_runs.add_argument(
+        "--test-suite",
+        default=None,
+        help="Optional test suite filter.",
+    )
+    list_eval_runs.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of evaluation runs to print.",
+    )
+    list_eval_runs.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
 
     archive_parser = subparsers.add_parser("archive", help="Archive persisted resources.")
     archive_subparsers = archive_parser.add_subparsers(dest="resource")
@@ -356,6 +383,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     show_failure_case.add_argument("failure_case_id", help="Failure case id.")
     show_failure_case.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_eval_run = show_subparsers.add_parser(
+        "eval-run",
+        help="Show a stored evaluation run.",
+    )
+    show_eval_run.add_argument("run_id", help="Evaluation run id.")
+    show_eval_run.add_argument(
         "--database-url",
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
@@ -540,6 +577,8 @@ def _run_list(args: argparse.Namespace) -> int:
         return _run_list_claims(args)
     if args.resource == "failure-cases":
         return _run_list_failure_cases(args)
+    if args.resource == "eval-runs":
+        return _run_list_eval_runs(args)
     raise CliError("list resource is required")
 
 
@@ -572,6 +611,8 @@ def _run_show(args: argparse.Namespace) -> int:
         return _run_show_character(args)
     if args.resource == "failure-case":
         return _run_show_failure_case(args)
+    if args.resource == "eval-run":
+        return _run_show_eval_run(args)
     raise CliError("show resource is required")
 
 
@@ -709,6 +750,36 @@ def _run_list_failure_cases(args: argparse.Namespace) -> int:
             print(f"failure_case.{index}.assistant_message_id={failure_case.assistant_message_id}")
             print(f"failure_case.{index}.critic_report_id={failure_case.critic_report_id}")
             print(f"failure_case.{index}.reason={failure_case.reason}")
+    return 0
+
+
+def _run_list_eval_runs(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        raise CliError("--limit must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        runs = EvaluationRunRepository(session).list_recent(
+            limit=args.limit,
+            character_id=args.character_id,
+            test_suite=args.test_suite,
+        )
+
+        print(f"database_url={database_url}")
+        print(f"eval_run_count={len(runs)}")
+        for index, run in enumerate(runs, start=1):
+            print(f"eval_run.{index}.id={run.id}")
+            print(f"eval_run.{index}.status={run.status}")
+            print(f"eval_run.{index}.test_suite={run.test_suite}")
+            print(f"eval_run.{index}.character_id={run.character_id}")
+            print(f"eval_run.{index}.persona_version_id={run.persona_version_id}")
+            print(f"eval_run.{index}.total={run.total_cases}")
+            print(f"eval_run.{index}.passed={run.passed_cases}")
+            print(f"eval_run.{index}.failed={run.failed_cases}")
     return 0
 
 
@@ -880,6 +951,44 @@ def _run_show_failure_case(args: argparse.Namespace) -> int:
         print("assistant_message<<END")
         print(assistant_message.content)
         print("END")
+    return 0
+
+
+def _run_show_eval_run(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            run = EvaluationRunRepository(session).require(args.run_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+        case_results = EvaluationCaseResultRepository(session).list_by_run(run.id)
+
+        print(f"database_url={database_url}")
+        print(f"run_id={run.id}")
+        print(f"status={run.status}")
+        print(f"test_suite={run.test_suite}")
+        print(f"character_id={run.character_id}")
+        print(f"persona_version_id={run.persona_version_id}")
+        print(f"total={run.total_cases}")
+        print(f"passed={run.passed_cases}")
+        print(f"failed={run.failed_cases}")
+        print(f"case_count={len(case_results)}")
+        for index, case_result in enumerate(case_results, start=1):
+            print(f"case.{index}.id={case_result.case_id}")
+            print(f"case.{index}.status={case_result.status}")
+            print(f"case.{index}.interaction_mode={case_result.interaction_mode}")
+            print(f"case.{index}.assistant_message_id={case_result.assistant_message_id}")
+            print(f"case.{index}.critic_report_id={case_result.critic_report_id or 'none'}")
+            print(f"case.{index}.prompt={case_result.prompt}")
+            print(f"case.{index}.reasons<<END")
+            for reason in case_result.reasons:
+                print(f"- {reason}")
+            print("END")
     return 0
 
 

@@ -428,6 +428,84 @@ def test_cli_runs_ooc_benchmark(tmp_path: Path, capsys, monkeypatch) -> None:
     assert "case.10.status=passed" in eval_output
 
 
+def test_cli_lists_and_shows_eval_runs(tmp_path: Path, capsys, monkeypatch) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+
+    eval_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "cli_suite",
+        ]
+    )
+    eval_output = capsys.readouterr().out
+    run_id = _output_value(eval_output, "run_id")
+
+    list_exit_code = main(
+        [
+            "list",
+            "eval-runs",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "cli_suite",
+        ]
+    )
+    list_output = capsys.readouterr().out
+
+    show_exit_code = main(["show", "eval-run", run_id])
+    show_output = capsys.readouterr().out
+
+    assert demo_exit_code == 0
+    assert eval_exit_code == 0
+    assert list_exit_code == 0
+    assert f"eval_run.1.id={run_id}" in list_output
+    assert "eval_run.1.test_suite=cli_suite" in list_output
+    assert "eval_run.1.total=10" in list_output
+    assert show_exit_code == 0
+    assert f"run_id={run_id}" in show_output
+    assert "case_count=10" in show_output
+    assert "case.1.id=identity" in show_output
+    assert "case.1.reasons<<END" in show_output
+    assert "case.10.id=joke_pollution" in show_output
+
+
+def test_cli_show_eval_run_reports_missing_run(tmp_path: Path, capsys) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+
+    exit_code = main(
+        [
+            "show",
+            "eval-run",
+            "eval_missing",
+            "--database-url",
+            database_url,
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "eval_missing" in captured.err
+
+
 def test_cli_lists_and_shows_failure_cases(
     tmp_path: Path,
     capsys,
