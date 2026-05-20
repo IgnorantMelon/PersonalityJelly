@@ -168,3 +168,65 @@ def test_run_ooc_benchmark_persists_run_and_case_results(tmp_path) -> None:
     assert len(case_results) == len(DEFAULT_OOC_BENCHMARK_CASES)
     assert {case.status for case in case_results} == {EvaluationCaseStatus.PASSED}
     assert case_results[-1].case_id == "joke_pollution"
+
+
+def test_evaluation_run_repository_filters_recent_runs(tmp_path) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        ingestion_result = ingest_text_file(session, source_file, title="sample")
+        create_character(
+            session,
+            source_work_id=ingestion_result.source_work.id,
+            canonical_name="Lin Shuang",
+            character_id="char_001",
+        )
+        run_reader_extraction(
+            session,
+            provider=ReaderFakeProvider(ingestion_result.chunks[0].id),
+            model_config=ModelConfig(model="fake-reader"),
+            character_id="char_001",
+        )
+        character = CharacterRepository(session).require("char_001")
+        verify_candidate_claims(
+            session,
+            provider=VerifierFakeProvider(),
+            model_config=ModelConfig(model="fake-verifier"),
+            character=character,
+        )
+        persona = compile_persona_version(
+            session,
+            provider=CompilerFakeProvider(),
+            model_config=ModelConfig(model="fake-compiler"),
+            character_id="char_001",
+        ).persona_version
+
+        first = run_ooc_benchmark(
+            session,
+            character_id="char_001",
+            persona_version_id=persona.id,
+            provider=BenchmarkFakeProvider(),
+            model_config=ModelConfig(model="fake-benchmark"),
+            test_suite="suite_a",
+        ).run
+        second = run_ooc_benchmark(
+            session,
+            character_id="char_001",
+            persona_version_id=persona.id,
+            provider=BenchmarkFakeProvider(),
+            model_config=ModelConfig(model="fake-benchmark"),
+            test_suite="suite_b",
+        ).run
+        session.commit()
+
+    with session_factory() as session:
+        repository = EvaluationRunRepository(session)
+        recent = repository.list_recent(limit=1, character_id="char_001")
+        suite_a = repository.list_recent(test_suite="suite_a")
+
+    assert recent[0].id == second.id
+    assert suite_a[0].id == first.id
