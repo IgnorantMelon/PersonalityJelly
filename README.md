@@ -84,3 +84,98 @@ Inspect, correct, or archive user memories:
 
 The default `demo` provider is still `stub`, so existing deterministic local demos do not need
 network access or environment variables.
+
+## Current project status
+
+Last updated: 2026-05-20.
+
+Personality Jelly is still in the "plan three MVP" phase: a single-work, single-protagonist
+novel character brain with clear boundaries for later multi-agent and platform evolution.
+
+Implemented:
+
+- SQLite + SQLAlchemy repositories for source works, chunks, characters, canon claims, evidence,
+  persona versions, conversations, messages, memories, context packages, critic reports, failure
+  cases, and evaluation runs.
+- TXT/Markdown ingestion with chapter/paragraph chunking and stable chunk IDs.
+- Character creation, Reader extraction, Verifier canon validation, evidence references, and
+  conflict recording.
+- Persona compilation from verified canon claims.
+- Runtime conversation flow with context-package assembly, roleplay generation, critic evaluation,
+  optional retry, failure-case capture, memory curation, memory guard, and conversation summary.
+- Structured interaction-mode classification through `InteractionModeClassification`; no local
+  marker-based semantic mode inference remains.
+- Semantic source retrieval in `retrieval/semantic.py`; configured embeddings rank chunks by vector
+  similarity, while no-embedding fallback only uses character name/alias entity anchoring.
+- Structured memory safety validation through `MemoryGuardDecision`; guard-unavailable memories are
+  downgraded to `candidate` for review instead of being accepted.
+- Structured benchmark case evaluation through `BenchmarkCaseEvaluation`; benchmark pass/fail is
+  not mechanically derived from critic actions.
+- CLI coverage for demo, turn, list, show, eval, archive, edit, and summarize.
+- Full test suite currently passes: `68 passed`.
+
+## Next development tasks
+
+P0:
+
+- Add database migrations. `create_all` is acceptable for the MVP loop, but schema evolution needs
+  Alembic or an equivalent migration path before persistent data matters.
+- Build the candidate-memory review workflow: list candidate memories, accept/reject them, and
+  preserve review reasons.
+- Add tracing for structured semantic operations: mode classifier, memory guard, benchmark
+  evaluator, and future retrieval evaluators should record operation, schema, provider, model,
+  parsed output, raw output, and validation errors.
+- Tighten `CriticReport.suggested_action` into an explicit contract, preferably an enum or schema
+  pattern, and document `accept/retry/log` semantics.
+
+P1:
+
+- Persist source chunk embeddings and avoid re-embedding every retrieval call.
+- Add retrieval-quality benchmarks for recall, ranking, and empty-result fallback without using
+  fixed word matching as the quality signal.
+- Expand the benchmark library for OOC, canon pollution, memory pollution, mode confusion, and
+  reality-adaptation failures.
+- Improve conversation summary strategy so short-term scene state, user memory, relationship
+  memory, and reflective memory cannot contaminate each other.
+- Improve CLI diagnostics with dry-run, verbose tracing, model configuration display, and clearer
+  batch benchmark output.
+
+P2:
+
+- Implement the FastAPI service boundary from `docs/06_api_contracts.md`, reusing the same service
+  layer as the CLI.
+- Prepare multi-work and multi-character boundaries: same-name characters, alias conflicts,
+  cross-work canon, and persona-version selection.
+- Add user/workspace/audit concepts for later platformization.
+- Make the agent workflow more explicit and observable, drawing from LangGraph/ReAct where useful.
+- Evaluate Mem0, Zep/Graphiti, LangGraph Memory, GraphRAG, and LightRAG only after the current canon
+  and memory boundaries are stable.
+
+## Development rules
+
+- Do not develop directly on `dev`. Start every task from the latest `dev` with a scoped branch such
+  as `feature/...`, `fix/...`, or `docs/...`.
+- Before editing, check `git status --short --branch`. Keep each branch focused on one topic.
+- Commit on the task branch, then merge back to `dev` with `git merge --no-ff <branch>`. Run the
+  relevant tests again on `dev` and leave the worktree clean.
+- Never revert unrelated work or user changes. Avoid broad refactors, formatting churn, and
+  dependency additions unless the task genuinely requires them.
+- All semantic judgment tasks must avoid fixed vocabulary, preset word lists, markers, regex
+  keyword rules, and string-containment heuristics.
+- Semantic judgments include interaction mode, memory safety, canon or roleplay contamination,
+  benchmark pass/fail, retrieval intent, user preference, and relationship evolution.
+- Use structured model outputs, embeddings/vector similarity, verified evidence chains, or human
+  review for semantic decisions.
+- Deterministic code is appropriate for non-semantic work: schema validation, enum branching, ID
+  lookup, empty-field handling, explicit user overrides, database constraints, and workflow control
+  after consuming structured model outputs.
+- If a semantic judge/provider is unavailable, degrade conservatively to current mode, candidate
+  review, or empty result. Do not silently accept risky content.
+- Original canon can only come from source evidence and Verifier confirmation. User conversation,
+  temporary roleplay, jokes, and co-created fiction must not rewrite canon or persona core.
+- Long-term memories must pass Memory Curator and Memory Guard; guard-unavailable memories remain
+  candidate until reviewed.
+- New LLM tasks must define Pydantic schemas and validate `generate_json` outputs. Tests should
+  verify structured-result consumption, not local keyword hits.
+- Fake providers in tests must branch by schema title when a provider is used for multiple
+  structured tasks.
