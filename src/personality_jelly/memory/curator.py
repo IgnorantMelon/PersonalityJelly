@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from personality_jelly.core import EntityKind, generate_id
 from personality_jelly.domain import Memory, MessageRole
 from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
+from personality_jelly.memory.guard import guard_memory_candidates
 from personality_jelly.memory.prompts import CURATOR_SYSTEM_PROMPT, build_curator_user_prompt
 from personality_jelly.memory.schemas import MemoryCuration
 from personality_jelly.storage import (
@@ -71,6 +72,12 @@ def curate_memories_for_message(
         model_config=model_config,
     )
     curation = TypeAdapter(MemoryCuration).validate_python(raw)
+    guarded_candidates = guard_memory_candidates(
+        curation.memories,
+        user_message=user_message,
+        assistant_message=assistant_message,
+        critic_report=critic_report,
+    )
 
     memories = [
         Memory(
@@ -78,13 +85,13 @@ def curate_memories_for_message(
             user_id=conversation.user_id,
             character_id=conversation.character_id,
             conversation_id=assistant_message.conversation_id,
-            scope=candidate.scope,
-            status=candidate.status,
-            content=candidate.content,
-            importance=candidate.importance,
-            reason=candidate.reason,
+            scope=guarded.candidate.scope,
+            status=guarded.candidate.status,
+            content=guarded.candidate.content,
+            importance=guarded.candidate.importance,
+            reason=guarded.candidate.reason,
         )
-        for candidate in curation.memories
+        for guarded in guarded_candidates
     ]
     repository = MemoryRepository(session)
     for memory in memories:
