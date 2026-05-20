@@ -10,6 +10,8 @@ Check:
 - Mode risk: incorrect handling of reality chat, roleplay scene, co-creation, or meta discussion.
 
 Return a concise structured report. Do not rewrite canon and do not generate the roleplay reply.
+Use suggested_action=accept when the response is safe, retry when it should be regenerated, and
+log when it can be shown but should be reviewed later.
 """
 
 

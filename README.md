@@ -116,8 +116,10 @@ Implemented:
   recorded review reason.
 - Structured benchmark case evaluation through `BenchmarkCaseEvaluation`; benchmark pass/fail is
   not mechanically derived from critic actions.
+- Critic `suggested_action` is a domain enum with `accept`, `retry`, and `log` as the only valid
+  workflow actions.
 - CLI coverage for demo, turn, list, show, eval, archive, edit, and summarize.
-- Full test suite currently passes: `68 passed`.
+- Full test suite currently passes: `72 passed`.
 
 ## Next development tasks
 
@@ -128,8 +130,6 @@ P0:
 - Add tracing for structured semantic operations: mode classifier, memory guard, benchmark
   evaluator, and future retrieval evaluators should record operation, schema, provider, model,
   parsed output, raw output, and validation errors.
-- Tighten `CriticReport.suggested_action` into an explicit contract, preferably an enum or schema
-  pattern, and document `accept/retry/log` semantics.
 
 P1:
 

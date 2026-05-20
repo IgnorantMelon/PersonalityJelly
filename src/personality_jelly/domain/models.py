@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from personality_jelly.domain.enums import (
     ClaimStatus,
     ClaimType,
+    CriticAction,
     CriticRiskLevel,
     EvaluationCaseStatus,
     EvaluationStatus,
@@ -159,7 +160,7 @@ class CriticReport(DomainModel):
     memory_risk: CriticRiskLevel
     mode_risk: CriticRiskLevel
     reasons: list[str] = Field(default_factory=list)
-    suggested_action: str
+    suggested_action: CriticAction
     created_at: datetime = Field(default_factory=utc_now)
 
 

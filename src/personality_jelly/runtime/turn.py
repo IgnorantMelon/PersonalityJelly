@@ -8,6 +8,7 @@ from personality_jelly.critic import evaluate_message
 from personality_jelly.core import EntityKind, generate_id
 from personality_jelly.domain import (
     ContextPackage,
+    CriticAction,
     CriticReport,
     FailureCase,
     InteractionMode,
@@ -197,11 +198,11 @@ def send_roleplay_turn(
 
 
 def _critic_requests_retry(critic_report: CriticReport | None) -> bool:
-    return critic_report is not None and critic_report.suggested_action == "retry"
+    return critic_report is not None and critic_report.suggested_action == CriticAction.RETRY
 
 
 def _critic_requests_log(critic_report: CriticReport | None) -> bool:
-    return critic_report is not None and critic_report.suggested_action == "log"
+    return critic_report is not None and critic_report.suggested_action == CriticAction.LOG
 
 
 def _record_failure_case(
