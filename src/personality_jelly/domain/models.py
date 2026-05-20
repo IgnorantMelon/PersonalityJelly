@@ -163,6 +163,19 @@ class CriticReport(DomainModel):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class FailureCase(DomainModel):
+    id: str
+    conversation_id: str
+    user_message_id: str
+    assistant_message_id: str
+    context_package_id: str
+    critic_report_id: str
+    category: str
+    reason: str
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class LLMRawOutput(DomainModel):
     id: str
     operation: str

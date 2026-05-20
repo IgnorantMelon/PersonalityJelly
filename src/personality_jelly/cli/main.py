@@ -40,6 +40,7 @@ from personality_jelly.storage.repositories import (
     ContextPackageRepository,
     CriticReportRepository,
     EvidenceRefRepository,
+    FailureCaseRepository,
     MemoryRepository,
     MessageRepository,
     PersonaVersionRepository,
@@ -221,6 +222,31 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
     )
+    list_failure_cases = list_subparsers.add_parser(
+        "failure-cases",
+        help="List critic failure cases.",
+    )
+    list_failure_cases.add_argument(
+        "--category",
+        default=None,
+        help="Optional failure category filter, usually retry or log.",
+    )
+    list_failure_cases.add_argument(
+        "--conversation-id",
+        default=None,
+        help="Optional conversation id filter.",
+    )
+    list_failure_cases.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of failure cases to print.",
+    )
+    list_failure_cases.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
 
     archive_parser = subparsers.add_parser("archive", help="Archive persisted resources.")
     archive_subparsers = archive_parser.add_subparsers(dest="resource")
@@ -320,6 +346,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     show_character.add_argument("character_id", help="Character id.")
     show_character.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_failure_case = show_subparsers.add_parser(
+        "failure-case",
+        help="Show a stored critic failure case.",
+    )
+    show_failure_case.add_argument("failure_case_id", help="Failure case id.")
+    show_failure_case.add_argument(
         "--database-url",
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
@@ -426,6 +462,10 @@ def _run_demo(args: argparse.Namespace) -> int:
         "rejected_critic_report_id="
         f"{turn.rejected_critic_report.id if turn.rejected_critic_report else 'none'}"
     )
+    print(f"failure_case_count={len(turn.failure_cases)}")
+    for index, failure_case in enumerate(turn.failure_cases, start=1):
+        print(f"failure_case.{index}.id={failure_case.id}")
+        print(f"failure_case.{index}.category={failure_case.category}")
     print(f"memory_count={len(turn.memories)}")
     return 0
 
@@ -483,6 +523,10 @@ def _run_turn(args: argparse.Namespace) -> int:
         "rejected_critic_report_id="
         f"{turn.rejected_critic_report.id if turn.rejected_critic_report else 'none'}"
     )
+    print(f"failure_case_count={len(turn.failure_cases)}")
+    for index, failure_case in enumerate(turn.failure_cases, start=1):
+        print(f"failure_case.{index}.id={failure_case.id}")
+        print(f"failure_case.{index}.category={failure_case.category}")
     print(f"memory_count={len(turn.memories)}")
     return 0
 
@@ -494,6 +538,8 @@ def _run_list(args: argparse.Namespace) -> int:
         return _run_list_memories(args)
     if args.resource == "claims":
         return _run_list_claims(args)
+    if args.resource == "failure-cases":
+        return _run_list_failure_cases(args)
     raise CliError("list resource is required")
 
 
@@ -524,6 +570,8 @@ def _run_show(args: argparse.Namespace) -> int:
         return _run_show_critic_report(args)
     if args.resource == "character":
         return _run_show_character(args)
+    if args.resource == "failure-case":
+        return _run_show_failure_case(args)
     raise CliError("show resource is required")
 
 
@@ -623,6 +671,44 @@ def _run_list_claims(args: argparse.Namespace) -> int:
             print(f"claim.{index}.evidence_count={len(evidence_refs)}")
             print(f"claim.{index}.content={claim.content}")
             print(f"claim.{index}.reasoning={claim.reasoning or ''}")
+    return 0
+
+
+def _run_list_failure_cases(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        raise CliError("--limit must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        repository = FailureCaseRepository(session)
+        if args.conversation_id is not None:
+            failure_cases = repository.list_by_conversation(args.conversation_id)
+            if args.category is not None:
+                failure_cases = [
+                    failure_case
+                    for failure_case in failure_cases
+                    if failure_case.category == args.category
+                ]
+            failure_cases = failure_cases[: args.limit]
+        else:
+            failure_cases = repository.list_recent(
+                limit=args.limit,
+                category=args.category,
+            )
+
+        print(f"database_url={database_url}")
+        print(f"failure_case_count={len(failure_cases)}")
+        for index, failure_case in enumerate(failure_cases, start=1):
+            print(f"failure_case.{index}.id={failure_case.id}")
+            print(f"failure_case.{index}.category={failure_case.category}")
+            print(f"failure_case.{index}.conversation_id={failure_case.conversation_id}")
+            print(f"failure_case.{index}.assistant_message_id={failure_case.assistant_message_id}")
+            print(f"failure_case.{index}.critic_report_id={failure_case.critic_report_id}")
+            print(f"failure_case.{index}.reason={failure_case.reason}")
     return 0
 
 
@@ -757,6 +843,42 @@ def _run_show_critic_report(args: argparse.Namespace) -> int:
         print("reasons<<END")
         for reason in critic_report.reasons:
             print(f"- {reason}")
+        print("END")
+    return 0
+
+
+def _run_show_failure_case(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            failure_case = FailureCaseRepository(session).require(args.failure_case_id)
+            user_message = MessageRepository(session).require(failure_case.user_message_id)
+            assistant_message = MessageRepository(session).require(failure_case.assistant_message_id)
+            critic_report = CriticReportRepository(session).require(failure_case.critic_report_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"failure_case_id={failure_case.id}")
+        print(f"category={failure_case.category}")
+        print(f"conversation_id={failure_case.conversation_id}")
+        print(f"user_message_id={failure_case.user_message_id}")
+        print(f"assistant_message_id={failure_case.assistant_message_id}")
+        print(f"context_package_id={failure_case.context_package_id}")
+        print(f"critic_report_id={failure_case.critic_report_id}")
+        print(f"critic_action={critic_report.suggested_action}")
+        print(f"reason={failure_case.reason}")
+        print(f"notes={failure_case.notes or ''}")
+        print("user_message<<END")
+        print(user_message.content)
+        print("END")
+        print("assistant_message<<END")
+        print(assistant_message.content)
         print("END")
     return 0
 
