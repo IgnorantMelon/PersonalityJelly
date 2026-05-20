@@ -3,6 +3,7 @@
 from personality_jelly.domain.enums import (
     ClaimStatus,
     ClaimType,
+    CriticAction,
     CriticRiskLevel,
     EvaluationCaseStatus,
     EvaluationStatus,
@@ -39,6 +40,7 @@ __all__ = [
     "ContextPackage",
     "Conversation",
     "CriticReport",
+    "CriticAction",
     "CriticRiskLevel",
     "EvidenceRef",
     "EvaluationCaseResult",

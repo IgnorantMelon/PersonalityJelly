@@ -4,6 +4,7 @@ from personality_jelly.domain import (
     CanonClaim,
     ClaimStatus,
     ClaimType,
+    CriticReport,
     Memory,
     MemoryScope,
     MemoryStatus,
@@ -50,4 +51,21 @@ def test_memory_scope_keeps_user_memory_separate_from_canon() -> None:
 
     assert memory.scope == "user_memory"
     assert memory.character_id == "char_001"
+
+
+def test_critic_report_rejects_unknown_suggested_action() -> None:
+    try:
+        CriticReport(
+            id="cr_001",
+            message_id="msg_001",
+            ooc_risk="low",
+            fact_risk="low",
+            memory_risk="low",
+            mode_risk="low",
+            suggested_action="block",
+        )
+    except ValidationError as error:
+        assert "suggested_action" in str(error)
+    else:
+        raise AssertionError("Expected invalid suggested_action to fail validation.")
 

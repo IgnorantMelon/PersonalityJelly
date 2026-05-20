@@ -46,6 +46,12 @@ class CriticRiskLevel(StrEnum):
     HIGH = "high"
 
 
+class CriticAction(StrEnum):
+    ACCEPT = "accept"
+    RETRY = "retry"
+    LOG = "log"
+
+
 class MessageRole(StrEnum):
     USER = "user"
     ASSISTANT = "assistant"
