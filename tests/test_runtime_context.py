@@ -94,7 +94,10 @@ class CompilerFakeProvider:
 
 def test_build_context_package_persists_prompt_with_persona_claims_and_memory(tmp_path) -> None:
     source_file = tmp_path / "sample.md"
-    source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
+    source_file.write_text(
+        "# 第一章\n\n林霜总是先观察，再行动。\n\n钟声响起时，她看向窗外。",
+        encoding="utf-8",
+    )
     engine = create_database_engine("sqlite:///:memory:")
     create_all(engine)
     session_factory = create_session_factory(engine)
@@ -157,9 +160,12 @@ def test_build_context_package_persists_prompt_with_persona_claims_and_memory(tm
     assert context.persona_version_id == persona.id
     assert context.claim_ids
     assert context.memory_ids == ["mem_001"]
+    assert context.retrieved_chunk_ids
     assert "林霜谨慎敏锐" in context.assembled_prompt
     assert "林霜行事谨慎" in context.assembled_prompt
     assert "用户喜欢夜里写作" in context.assembled_prompt
+    assert "# Retrieved Source Chunks" in context.assembled_prompt
+    assert "林霜总是先观察，再行动。" in context.assembled_prompt
     assert "我今天写得很慢" in context.assembled_prompt
 
 
