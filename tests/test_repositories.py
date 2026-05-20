@@ -220,6 +220,39 @@ def test_memory_repository_updates_content_and_status() -> None:
     assert updated.status == "archived"
 
 
+def test_memory_repository_reviews_candidate_memory() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        memory = Memory(
+            id="mem_001",
+            user_id="user_001",
+            character_id="char_001",
+            scope=MemoryScope.USER_MEMORY,
+            status=MemoryStatus.CANDIDATE,
+            content="用户喜欢夜里写作。",
+            importance=0.7,
+            reason="semantic guard unavailable; queued for review",
+        )
+        reviewed = MemoryRepository(session).add(memory)
+        reviewed = MemoryRepository(session).review_candidate(
+            reviewed.id,
+            status=MemoryStatus.ACCEPTED,
+            reason="用户明确确认这是稳定偏好。",
+        )
+        session.commit()
+
+    with session_factory() as session:
+        stored = MemoryRepository(session).require("mem_001")
+
+    assert reviewed.status == "accepted"
+    assert stored.status == "accepted"
+    assert "Review decision accepted" in stored.reason
+    assert "用户明确确认这是稳定偏好。" in stored.reason
+
+
 def test_failure_case_repository_lists_recent_and_by_conversation() -> None:
     engine = create_database_engine("sqlite:///:memory:")
     create_all(engine)

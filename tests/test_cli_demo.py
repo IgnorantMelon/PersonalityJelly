@@ -1,12 +1,14 @@
 from pathlib import Path
 
 from personality_jelly.cli.main import main
+from personality_jelly.domain import Memory
 from personality_jelly.llm import ChatMessage, ModelConfig
 from personality_jelly.storage import (
     ConversationRepository,
     ContextPackageRepository,
     MemoryRepository,
     MessageRepository,
+    create_all,
     create_database_engine,
     create_session_factory,
 )
@@ -635,6 +637,147 @@ def test_cli_lists_edits_and_archives_memories(
     assert archived.content == "用户喜欢夜里写作。"
     assert archived.reason == "用户修正了记忆。"
     assert archived.status == "archived"
+
+
+def test_cli_reviews_candidate_memory(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    create_all(engine)
+    with session_factory() as session:
+        MemoryRepository(session).add(
+            Memory(
+                id="mem_candidate",
+                user_id="user_001",
+                character_id="char_001",
+                scope="user_memory",
+                status="candidate",
+                content="用户喜欢夜里写作。",
+                importance=0.7,
+                reason="semantic guard unavailable; queued for review",
+            )
+        )
+        MemoryRepository(session).add(
+            Memory(
+                id="mem_rejected_candidate",
+                user_id="user_001",
+                character_id="char_001",
+                scope="user_memory",
+                status="candidate",
+                content="临时玩笑应该写入长期记忆。",
+                importance=0.4,
+                reason="semantic guard queued this memory for review",
+            )
+        )
+        session.commit()
+
+    list_exit_code = main(
+        [
+            "list",
+            "memories",
+            "--user-id",
+            "user_001",
+            "--character-id",
+            "char_001",
+            "--status",
+            "candidate",
+        ]
+    )
+    list_output = capsys.readouterr().out
+
+    review_exit_code = main(
+        [
+            "review",
+            "memory",
+            "mem_candidate",
+            "--decision",
+            "accept",
+            "--reason",
+            "用户明确确认这是稳定偏好。",
+        ]
+    )
+    review_output = capsys.readouterr().out
+
+    with session_factory() as session:
+        reviewed = MemoryRepository(session).require("mem_candidate")
+
+    assert list_exit_code == 0
+    reject_exit_code = main(
+        [
+            "review",
+            "memory",
+            "mem_rejected_candidate",
+            "--decision",
+            "reject",
+            "--reason",
+            "这是临时玩笑，不应保存为长期记忆。",
+        ]
+    )
+    reject_output = capsys.readouterr().out
+
+    assert "memory_count=2" in list_output
+    assert "memory.1.status=candidate" in list_output
+    assert review_exit_code == 0
+    assert "memory_id=mem_candidate" in review_output
+    assert "status=accepted" in review_output
+    assert reject_exit_code == 0
+    assert "memory_id=mem_rejected_candidate" in reject_output
+    assert "status=rejected" in reject_output
+    assert reviewed.status == "accepted"
+    assert "Review decision accepted" in reviewed.reason
+
+    with session_factory() as session:
+        rejected = MemoryRepository(session).require("mem_rejected_candidate")
+
+    assert rejected.status == "rejected"
+    assert "Review decision rejected" in rejected.reason
+
+
+def test_cli_review_rejects_non_candidate_memory(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    create_all(engine)
+    with session_factory() as session:
+        MemoryRepository(session).add(
+            Memory(
+                id="mem_accepted",
+                user_id="user_001",
+                character_id="char_001",
+                scope="user_memory",
+                status="accepted",
+                content="用户喜欢夜里写作。",
+                importance=0.7,
+                reason="already accepted",
+            )
+        )
+        session.commit()
+
+    exit_code = main(
+        [
+            "review",
+            "memory",
+            "mem_accepted",
+            "--decision",
+            "reject",
+            "--reason",
+            "重新审核。",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "only candidate memories can be reviewed" in captured.err
 
 
 def test_cli_summarizes_conversation(

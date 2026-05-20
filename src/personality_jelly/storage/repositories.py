@@ -366,6 +366,29 @@ class MemoryRepository(Repository[Memory, orm.MemoryORM]):
         self.session.flush()
         return mappers.memory_from_orm(row)
 
+    def review_candidate(
+        self,
+        memory_id: str,
+        *,
+        status: MemoryStatus | str,
+        reason: str,
+    ) -> Memory:
+        row = self.session.get(orm.MemoryORM, memory_id)
+        if row is None:
+            raise LookupError(f"MemoryORM {memory_id!r} was not found")
+        target_status = status if isinstance(status, MemoryStatus) else MemoryStatus(status)
+        if target_status not in {MemoryStatus.ACCEPTED, MemoryStatus.REJECTED}:
+            raise ValueError("review status must be accepted or rejected")
+        if row.status != MemoryStatus.CANDIDATE.value:
+            raise ValueError("only candidate memories can be reviewed")
+        review_reason = reason.strip()
+        if not review_reason:
+            raise ValueError("review reason cannot be empty")
+        row.status = target_status.value
+        row.reason = f"{row.reason} Review decision {target_status.value}: {review_reason}"
+        self.session.flush()
+        return mappers.memory_from_orm(row)
+
     def update_content(self, memory_id: str, *, content: str, reason: str | None = None) -> Memory:
         row = self.session.get(orm.MemoryORM, memory_id)
         if row is None:

@@ -78,6 +78,9 @@ Inspect, correct, or archive user memories:
 
 ```powershell
 .\.venv\Scripts\pjelly.exe list memories --user-id user_... --character-id char_...
+.\.venv\Scripts\pjelly.exe list memories --user-id user_... --character-id char_... --status candidate
+.\.venv\Scripts\pjelly.exe review memory mem_... --decision accept --reason "人工确认可保存。"
+.\.venv\Scripts\pjelly.exe review memory mem_... --decision reject --reason "缺少稳定依据。"
 .\.venv\Scripts\pjelly.exe edit memory mem_... --content "用户喜欢夜里写作。"
 .\.venv\Scripts\pjelly.exe archive memory mem_...
 ```
@@ -109,6 +112,8 @@ Implemented:
   similarity, while no-embedding fallback only uses character name/alias entity anchoring.
 - Structured memory safety validation through `MemoryGuardDecision`; guard-unavailable memories are
   downgraded to `candidate` for review instead of being accepted.
+- Candidate memories can be reviewed from the CLI and promoted to `accepted` or `rejected` with a
+  recorded review reason.
 - Structured benchmark case evaluation through `BenchmarkCaseEvaluation`; benchmark pass/fail is
   not mechanically derived from critic actions.
 - CLI coverage for demo, turn, list, show, eval, archive, edit, and summarize.
@@ -120,8 +125,6 @@ P0:
 
 - Add database migrations. `create_all` is acceptable for the MVP loop, but schema evolution needs
   Alembic or an equivalent migration path before persistent data matters.
-- Build the candidate-memory review workflow: list candidate memories, accept/reject them, and
-  preserve review reasons.
 - Add tracing for structured semantic operations: mode classifier, memory guard, benchmark
   evaluator, and future retrieval evaluators should record operation, schema, provider, model,
   parsed output, raw output, and validation errors.

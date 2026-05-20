@@ -81,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_archive(args)
         if args.command == "edit":
             return _run_edit(args)
+        if args.command == "review":
+            return _run_review(args)
         if args.command == "summarize":
             return _run_summarize(args)
         parser.print_help()
@@ -296,6 +298,23 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Reason recorded for the correction.",
     )
     edit_memory.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+
+    review_parser = subparsers.add_parser("review", help="Review persisted resources.")
+    review_subparsers = review_parser.add_subparsers(dest="resource")
+    review_memory = review_subparsers.add_parser("memory", help="Accept or reject a candidate memory.")
+    review_memory.add_argument("memory_id", help="Memory id.")
+    review_memory.add_argument(
+        "--decision",
+        choices=("accept", "reject"),
+        required=True,
+        help="Review decision for a candidate memory.",
+    )
+    review_memory.add_argument("--reason", required=True, help="Reason recorded for the review.")
+    review_memory.add_argument(
         "--database-url",
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
@@ -600,6 +619,12 @@ def _run_edit(args: argparse.Namespace) -> int:
     if args.resource == "memory":
         return _run_edit_memory(args)
     raise CliError("edit resource is required")
+
+
+def _run_review(args: argparse.Namespace) -> int:
+    if args.resource == "memory":
+        return _run_review_memory(args)
+    raise CliError("review resource is required")
 
 
 def _run_summarize(args: argparse.Namespace) -> int:
@@ -1052,6 +1077,40 @@ def _run_edit_memory(args: argparse.Namespace) -> int:
     print(f"memory_id={memory.id}")
     print(f"status={memory.status}")
     print(f"content={memory.content}")
+    print(f"reason={memory.reason}")
+    return 0
+
+
+def _run_review_memory(args: argparse.Namespace) -> int:
+    reason = args.reason.strip()
+    if not reason:
+        raise CliError("--reason cannot be empty")
+    target_status = (
+        MemoryStatus.ACCEPTED
+        if args.decision == "accept"
+        else MemoryStatus.REJECTED
+    )
+
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            memory = MemoryRepository(session).review_candidate(
+                args.memory_id,
+                status=target_status,
+                reason=reason,
+            )
+        except (LookupError, ValueError) as exc:
+            raise CliError(str(exc)) from exc
+        session.commit()
+
+    print(f"database_url={database_url}")
+    print(f"memory_id={memory.id}")
+    print(f"status={memory.status}")
     print(f"reason={memory.reason}")
     return 0
 
