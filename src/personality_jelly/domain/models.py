@@ -180,8 +180,11 @@ class FailureCase(DomainModel):
 class LLMRawOutput(DomainModel):
     id: str
     operation: str
+    schema_name: str
+    model_name: str | None = None
     provider_name: str
     raw_output: str
+    response_schema: dict[str, Any] = Field(default_factory=dict)
     parsed_output: dict[str, Any] | None = None
     validation_errors: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utc_now)

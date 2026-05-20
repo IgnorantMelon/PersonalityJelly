@@ -7,6 +7,7 @@ from personality_jelly.persona import compile_persona_version
 from personality_jelly.runtime import build_context_package, create_conversation, create_user
 from personality_jelly.storage import (
     CharacterRepository,
+    LLMRawOutputRepository,
     MemoryRepository,
     create_all,
     create_database_engine,
@@ -238,6 +239,15 @@ def test_build_context_package_infers_interaction_mode(tmp_path) -> None:
         ).context_package
         session.commit()
 
+    with session_factory() as session:
+        traces = LLMRawOutputRepository(session).list_by_operation(
+            "runtime.mode.classify_interaction_mode"
+        )
+
     assert context.interaction_mode == InteractionMode.ROLEPLAY_SCENE
     assert "# Interaction Mode\nroleplay_scene" in context.assembled_prompt
+    assert len(traces) == 1
+    assert traces[0].schema_name == "InteractionModeClassification"
+    assert traces[0].model_name == "fake-mode"
+    assert traces[0].parsed_output["mode"] == "roleplay_scene"
 

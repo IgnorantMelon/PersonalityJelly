@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
 from personality_jelly.core import EntityKind, generate_id
@@ -17,7 +17,13 @@ from personality_jelly.domain import (
     MemoryStatus,
     MessageRole,
 )
+from personality_jelly.domain.models import utc_now
 from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
+from personality_jelly.llm.tracing import (
+    LLMTraceRecorder,
+    RepositoryLLMTraceRecorder,
+    record_structured_output,
+)
 from personality_jelly.runtime import (
     RoleplayTurnModelConfigs,
     RoleplayTurnProviders,
@@ -29,13 +35,14 @@ from personality_jelly.storage import (
     CharacterRepository,
     EvaluationCaseResultRepository,
     EvaluationRunRepository,
+    LLMRawOutputRepository,
     MemoryRepository,
     PersonaVersionRepository,
 )
-from personality_jelly.domain.models import utc_now
 
 
 DEFAULT_OOC_TEST_SUITE = "mvp_default"
+BENCHMARK_EVALUATOR_OPERATION = "evaluation.benchmark.case_evaluation"
 
 
 BENCHMARK_EVALUATOR_SYSTEM_PROMPT = """Evaluate whether a roleplay benchmark case passed.
@@ -127,6 +134,7 @@ def run_ooc_benchmark(
         total_cases=len(cases),
     )
     run_repository.add(run)
+    trace_recorder = RepositoryLLMTraceRecorder(LLMRawOutputRepository(session))
 
     user = create_user(
         session,
@@ -163,6 +171,7 @@ def run_ooc_benchmark(
             benchmark_case=benchmark_case,
             assistant_content=turn.assistant_message.content,
             critic_report=turn.critic_report,
+            trace_recorder=trace_recorder,
         )
         status = (
             EvaluationCaseStatus.PASSED
@@ -209,6 +218,7 @@ def _seed_benchmark_memory(session: Session, *, user_id: str, character_id: str)
     )
     MemoryRepository(session).add(memory)
 
+
 def _evaluate_case(
     *,
     provider: LLMProvider,
@@ -216,6 +226,7 @@ def _evaluate_case(
     benchmark_case: BenchmarkCase,
     assistant_content: str,
     critic_report,
+    trace_recorder: LLMTraceRecorder | None = None,
 ) -> BenchmarkCaseEvaluation:
     critic_text = (
         "\n".join(
@@ -232,6 +243,7 @@ def _evaluate_case(
         if critic_report is not None
         else "none"
     )
+    schema = BenchmarkCaseEvaluation.model_json_schema()
     raw = provider.generate_json(
         messages=[
             ChatMessage(role=MessageRole.SYSTEM, content=BENCHMARK_EVALUATOR_SYSTEM_PROMPT),
@@ -254,7 +266,31 @@ def _evaluate_case(
                 ),
             ),
         ],
-        schema=BenchmarkCaseEvaluation.model_json_schema(),
+        schema=schema,
         model_config=model_config,
     )
-    return TypeAdapter(BenchmarkCaseEvaluation).validate_python(raw)
+    try:
+        evaluation = TypeAdapter(BenchmarkCaseEvaluation).validate_python(raw)
+    except ValidationError as exc:
+        record_structured_output(
+            recorder=trace_recorder,
+            operation=BENCHMARK_EVALUATOR_OPERATION,
+            schema_name="BenchmarkCaseEvaluation",
+            provider=provider,
+            model_config=model_config,
+            response_schema=schema,
+            raw_output=raw,
+            validation_error=exc,
+        )
+        raise
+    record_structured_output(
+        recorder=trace_recorder,
+        operation=BENCHMARK_EVALUATOR_OPERATION,
+        schema_name="BenchmarkCaseEvaluation",
+        provider=provider,
+        model_config=model_config,
+        response_schema=schema,
+        raw_output=raw,
+        parsed_output=evaluation,
+    )
+    return evaluation

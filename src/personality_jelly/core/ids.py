@@ -17,6 +17,7 @@ class EntityKind(StrEnum):
     CONTEXT_PACKAGE = "context_package"
     CRITIC_REPORT = "critic_report"
     FAILURE_CASE = "failure_case"
+    LLM_RAW_OUTPUT = "llm_raw_output"
     EVALUATION_RUN = "evaluation_run"
     EVALUATION_CASE_RESULT = "evaluation_case_result"
 
@@ -36,6 +37,7 @@ ID_PREFIXES: dict[EntityKind, str] = {
     EntityKind.CONTEXT_PACKAGE: "ctx",
     EntityKind.CRITIC_REPORT: "cr",
     EntityKind.FAILURE_CASE: "fail",
+    EntityKind.LLM_RAW_OUTPUT: "llmraw",
     EntityKind.EVALUATION_RUN: "eval",
     EntityKind.EVALUATION_CASE_RESULT: "evalcase",
 }

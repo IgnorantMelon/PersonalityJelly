@@ -9,6 +9,7 @@ from personality_jelly.storage import (
     CharacterRepository,
     EvaluationCaseResultRepository,
     EvaluationRunRepository,
+    LLMRawOutputRepository,
     create_all,
     create_database_engine,
     create_session_factory,
@@ -165,6 +166,9 @@ def test_run_ooc_benchmark_persists_run_and_case_results(tmp_path) -> None:
     with session_factory() as session:
         run = EvaluationRunRepository(session).require(result.run.id)
         case_results = EvaluationCaseResultRepository(session).list_by_run(run.id)
+        traces = LLMRawOutputRepository(session).list_by_operation(
+            "evaluation.benchmark.case_evaluation"
+        )
 
     assert run.status == "completed"
     assert run.total_cases == len(DEFAULT_OOC_BENCHMARK_CASES)
@@ -173,6 +177,10 @@ def test_run_ooc_benchmark_persists_run_and_case_results(tmp_path) -> None:
     assert len(case_results) == len(DEFAULT_OOC_BENCHMARK_CASES)
     assert {case.status for case in case_results} == {EvaluationCaseStatus.PASSED}
     assert case_results[-1].case_id == "joke_pollution"
+    assert len(traces) == len(DEFAULT_OOC_BENCHMARK_CASES)
+    assert traces[0].schema_name == "BenchmarkCaseEvaluation"
+    assert traces[0].model_name == "fake-benchmark"
+    assert traces[0].parsed_output["passed"] is True
 
 
 def test_evaluation_run_repository_filters_recent_runs(tmp_path) -> None:
