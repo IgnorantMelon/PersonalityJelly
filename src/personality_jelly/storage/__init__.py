@@ -1,6 +1,17 @@
 """Storage primitives."""
 
 from personality_jelly.storage.database import create_database_engine, create_session_factory
+from personality_jelly.storage.migrations import (
+    CURRENT_SCHEMA_VERSION,
+    MIGRATIONS,
+    AppliedMigration,
+    Migration,
+    MigrationResult,
+    MigrationStatus,
+    ensure_database_ready,
+    get_migration_status,
+    migrate_database,
+)
 from personality_jelly.storage.orm import Base, create_all
 from personality_jelly.storage.repositories import (
     CanonClaimRepository,
@@ -24,6 +35,7 @@ from personality_jelly.storage.repositories import (
 
 __all__ = [
     "Base",
+    "CURRENT_SCHEMA_VERSION",
     "CanonClaimRepository",
     "CharacterRepository",
     "ClaimConflictRepository",
@@ -36,6 +48,11 @@ __all__ = [
     "FailureCaseRepository",
     "LLMRawOutputRepository",
     "MemoryRepository",
+    "MIGRATIONS",
+    "AppliedMigration",
+    "Migration",
+    "MigrationResult",
+    "MigrationStatus",
     "MessageRepository",
     "PersonaVersionRepository",
     "SourceChunkRepository",
@@ -44,5 +61,8 @@ __all__ = [
     "create_all",
     "create_database_engine",
     "create_session_factory",
+    "ensure_database_ready",
+    "get_migration_status",
+    "migrate_database",
 ]
 

@@ -32,7 +32,13 @@ from personality_jelly.runtime import (
     summarize_conversation,
 )
 from personality_jelly.persona import compile_persona_version
-from personality_jelly.storage import create_all, create_database_engine, create_session_factory
+from personality_jelly.storage import (
+    create_database_engine,
+    create_session_factory,
+    ensure_database_ready,
+    get_migration_status,
+    migrate_database,
+)
 from personality_jelly.storage.repositories import (
     CharacterRepository,
     CanonClaimRepository,
@@ -85,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_review(args)
         if args.command == "summarize":
             return _run_summarize(args)
+        if args.command == "db":
+            return _run_db(args)
         parser.print_help()
         return 1
     except CliError as exc:
@@ -445,6 +453,21 @@ def _build_parser() -> argparse.ArgumentParser:
         default="stub",
         help="LLM provider source: stub for deterministic local output, env for PJ_* settings.",
     )
+
+    db_parser = subparsers.add_parser("db", help="Manage database schema migrations.")
+    db_subparsers = db_parser.add_subparsers(dest="resource")
+    db_status = db_subparsers.add_parser("status", help="Show database migration status.")
+    db_status.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    db_migrate = db_subparsers.add_parser("migrate", help="Apply pending database migrations.")
+    db_migrate.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
     return parser
 
 
@@ -453,7 +476,7 @@ def _run_demo(args: argparse.Namespace) -> int:
     database_url = _resolve_database_url(args, settings)
     provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -535,7 +558,7 @@ def _run_turn(args: argparse.Namespace) -> int:
     database_url = _resolve_database_url(args, settings)
     provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -655,13 +678,58 @@ def _run_eval(args: argparse.Namespace) -> int:
     raise CliError("eval resource is required")
 
 
+def _run_db(args: argparse.Namespace) -> int:
+    if args.resource == "status":
+        return _run_db_status(args)
+    if args.resource == "migrate":
+        return _run_db_migrate(args)
+    raise CliError("db resource is required")
+
+
+def _run_db_status(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    status = get_migration_status(engine)
+
+    print(f"database_url={database_url}")
+    print(f"current_version={status.current_version or 'none'}")
+    print(f"target_version={status.target_version}")
+    print(f"migration_table={str(status.has_schema_migrations_table).lower()}")
+    print(f"application_tables={str(status.has_application_tables).lower()}")
+    print(f"applied_count={len(status.applied)}")
+    print(f"pending_count={len(status.pending)}")
+    for index, migration in enumerate(status.pending, start=1):
+        print(f"pending.{index}.version={migration.version}")
+        print(f"pending.{index}.description={migration.description}")
+    return 0
+
+
+def _run_db_migrate(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    result = migrate_database(engine)
+
+    print(f"database_url={database_url}")
+    print(f"current_version={result.status.current_version or 'none'}")
+    print(f"target_version={result.status.target_version}")
+    print(f"baselined_existing_database={str(result.baselined_existing_database).lower()}")
+    print(f"applied_count={len(result.applied)}")
+    for index, migration in enumerate(result.applied, start=1):
+        print(f"applied.{index}.version={migration.version}")
+        print(f"applied.{index}.description={migration.description}")
+    print(f"pending_count={len(result.status.pending)}")
+    return 0
+
+
 def _run_list_conversations(args: argparse.Namespace) -> int:
     if args.limit < 1:
         raise CliError("--limit must be greater than 0")
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -686,7 +754,7 @@ def _run_list_memories(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
     scope = MemoryScope(args.scope) if args.scope is not None else None
     status = MemoryStatus(args.status) if args.status is not None else None
@@ -715,7 +783,7 @@ def _run_list_claims(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
     status = ClaimStatus(args.status) if args.status is not None else None
     claim_type = ClaimType(args.claim_type) if args.claim_type is not None else None
@@ -754,7 +822,7 @@ def _run_list_failure_cases(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -792,7 +860,7 @@ def _run_list_eval_runs(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -822,7 +890,7 @@ def _run_show_conversation(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -855,7 +923,7 @@ def _run_show_character(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -900,7 +968,7 @@ def _run_show_context_package(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -927,7 +995,7 @@ def _run_show_critic_report(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -955,7 +1023,7 @@ def _run_show_failure_case(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -991,7 +1059,7 @@ def _run_show_eval_run(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -1029,7 +1097,7 @@ def _run_archive_memory(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -1059,7 +1127,7 @@ def _run_edit_memory(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -1094,7 +1162,7 @@ def _run_review_memory(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -1122,7 +1190,7 @@ def _run_summarize_conversation(args: argparse.Namespace) -> int:
     database_url = _resolve_database_url(args, settings)
     provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -1149,7 +1217,7 @@ def _run_ooc_benchmark(args: argparse.Namespace) -> int:
     database_url = _resolve_database_url(args, settings)
     provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
     engine = create_database_engine(database_url)
-    create_all(engine)
+    ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
@@ -1331,4 +1399,3 @@ def _claim_type_counts(claims) -> dict[str, int]:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
