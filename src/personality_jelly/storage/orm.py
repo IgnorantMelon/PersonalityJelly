@@ -208,6 +208,28 @@ class CriticReportORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class FailureCaseORM(Base):
+    __tablename__ = "failure_cases"
+    __table_args__ = (
+        Index("ix_failure_cases_conversation_created", "conversation_id", "created_at"),
+        Index("ix_failure_cases_category_created", "category", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"), nullable=False)
+    user_message_id: Mapped[str] = mapped_column(ForeignKey("messages.id"), nullable=False)
+    assistant_message_id: Mapped[str] = mapped_column(ForeignKey("messages.id"), nullable=False)
+    context_package_id: Mapped[str] = mapped_column(
+        ForeignKey("context_packages.id"),
+        nullable=False,
+    )
+    critic_report_id: Mapped[str] = mapped_column(ForeignKey("critic_reports.id"), nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class EvaluationRunORM(Base):
     __tablename__ = "evaluation_runs"
     __table_args__ = (

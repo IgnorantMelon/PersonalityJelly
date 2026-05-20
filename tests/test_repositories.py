@@ -1,6 +1,9 @@
 from personality_jelly.domain import (
     Character,
     Conversation,
+    ContextPackage,
+    CriticReport,
+    FailureCase,
     InteractionMode,
     Memory,
     MemoryScope,
@@ -15,6 +18,9 @@ from personality_jelly.ingestion import chunk_source_text
 from personality_jelly.storage import (
     CharacterRepository,
     ConversationRepository,
+    ContextPackageRepository,
+    CriticReportRepository,
+    FailureCaseRepository,
     MemoryRepository,
     MessageRepository,
     PersonaVersionRepository,
@@ -212,4 +218,103 @@ def test_memory_repository_updates_content_and_status() -> None:
     assert updated.content == "用户喜欢夜里写作。"
     assert updated.reason == "用户修正了记忆。"
     assert updated.status == "archived"
+
+
+def test_failure_case_repository_lists_recent_and_by_conversation() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        SourceWorkRepository(session).add(
+            SourceWork(id="sw_001", title="Failure Work", source_type="markdown")
+        )
+        CharacterRepository(session).add(
+            Character(
+                id="char_001",
+                source_work_id="sw_001",
+                canonical_name="Lin Shuang",
+            )
+        )
+        PersonaVersionRepository(session).add(
+            PersonaVersion(
+                id="pv_001",
+                character_id="char_001",
+                source_work_id="sw_001",
+                version_number=1,
+                core_self="Careful observer.",
+            )
+        )
+        UserRepository(session).add(User(id="user_001", display_name="tester"))
+        ConversationRepository(session).add(
+            Conversation(
+                id="conv_001",
+                user_id="user_001",
+                character_id="char_001",
+                persona_version_id="pv_001",
+                current_mode=InteractionMode.REALITY_CHAT,
+            )
+        )
+        ContextPackageRepository(session).add(
+            ContextPackage(
+                id="ctx_001",
+                conversation_id="conv_001",
+                interaction_mode=InteractionMode.REALITY_CHAT,
+                persona_version_id="pv_001",
+                assembled_prompt="Prompt",
+            )
+        )
+        MessageRepository(session).add(
+            Message(
+                id="msg_user_001",
+                conversation_id="conv_001",
+                role=MessageRole.USER,
+                content="Who are you?",
+            )
+        )
+        MessageRepository(session).add(
+            Message(
+                id="msg_assistant_001",
+                conversation_id="conv_001",
+                role=MessageRole.ASSISTANT,
+                content="I am a generic assistant.",
+                context_package_id="ctx_001",
+            )
+        )
+        CriticReportRepository(session).add(
+            CriticReport(
+                id="cr_001",
+                message_id="msg_assistant_001",
+                ooc_risk="high",
+                fact_risk="low",
+                memory_risk="low",
+                mode_risk="low",
+                reasons=["Assistant broke character."],
+                suggested_action="retry",
+            )
+        )
+        FailureCaseRepository(session).add(
+            FailureCase(
+                id="fail_001",
+                conversation_id="conv_001",
+                user_message_id="msg_user_001",
+                assistant_message_id="msg_assistant_001",
+                context_package_id="ctx_001",
+                critic_report_id="cr_001",
+                category="retry",
+                reason="Assistant broke character.",
+                notes="Captured during retry.",
+            )
+        )
+        session.commit()
+
+    with session_factory() as session:
+        repository = FailureCaseRepository(session)
+        stored = repository.require("fail_001")
+        recent = repository.list_recent(category="retry")
+        by_conversation = repository.list_by_conversation("conv_001")
+
+    assert stored.assistant_message_id == "msg_assistant_001"
+    assert recent[0].id == "fail_001"
+    assert by_conversation[0].reason == "Assistant broke character."
 

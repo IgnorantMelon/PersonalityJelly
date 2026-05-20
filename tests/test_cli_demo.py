@@ -26,6 +26,32 @@ class RecordingProvider(StubProvider):
         return super().generate_json(messages, schema, model_config)
 
 
+class RetryThenAcceptStubProvider(StubProvider):
+    def __init__(self) -> None:
+        self.critic_calls = 0
+        self.text_calls = 0
+
+    def generate_text(self, messages: list[ChatMessage], model_config: ModelConfig) -> str:
+        self.text_calls += 1
+        if self.text_calls == 1:
+            return "I am a generic assistant."
+        return super().generate_text(messages, model_config)
+
+    def generate_json(self, messages, schema, model_config):
+        if schema.get("title") == "CriticEvaluation":
+            self.critic_calls += 1
+            if self.critic_calls == 1:
+                return {
+                    "ooc_risk": "high",
+                    "fact_risk": "low",
+                    "memory_risk": "low",
+                    "mode_risk": "low",
+                    "reasons": ["Assistant broke character."],
+                    "suggested_action": "retry",
+                }
+        return super().generate_json(messages, schema, model_config)
+
+
 def test_cli_demo_runs_end_to_end(tmp_path: Path, capsys) -> None:
     source_file = tmp_path / "sample.md"
     source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
@@ -400,6 +426,54 @@ def test_cli_runs_ooc_benchmark(tmp_path: Path, capsys, monkeypatch) -> None:
     assert "failed=0" in eval_output
     assert "case.10.id=joke_pollution" in eval_output
     assert "case.10.status=passed" in eval_output
+
+
+def test_cli_lists_and_shows_failure_cases(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    provider = RetryThenAcceptStubProvider()
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+    monkeypatch.setattr(
+        "personality_jelly.cli.main._resolve_demo_provider",
+        lambda provider_source, *, settings=None: (provider, ModelConfig(model="stub")),
+    )
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+            "--retry-on-critic",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    failure_case_id = _output_value(demo_output, "failure_case.1.id")
+
+    list_exit_code = main(["list", "failure-cases", "--category", "retry"])
+    list_output = capsys.readouterr().out
+
+    show_exit_code = main(["show", "failure-case", failure_case_id])
+    show_output = capsys.readouterr().out
+
+    assert demo_exit_code == 0
+    assert "failure_case_count=1" in demo_output
+    assert "failure_case.1.category=retry" in demo_output
+    assert list_exit_code == 0
+    assert "failure_case_count=1" in list_output
+    assert f"failure_case.1.id={failure_case_id}" in list_output
+    assert "failure_case.1.category=retry" in list_output
+    assert show_exit_code == 0
+    assert f"failure_case_id={failure_case_id}" in show_output
+    assert "critic_action=retry" in show_output
+    assert "assistant_message<<END" in show_output
+    assert "I am a generic assistant." in show_output
 
 
 def test_cli_lists_edits_and_archives_memories(

@@ -20,6 +20,7 @@ from personality_jelly.domain import (
     EvaluationCaseStatus,
     EvaluationRun,
     EvaluationStatus,
+    FailureCase,
     Memory,
     MemoryScope,
     MemoryStatus,
@@ -394,6 +395,37 @@ class CriticReportRepository(Repository[CriticReport, orm.CriticReportORM]):
             mappers.critic_report_to_orm,
             mappers.critic_report_from_orm,
         )
+
+
+class FailureCaseRepository(Repository[FailureCase, orm.FailureCaseORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.FailureCaseORM,
+            mappers.failure_case_to_orm,
+            mappers.failure_case_from_orm,
+        )
+
+    def list_recent(
+        self,
+        *,
+        limit: int | None = None,
+        category: str | None = None,
+    ) -> list[FailureCase]:
+        statement = select(orm.FailureCaseORM).order_by(orm.FailureCaseORM.created_at.desc())
+        if category is not None:
+            statement = statement.where(orm.FailureCaseORM.category == category)
+        if limit is not None:
+            statement = statement.limit(limit)
+        return self._all(statement)
+
+    def list_by_conversation(self, conversation_id: str) -> list[FailureCase]:
+        statement = (
+            select(orm.FailureCaseORM)
+            .where(orm.FailureCaseORM.conversation_id == conversation_id)
+            .order_by(orm.FailureCaseORM.created_at.desc())
+        )
+        return self._all(statement)
 
 
 class EvaluationRunRepository(Repository[EvaluationRun, orm.EvaluationRunORM]):
