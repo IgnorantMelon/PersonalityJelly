@@ -189,6 +189,10 @@ Inspect, correct, or archive user memories:
 The default `demo` provider is still `stub`, so existing deterministic local demos do not need
 network access or environment variables.
 
+For future coding sessions, use [VIBE_CODING_GUIDE.md](./VIBE_CODING_GUIDE.md) as the current
+project guide. It condenses only the project direction, engineering rules, and architecture choices
+that are currently adopted and still valid.
+
 ## Current project status
 
 Last updated: 2026-05-21.
