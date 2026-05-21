@@ -22,7 +22,13 @@ from personality_jelly.domain import (
 from personality_jelly.extraction import run_reader_extraction, verify_candidate_claims
 from personality_jelly.evaluation import run_ooc_benchmark
 from personality_jelly.ingestion import SourceIngestionResult, ingest_text_file
-from personality_jelly.llm import EmbeddingConfig, LLMProvider, ModelConfig, build_llm_provider
+from personality_jelly.llm import (
+    EmbeddingConfig,
+    LLMProvider,
+    ModelConfig,
+    build_embedding_provider,
+    build_llm_provider,
+)
 from personality_jelly.runtime import (
     RoleplayTurnModelConfigs,
     RoleplayTurnProviders,
@@ -93,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_summarize(args)
         if args.command == "db":
             return _run_db(args)
+        if args.command == "config":
+            return _run_config(args)
         parser.print_help()
         return 1
     except CliError as exc:
@@ -468,6 +476,10 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
     )
+
+    config_parser = subparsers.add_parser("config", help="Inspect runtime configuration.")
+    config_subparsers = config_parser.add_subparsers(dest="resource")
+    config_subparsers.add_parser("show", help="Show sanitized runtime configuration.")
     return parser
 
 
@@ -475,6 +487,10 @@ def _run_demo(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
+    embedding_provider, embedding_config = _resolve_embedding_provider(
+        args.provider,
+        settings=settings,
+    )
     engine = create_database_engine(database_url)
     ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
@@ -507,14 +523,14 @@ def _run_demo(args: argparse.Namespace) -> int:
                 critic=provider,
                 memory_curator=provider,
                 mode_classifier=provider,
-                retriever=provider if _resolve_embedding_config(settings) is not None else None,
+                retriever=embedding_provider,
             ),
             model_configs=RoleplayTurnModelConfigs(
                 roleplay=model_config,
                 critic=model_config,
                 memory_curator=model_config,
                 mode_classifier=model_config,
-                retrieval_embedding=_resolve_embedding_config(settings),
+                retrieval_embedding=embedding_config,
             ),
             interaction_mode=(
                 InteractionMode(args.interaction_mode)
@@ -557,6 +573,10 @@ def _run_turn(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
+    embedding_provider, embedding_config = _resolve_embedding_provider(
+        args.provider,
+        settings=settings,
+    )
     engine = create_database_engine(database_url)
     ensure_database_ready(engine)
     session_factory = create_session_factory(engine)
@@ -575,14 +595,14 @@ def _run_turn(args: argparse.Namespace) -> int:
                 critic=provider,
                 memory_curator=provider,
                 mode_classifier=provider,
-                retriever=provider if _resolve_embedding_config(settings) is not None else None,
+                retriever=embedding_provider,
             ),
             model_configs=RoleplayTurnModelConfigs(
                 roleplay=model_config,
                 critic=model_config,
                 memory_curator=model_config,
                 mode_classifier=model_config,
-                retrieval_embedding=_resolve_embedding_config(settings),
+                retrieval_embedding=embedding_config,
             ),
             interaction_mode=(
                 InteractionMode(args.interaction_mode)
@@ -1250,6 +1270,38 @@ def _run_ooc_benchmark(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_config(args: argparse.Namespace) -> int:
+    if args.resource == "show":
+        return _run_config_show(args)
+    raise CliError("config resource is required")
+
+
+def _run_config_show(args: argparse.Namespace) -> int:
+    settings = Settings()
+    print(f"config_file={settings.resolved_config_file}")
+    print(f"database_url={settings.database_url}")
+    print(f"default_language={settings.default_language}")
+    print(f"log_level={settings.log_level}")
+    print(f"llm.provider={_display_value(settings.llm_provider)}")
+    print(f"llm.base_url={settings.llm_base_url}")
+    print(f"llm.model={_display_value(settings.llm_model)}")
+    print(f"llm.timeout_seconds={settings.llm_timeout_seconds:g}")
+    print(f"llm.api_key_configured={_bool_text(bool(settings.llm_api_key))}")
+    embedding_provider = settings.embedding_provider or settings.llm_provider
+    print(f"embedding.provider={_display_value(embedding_provider)}")
+    print(f"embedding.base_url={settings.embedding_base_url or settings.llm_base_url}")
+    print(f"embedding.model={_display_value(settings.embedding_model)}")
+    print(
+        "embedding.timeout_seconds="
+        f"{(settings.embedding_timeout_seconds or settings.llm_timeout_seconds):g}"
+    )
+    print(
+        "embedding.api_key_configured="
+        f"{_bool_text(bool(settings.embedding_api_key or settings.llm_api_key))}"
+    )
+    return 0
+
+
 def _resolve_database_url(args: argparse.Namespace, settings: Settings) -> str:
     memory_db = getattr(args, "memory_db", False)
     if memory_db and args.database_url:
@@ -1264,6 +1316,25 @@ def _resolve_embedding_config(settings: Settings) -> EmbeddingConfig | None:
     if not embedding_model:
         return None
     return EmbeddingConfig(model=embedding_model)
+
+
+def _resolve_embedding_provider(
+    provider_source: str,
+    *,
+    settings: Settings | None = None,
+) -> tuple[LLMProvider | None, EmbeddingConfig | None]:
+    embedding_config = _resolve_embedding_config(settings or Settings())
+    if embedding_config is None:
+        return None, None
+    if provider_source == "stub":
+        return StubProvider(), embedding_config
+    if provider_source == "env":
+        active_settings = settings or Settings()
+        try:
+            return build_embedding_provider(active_settings), embedding_config
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
+    raise CliError(f"unsupported provider source {provider_source!r}")
 
 
 def _resolve_demo_provider(
@@ -1286,6 +1357,16 @@ def _resolve_demo_provider(
         return provider, ModelConfig(model=llm_model)
 
     raise CliError(f"unsupported provider source {provider_source!r}")
+
+
+def _display_value(value: str | None) -> str:
+    if value is None or not value.strip():
+        return "none"
+    return value
+
+
+def _bool_text(value: bool) -> str:
+    return "true" if value else "false"
 
 
 def _prepare_demo_persona(

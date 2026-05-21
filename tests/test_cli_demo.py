@@ -2,7 +2,7 @@ from pathlib import Path
 
 from personality_jelly.cli.main import main
 from personality_jelly.domain import Memory
-from personality_jelly.llm import ChatMessage, ModelConfig
+from personality_jelly.llm import ChatMessage, EmbeddingConfig, ModelConfig
 from personality_jelly.storage import (
     ConversationRepository,
     ContextPackageRepository,
@@ -19,6 +19,7 @@ from personality_jelly.testing.stub_provider import StubProvider
 class RecordingProvider(StubProvider):
     def __init__(self) -> None:
         self.model_names: list[str] = []
+        self.embedding_model_names: list[str] = []
 
     def generate_text(self, messages: list[ChatMessage], model_config: ModelConfig) -> str:
         self.model_names.append(model_config.model)
@@ -27,6 +28,10 @@ class RecordingProvider(StubProvider):
     def generate_json(self, messages, schema, model_config):
         self.model_names.append(model_config.model)
         return super().generate_json(messages, schema, model_config)
+
+    def embed_texts(self, texts: list[str], embedding_config: EmbeddingConfig) -> list[list[float]]:
+        self.embedding_model_names.append(embedding_config.model)
+        return super().embed_texts(texts, embedding_config)
 
 
 class RetryThenAcceptStubProvider(StubProvider):
@@ -127,6 +132,52 @@ def test_cli_demo_can_use_env_provider_without_network(
     assert set(provider.model_names) == {"chat-model"}
 
 
+def test_cli_demo_uses_separate_embedding_provider_when_configured(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    llm_provider = RecordingProvider()
+    embedding_provider = RecordingProvider()
+
+    monkeypatch.setenv("PJ_LLM_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("PJ_LLM_API_KEY", "test-key")
+    monkeypatch.setenv("PJ_LLM_MODEL", "chat-model")
+    monkeypatch.setenv("PJ_EMBEDDING_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("PJ_EMBEDDING_API_KEY", "embedding-key")
+    monkeypatch.setenv("PJ_EMBEDDING_MODEL", "embedding-model")
+    monkeypatch.setattr(
+        "personality_jelly.cli.main.build_llm_provider",
+        lambda settings: llm_provider,
+    )
+    monkeypatch.setattr(
+        "personality_jelly.cli.main.build_embedding_provider",
+        lambda settings: embedding_provider,
+    )
+
+    exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--memory-db",
+            "--provider",
+            "env",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "assistant=" in output
+    assert set(llm_provider.model_names) == {"chat-model"}
+    assert llm_provider.embedding_model_names == []
+    assert embedding_provider.embedding_model_names
+    assert set(embedding_provider.embedding_model_names) == {"embedding-model"}
+
+
 def test_cli_demo_env_provider_requires_model(tmp_path: Path, capsys, monkeypatch) -> None:
     source_file = tmp_path / "sample.md"
     source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
@@ -148,6 +199,47 @@ def test_cli_demo_env_provider_requires_model(tmp_path: Path, capsys, monkeypatc
     captured = capsys.readouterr()
     assert exit_code == 2
     assert "PJ_LLM_MODEL is required" in captured.err
+
+
+def test_cli_config_show_prints_sanitized_cloud_settings(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    config_file = tmp_path / "pjelly.toml"
+    config_file.write_text(
+        """
+[llm]
+provider = "openai-compatible"
+base_url = "https://chat.example/v1"
+model = "chat-model"
+
+[embedding]
+provider = "openai-compatible"
+base_url = "https://embedding.example/v1"
+model = "embedding-model"
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PJ_CONFIG_FILE", str(config_file))
+    monkeypatch.setenv("PJ_LLM_API_KEY", "llm-secret")
+    monkeypatch.setenv("PJ_EMBEDDING_API_KEY", "embedding-secret")
+
+    exit_code = main(["config", "show"])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert f"config_file={config_file}" in output
+    assert "llm.provider=openai-compatible" in output
+    assert "llm.base_url=https://chat.example/v1" in output
+    assert "llm.model=chat-model" in output
+    assert "llm.api_key_configured=true" in output
+    assert "embedding.provider=openai-compatible" in output
+    assert "embedding.base_url=https://embedding.example/v1" in output
+    assert "embedding.model=embedding-model" in output
+    assert "embedding.api_key_configured=true" in output
+    assert "llm-secret" not in output
+    assert "embedding-secret" not in output
 
 
 def test_cli_demo_reuses_existing_records_from_configured_database(

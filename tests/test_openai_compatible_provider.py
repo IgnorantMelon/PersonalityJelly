@@ -11,6 +11,7 @@ from personality_jelly.llm import (
     OpenAICompatibleConfig,
     OpenAICompatibleError,
     OpenAICompatibleProvider,
+    build_embedding_provider,
     build_llm_provider,
 )
 
@@ -167,6 +168,47 @@ def test_build_llm_provider_from_settings(monkeypatch) -> None:
     assert provider.config.base_url == "https://llm.example/v1"
     assert provider.config.api_key == "secret"
     assert provider.config.timeout_seconds == 7
+
+
+def test_build_embedding_provider_can_use_separate_cloud_settings(monkeypatch) -> None:
+    monkeypatch.setenv("PJ_LLM_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("PJ_LLM_BASE_URL", "https://chat.example/v1")
+    monkeypatch.setenv("PJ_LLM_API_KEY", "chat-secret")
+    monkeypatch.setenv("PJ_EMBEDDING_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("PJ_EMBEDDING_BASE_URL", "https://embedding.example/v1")
+    monkeypatch.setenv("PJ_EMBEDDING_API_KEY", "embedding-secret")
+    monkeypatch.setenv("PJ_EMBEDDING_TIMEOUT_SECONDS", "9")
+
+    provider = build_embedding_provider(Settings())
+
+    assert isinstance(provider, OpenAICompatibleProvider)
+    assert provider.config.base_url == "https://embedding.example/v1"
+    assert provider.config.api_key == "embedding-secret"
+    assert provider.config.timeout_seconds == 9
+
+
+def test_build_embedding_provider_defaults_to_llm_cloud_endpoint(monkeypatch) -> None:
+    monkeypatch.setenv("PJ_LLM_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("PJ_LLM_BASE_URL", "https://chat.example/v1")
+    monkeypatch.setenv("PJ_LLM_API_KEY", "chat-secret")
+    monkeypatch.delenv("PJ_EMBEDDING_PROVIDER", raising=False)
+    monkeypatch.delenv("PJ_EMBEDDING_BASE_URL", raising=False)
+    monkeypatch.delenv("PJ_EMBEDDING_API_KEY", raising=False)
+
+    provider = build_embedding_provider(Settings())
+
+    assert isinstance(provider, OpenAICompatibleProvider)
+    assert provider.config.base_url == "https://chat.example/v1"
+    assert provider.config.api_key == "chat-secret"
+
+
+def test_build_embedding_provider_requires_api_key(monkeypatch) -> None:
+    monkeypatch.setenv("PJ_EMBEDDING_PROVIDER", "openai-compatible")
+    monkeypatch.delenv("PJ_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("PJ_EMBEDDING_API_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="PJ_EMBEDDING_API_KEY"):
+        build_embedding_provider(Settings())
 
 
 def test_build_llm_provider_requires_api_key(monkeypatch) -> None:

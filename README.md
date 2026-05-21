@@ -10,18 +10,46 @@ The first implementation phase focuses on stable engineering boundaries:
 - replaceable LLM provider abstraction
 - SQLite-first storage that can migrate toward PostgreSQL
 
-## LLM provider
+## Model configuration
 
-The real provider entrypoint is OpenAI-compatible and configured with environment variables:
+The real provider entrypoint is OpenAI-compatible. Non-secret defaults can be stored in
+`pjelly.toml`; copy `pjelly.example.toml` and edit the models and endpoints for your cloud
+provider. The local `pjelly.toml` file is ignored by git.
 
-```powershell
-$env:PJ_LLM_PROVIDER = "openai-compatible"
-$env:PJ_LLM_BASE_URL = "https://api.openai.com/v1"
-$env:PJ_LLM_API_KEY = "<api-key>"
-$env:PJ_LLM_MODEL = "<chat-model>"
+```toml
+[llm]
+provider = "openai-compatible"
+base_url = "https://api.openai.com/v1"
+model = "gpt-4.1-mini"
+timeout_seconds = 60
+
+[embedding]
+provider = "openai-compatible"
+base_url = "https://api.openai.com/v1"
+model = "text-embedding-3-small"
+timeout_seconds = 60
 ```
 
+Keep API keys in `.env` or real environment variables:
+
+```powershell
+$env:PJ_LLM_API_KEY = "<api-key>"
+$env:PJ_EMBEDDING_API_KEY = "<api-key>"
+```
+
+Environment variables still override `pjelly.toml`; use `PJ_CONFIG_FILE` to point to another TOML
+file. If `PJ_EMBEDDING_PROVIDER`, `PJ_EMBEDDING_BASE_URL`, or `PJ_EMBEDDING_API_KEY` are omitted,
+the embedding client falls back to the LLM provider endpoint and key.
+
 Use `personality_jelly.llm.build_llm_provider(Settings())` to construct the configured provider.
+Use `personality_jelly.llm.build_embedding_provider(Settings())` to construct the configured
+embedding provider.
+
+Inspect sanitized runtime configuration:
+
+```powershell
+.\.venv\Scripts\pjelly.exe config show
+```
 
 Run the end-to-end CLI with the configured provider:
 
@@ -120,6 +148,8 @@ Implemented:
 - Semantic source retrieval in `retrieval/semantic.py`; configured embeddings rank chunks by vector
   similarity, persisted source chunk embeddings avoid repeated chunk embedding calls, and
   no-embedding fallback only uses character name/alias entity anchoring.
+- Runtime model settings can be loaded from gitignored `pjelly.toml` with `.env`/environment
+  overrides; LLM and embedding cloud providers can be configured separately.
 - Structured memory safety validation through `MemoryGuardDecision`; guard-unavailable memories are
   downgraded to `candidate` for review instead of being accepted.
 - Candidate memories can be reviewed from the CLI and promoted to `accepted` or `rejected` with a
@@ -132,7 +162,7 @@ Implemented:
   memory guard, and benchmark evaluator, including operation, schema, provider, model, raw output,
   parsed output, and validation errors.
 - CLI coverage for demo, turn, list, show, eval, archive, edit, and summarize.
-- Full test suite currently passes: `81 passed`.
+- Full test suite currently passes: `90 passed`.
 
 ## Next development tasks
 
@@ -150,8 +180,8 @@ P1:
   reality-adaptation failures.
 - Improve conversation summary strategy so short-term scene state, user memory, relationship
   memory, and reflective memory cannot contaminate each other.
-- Improve CLI diagnostics with dry-run, verbose tracing, model configuration display, and clearer
-  batch benchmark output.
+- Improve CLI diagnostics with dry-run, verbose tracing, richer provider checks, and clearer batch
+  benchmark output.
 
 P2:
 

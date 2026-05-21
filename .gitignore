@@ -4,6 +4,8 @@
 /references/
 /solutions/
 
+/pjelly.toml
+
 # Python
 /.venv/
 __pycache__/
