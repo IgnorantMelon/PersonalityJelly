@@ -13,6 +13,7 @@ from personality_jelly.domain import (
     ClaimStatus,
     ClaimType,
     Conversation,
+    EvaluationCaseStatus,
     InteractionMode,
     MemoryScope,
     MemoryStatus,
@@ -549,7 +550,7 @@ def _build_parser() -> argparse.ArgumentParser:
     show_retrieval_eval_run.add_argument(
         "--failed-only",
         action="store_true",
-        help="Only export failed retrieval cases when --export-cases-file is set.",
+        help="Only show and export failed retrieval cases.",
     )
     show_retrieval_eval_run.add_argument(
         "--export-case-limit",
@@ -1452,10 +1453,11 @@ def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
         except LookupError as exc:
             raise CliError(str(exc)) from exc
         case_results = RetrievalEvaluationCaseResultRepository(session).list_by_run(run.id)
+        shown_case_results = _filter_retrieval_eval_case_results(args, case_results)
         try:
             exported_cases_file = _export_retrieval_eval_run_cases_if_requested(
                 args,
-                case_results,
+                shown_case_results,
             )
         except ValueError as exc:
             raise CliError(str(exc)) from exc
@@ -1470,13 +1472,14 @@ def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
         print(f"total={run.total_cases}")
         print(f"passed={run.passed_cases}")
         print(f"failed={run.failed_cases}")
-        print(f"case_count={len(case_results)}")
+        print(f"stored_case_count={len(case_results)}")
+        print(f"case_count={len(shown_case_results)}")
         if exported_cases_file is not None:
             print(f"exported_cases_file={exported_cases_file}")
         _print_retrieval_benchmark_report(
-            summarize_retrieval_benchmark(case_results)
+            summarize_retrieval_benchmark(shown_case_results)
         )
-        for index, case_result in enumerate(case_results, start=1):
+        for index, case_result in enumerate(shown_case_results, start=1):
             print(f"case.{index}.id={case_result.case_id}")
             print(f"case.{index}.status={case_result.status}")
             print(f"case.{index}.recall={case_result.recall}")
@@ -1492,6 +1495,19 @@ def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _filter_retrieval_eval_case_results(
+    args: argparse.Namespace,
+    case_results: list[RetrievalEvaluationCaseResult],
+) -> list[RetrievalEvaluationCaseResult]:
+    if not args.failed_only:
+        return case_results
+    return [
+        case_result
+        for case_result in case_results
+        if case_result.status == EvaluationCaseStatus.FAILED
+    ]
+
+
 def _export_retrieval_eval_run_cases_if_requested(
     args: argparse.Namespace,
     case_results: list[RetrievalEvaluationCaseResult],
@@ -1500,7 +1516,7 @@ def _export_retrieval_eval_run_cases_if_requested(
         return None
     cases = build_retrieval_benchmark_cases_from_results(
         case_results,
-        failed_only=args.failed_only,
+        failed_only=False,
         limit=args.export_case_limit,
     )
     return export_retrieval_benchmark_cases_file(

@@ -140,8 +140,8 @@ Retrieval benchmark output includes aggregate `report.*` diagnostics for evidenc
 empty-result probes, recall, ranking, and missing expected evidence chunks.
 Use `--export-cases-file` during dry-run to snapshot the generated verified-claim cases into a
 JSON file for review and curation.
-Use `show retrieval-eval-run --failed-only --export-cases-file` to convert failed stored cases into
-an explicit regression cases file.
+Use `show retrieval-eval-run --failed-only` to inspect only failed stored cases, and add
+`--export-cases-file` to convert that filtered set into an explicit regression cases file.
 Use `--cases-file` to run manually curated retrieval probes instead of generated verified-claim
 cases. The JSON shape is:
 
@@ -242,7 +242,7 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `121 passed`.
+- Full test suite currently passes: `122 passed`.
 
 ## Next development tasks
 
