@@ -28,6 +28,7 @@ from personality_jelly.domain import (
     Message,
     PersonaVersion,
     SourceChunk,
+    SourceChunkEmbedding,
     SourceWork,
     User,
 )
@@ -119,6 +120,40 @@ class SourceChunkRepository(Repository[SourceChunk, orm.SourceChunkORM]):
                 orm.SourceChunkORM.paragraph_index.asc(),
                 orm.SourceChunkORM.char_start.asc().nullsfirst(),
             )
+        )
+        return self._all(statement)
+
+
+class SourceChunkEmbeddingRepository(
+    Repository[SourceChunkEmbedding, orm.SourceChunkEmbeddingORM],
+):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.SourceChunkEmbeddingORM,
+            mappers.source_chunk_embedding_to_orm,
+            mappers.source_chunk_embedding_from_orm,
+        )
+
+    def add_many(self, embeddings: list[SourceChunkEmbedding]) -> list[SourceChunkEmbedding]:
+        self.session.add_all(
+            mappers.source_chunk_embedding_to_orm(embedding)
+            for embedding in embeddings
+        )
+        self.session.flush()
+        return embeddings
+
+    def list_for_chunks(
+        self,
+        chunk_ids: list[str],
+        *,
+        embedding_model: str,
+    ) -> list[SourceChunkEmbedding]:
+        if not chunk_ids:
+            return []
+        statement = select(orm.SourceChunkEmbeddingORM).where(
+            orm.SourceChunkEmbeddingORM.source_chunk_id.in_(chunk_ids),
+            orm.SourceChunkEmbeddingORM.embedding_model == embedding_model,
         )
         return self._all(statement)
 

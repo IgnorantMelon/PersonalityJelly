@@ -29,6 +29,7 @@ from personality_jelly.storage.repositories import (
     MessageRepository,
     PersonaVersionRepository,
     SourceChunkRepository,
+    SourceChunkEmbeddingRepository,
     SourceWorkRepository,
     UserRepository,
 )
@@ -56,6 +57,7 @@ __all__ = [
     "MessageRepository",
     "PersonaVersionRepository",
     "SourceChunkRepository",
+    "SourceChunkEmbeddingRepository",
     "SourceWorkRepository",
     "UserRepository",
     "create_all",

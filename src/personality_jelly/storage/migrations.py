@@ -4,7 +4,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, MetaData, String, Table, inspect, select
+from sqlalchemy import Column, DateTime, ForeignKey, Index, MetaData, String, Table, inspect, select
+from sqlalchemy import JSON as SAJSON
 from sqlalchemy.engine import Engine
 
 from personality_jelly.storage import orm
@@ -52,10 +53,34 @@ _schema_migrations = Table(
     Column("description", String(255), nullable=False),
     Column("applied_at", DateTime(timezone=True), nullable=False),
 )
+_source_chunks = Table(
+    "source_chunks",
+    _metadata,
+    Column("id", String(96), primary_key=True),
+)
+_source_chunk_embeddings = Table(
+    "source_chunk_embeddings",
+    _metadata,
+    Column("id", String(96), primary_key=True),
+    Column("source_chunk_id", String(96), ForeignKey("source_chunks.id"), nullable=False),
+    Column("embedding_model", String(128), nullable=False),
+    Column("embedding", SAJSON, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Index(
+        "ux_source_chunk_embeddings_chunk_model",
+        "source_chunk_id",
+        "embedding_model",
+        unique=True,
+    ),
+)
 
 
 def _apply_initial_schema(engine: Engine) -> None:
     orm.create_all(engine)
+
+
+def _apply_source_chunk_embeddings(engine: Engine) -> None:
+    _source_chunk_embeddings.create(engine, checkfirst=True)
 
 
 MIGRATIONS: tuple[Migration, ...] = (
@@ -63,6 +88,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         version="0001_initial_schema",
         description="Create MVP relational schema",
         apply=_apply_initial_schema,
+    ),
+    Migration(
+        version="0002_source_chunk_embeddings",
+        description="Persist source chunk embeddings",
+        apply=_apply_source_chunk_embeddings,
     ),
 )
 

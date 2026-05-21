@@ -104,9 +104,9 @@ novel character brain with clear boundaries for later multi-agent and platform e
 
 Implemented:
 
-- SQLite + SQLAlchemy repositories for source works, chunks, characters, canon claims, evidence,
-  persona versions, conversations, messages, memories, context packages, critic reports, failure
-  cases, LLM raw outputs, and evaluation runs.
+- SQLite + SQLAlchemy repositories for source works, chunks, source chunk embeddings, characters,
+  canon claims, evidence, persona versions, conversations, messages, memories, context packages,
+  critic reports, failure cases, LLM raw outputs, and evaluation runs.
 - Database schema migrations are tracked through `schema_migrations`; CLI database commands
   auto-apply pending migrations, and `pjelly db status/migrate` exposes explicit migration control.
 - TXT/Markdown ingestion with chapter/paragraph chunking and stable chunk IDs.
@@ -118,7 +118,8 @@ Implemented:
 - Structured interaction-mode classification through `InteractionModeClassification`; no local
   marker-based semantic mode inference remains.
 - Semantic source retrieval in `retrieval/semantic.py`; configured embeddings rank chunks by vector
-  similarity, while no-embedding fallback only uses character name/alias entity anchoring.
+  similarity, persisted source chunk embeddings avoid repeated chunk embedding calls, and
+  no-embedding fallback only uses character name/alias entity anchoring.
 - Structured memory safety validation through `MemoryGuardDecision`; guard-unavailable memories are
   downgraded to `candidate` for review instead of being accepted.
 - Candidate memories can be reviewed from the CLI and promoted to `accepted` or `rejected` with a
@@ -131,7 +132,7 @@ Implemented:
   memory guard, and benchmark evaluator, including operation, schema, provider, model, raw output,
   parsed output, and validation errors.
 - CLI coverage for demo, turn, list, show, eval, archive, edit, and summarize.
-- Full test suite currently passes: `79 passed`.
+- Full test suite currently passes: `81 passed`.
 
 ## Next development tasks
 
@@ -141,7 +142,6 @@ P0:
 
 P1:
 
-- Persist source chunk embeddings and avoid re-embedding every retrieval call.
 - Extend semantic tracing to future retrieval evaluators and expose trace inspection through CLI
   diagnostics.
 - Add retrieval-quality benchmarks for recall, ranking, and empty-result fallback without using

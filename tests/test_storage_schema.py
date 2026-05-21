@@ -13,6 +13,7 @@ def test_create_all_creates_mvp_tables() -> None:
     assert {
         "source_works",
         "source_chunks",
+        "source_chunk_embeddings",
         "characters",
         "canon_claims",
         "evidence_refs",

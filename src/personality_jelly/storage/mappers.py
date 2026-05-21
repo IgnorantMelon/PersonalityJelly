@@ -18,6 +18,7 @@ from personality_jelly.domain import (
     Message,
     PersonaVersion,
     SourceChunk,
+    SourceChunkEmbedding,
     SourceWork,
     User,
 )
@@ -28,6 +29,7 @@ DomainT = TypeVar(
     "DomainT",
     SourceWork,
     SourceChunk,
+    SourceChunkEmbedding,
     Character,
     CanonClaim,
     EvidenceRef,
@@ -60,6 +62,16 @@ def source_chunk_to_orm(model: SourceChunk) -> orm.SourceChunkORM:
 
 def source_chunk_from_orm(row: orm.SourceChunkORM) -> SourceChunk:
     return SourceChunk.model_validate(_column_dict(row))
+
+
+def source_chunk_embedding_to_orm(model: SourceChunkEmbedding) -> orm.SourceChunkEmbeddingORM:
+    return orm.SourceChunkEmbeddingORM(**model.model_dump())
+
+
+def source_chunk_embedding_from_orm(
+    row: orm.SourceChunkEmbeddingORM,
+) -> SourceChunkEmbedding:
+    return SourceChunkEmbedding.model_validate(_column_dict(row))
 
 
 def character_to_orm(model: Character) -> orm.CharacterORM:
