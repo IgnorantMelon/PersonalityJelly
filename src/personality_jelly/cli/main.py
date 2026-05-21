@@ -28,6 +28,7 @@ from personality_jelly.evaluation import (
     get_benchmark_cases,
     run_ooc_benchmark,
     run_retrieval_benchmark,
+    summarize_retrieval_benchmark,
 )
 from personality_jelly.ingestion import SourceIngestionResult, ingest_text_file
 from personality_jelly.llm import (
@@ -1402,6 +1403,9 @@ def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
         print(f"passed={run.passed_cases}")
         print(f"failed={run.failed_cases}")
         print(f"case_count={len(case_results)}")
+        _print_retrieval_benchmark_report(
+            summarize_retrieval_benchmark(case_results)
+        )
         for index, case_result in enumerate(case_results, start=1):
             print(f"case.{index}.id={case_result.case_id}")
             print(f"case.{index}.status={case_result.status}")
@@ -1674,6 +1678,31 @@ def _print_ooc_benchmark_run_summary(
     print(f"failed_case_count={failed_cases}")
 
 
+def _print_retrieval_benchmark_report(report) -> None:
+    print(f"report.total_cases={report.total_cases}")
+    print(f"report.evidence_case_count={report.evidence_case_count}")
+    print(f"report.empty_case_count={report.empty_case_count}")
+    print(f"report.pass_rate={_format_decimal(report.pass_rate)}")
+    print(f"report.evidence_pass_rate={_format_decimal(report.evidence_pass_rate)}")
+    print(f"report.empty_pass_rate={_format_decimal(report.empty_pass_rate)}")
+    print(f"report.average_recall={_format_decimal(report.average_recall)}")
+    print(
+        "report.average_ranking_score="
+        f"{_format_decimal(report.average_ranking_score)}"
+    )
+    print(f"report.first_relevant_at_one_count={report.first_relevant_at_one_count}")
+    print(f"report.no_relevant_result_count={report.no_relevant_result_count}")
+    print(
+        "report.retrieved_empty_when_expected_empty_count="
+        f"{report.retrieved_empty_when_expected_empty_count}"
+    )
+    print(
+        "report.retrieved_nonempty_when_expected_empty_count="
+        f"{report.retrieved_nonempty_when_expected_empty_count}"
+    )
+    print(f"report.missing_expected_chunk_count={report.missing_expected_chunk_count}")
+
+
 def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
     if args.max_cases < 1:
         raise CliError("--max-cases must be greater than 0")
@@ -1724,6 +1753,9 @@ def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
         total_cases=result.run.total_cases,
         passed_cases=result.run.passed_cases,
         failed_cases=result.run.failed_cases,
+    )
+    _print_retrieval_benchmark_report(
+        summarize_retrieval_benchmark(result.case_results)
     )
     for index, case_result in enumerate(result.case_results, start=1):
         print(f"case.{index}.id={case_result.case_id}")
@@ -1970,7 +2002,11 @@ def _bool_text(value: bool) -> str:
 def _format_ratio(numerator: int, denominator: int) -> str:
     if denominator == 0:
         return "0.000"
-    return f"{numerator / denominator:.3f}"
+    return _format_decimal(numerator / denominator)
+
+
+def _format_decimal(value: float) -> str:
+    return f"{value:.3f}"
 
 
 def _json_block(value) -> str:

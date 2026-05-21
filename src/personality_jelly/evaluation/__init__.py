@@ -14,9 +14,11 @@ from personality_jelly.evaluation.benchmark import (
 from personality_jelly.evaluation.retrieval_benchmark import (
     DEFAULT_RETRIEVAL_TEST_SUITE,
     RetrievalBenchmarkCase,
+    RetrievalBenchmarkReport,
     RetrievalBenchmarkRunResult,
     build_default_retrieval_benchmark_cases,
     run_retrieval_benchmark,
+    summarize_retrieval_benchmark,
 )
 
 __all__ = [
@@ -29,9 +31,11 @@ __all__ = [
     "EXPANDED_BENCHMARK_CASE_SUITE",
     "EXPANDED_BOUNDARY_BENCHMARK_CASES",
     "RetrievalBenchmarkCase",
+    "RetrievalBenchmarkReport",
     "RetrievalBenchmarkRunResult",
     "build_default_retrieval_benchmark_cases",
     "get_benchmark_cases",
     "run_ooc_benchmark",
     "run_retrieval_benchmark",
+    "summarize_retrieval_benchmark",
 ]

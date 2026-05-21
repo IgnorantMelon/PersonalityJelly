@@ -44,6 +44,29 @@ class RetrievalBenchmarkRunResult:
     case_results: list[RetrievalEvaluationCaseResult]
 
 
+@dataclass(frozen=True)
+class RetrievalBenchmarkReport:
+    total_cases: int
+    evidence_case_count: int
+    empty_case_count: int
+    passed_cases: int
+    failed_cases: int
+    pass_rate: float
+    evidence_passed_cases: int
+    evidence_failed_cases: int
+    evidence_pass_rate: float
+    empty_passed_cases: int
+    empty_failed_cases: int
+    empty_pass_rate: float
+    average_recall: float
+    average_ranking_score: float
+    first_relevant_at_one_count: int
+    no_relevant_result_count: int
+    retrieved_empty_when_expected_empty_count: int
+    retrieved_nonempty_when_expected_empty_count: int
+    missing_expected_chunk_count: int
+
+
 def build_default_retrieval_benchmark_cases(
     session: Session,
     *,
@@ -159,6 +182,75 @@ def run_retrieval_benchmark(
     return RetrievalBenchmarkRunResult(run=run, case_results=case_results)
 
 
+def summarize_retrieval_benchmark(
+    case_results: list[RetrievalEvaluationCaseResult],
+) -> RetrievalBenchmarkReport:
+    total_cases = len(case_results)
+    evidence_results = [
+        case_result
+        for case_result in case_results
+        if case_result.expected_chunk_ids
+    ]
+    empty_results = [
+        case_result
+        for case_result in case_results
+        if not case_result.expected_chunk_ids
+    ]
+    passed_cases = _count_passed(case_results)
+    failed_cases = total_cases - passed_cases
+    evidence_passed_cases = _count_passed(evidence_results)
+    evidence_failed_cases = len(evidence_results) - evidence_passed_cases
+    empty_passed_cases = _count_passed(empty_results)
+    empty_failed_cases = len(empty_results) - empty_passed_cases
+    missing_expected_chunk_count = sum(
+        len(
+            set(case_result.expected_chunk_ids)
+            - set(case_result.retrieved_chunk_ids)
+        )
+        for case_result in evidence_results
+    )
+
+    return RetrievalBenchmarkReport(
+        total_cases=total_cases,
+        evidence_case_count=len(evidence_results),
+        empty_case_count=len(empty_results),
+        passed_cases=passed_cases,
+        failed_cases=failed_cases,
+        pass_rate=_ratio(passed_cases, total_cases),
+        evidence_passed_cases=evidence_passed_cases,
+        evidence_failed_cases=evidence_failed_cases,
+        evidence_pass_rate=_ratio(evidence_passed_cases, len(evidence_results)),
+        empty_passed_cases=empty_passed_cases,
+        empty_failed_cases=empty_failed_cases,
+        empty_pass_rate=_ratio(empty_passed_cases, len(empty_results)),
+        average_recall=_average([case_result.recall for case_result in evidence_results]),
+        average_ranking_score=_average(
+            [case_result.ranking_score for case_result in evidence_results]
+        ),
+        first_relevant_at_one_count=sum(
+            1
+            for case_result in evidence_results
+            if case_result.first_relevant_rank == 1
+        ),
+        no_relevant_result_count=sum(
+            1
+            for case_result in evidence_results
+            if case_result.first_relevant_rank is None
+        ),
+        retrieved_empty_when_expected_empty_count=sum(
+            1
+            for case_result in empty_results
+            if not case_result.retrieved_chunk_ids
+        ),
+        retrieved_nonempty_when_expected_empty_count=sum(
+            1
+            for case_result in empty_results
+            if case_result.retrieved_chunk_ids
+        ),
+        missing_expected_chunk_count=missing_expected_chunk_count,
+    )
+
+
 def _evaluate_retrieval_case(
     *,
     run_id: str,
@@ -234,3 +326,23 @@ def _evaluate_retrieval_case(
         ranking_score=ranking_score,
         reasons=reasons,
     )
+
+
+def _count_passed(case_results: list[RetrievalEvaluationCaseResult]) -> int:
+    return sum(
+        1
+        for case_result in case_results
+        if case_result.status == EvaluationCaseStatus.PASSED
+    )
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    if denominator == 0:
+        return 0.0
+    return numerator / denominator
+
+
+def _average(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    return sum(values) / len(values)
