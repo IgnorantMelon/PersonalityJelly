@@ -522,6 +522,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
     )
+    show_eval_run.add_argument(
+        "--failed-only",
+        action="store_true",
+        help="Only show failed benchmark cases.",
+    )
     show_llm_trace = show_subparsers.add_parser(
         "llm-trace",
         help="Show a structured LLM trace record.",
@@ -1387,6 +1392,7 @@ def _run_show_eval_run(args: argparse.Namespace) -> int:
         except LookupError as exc:
             raise CliError(str(exc)) from exc
         case_results = EvaluationCaseResultRepository(session).list_by_run(run.id)
+        shown_case_results = _filter_eval_case_results(args, case_results)
 
         print(f"database_url={database_url}")
         print(f"run_id={run.id}")
@@ -1397,8 +1403,9 @@ def _run_show_eval_run(args: argparse.Namespace) -> int:
         print(f"total={run.total_cases}")
         print(f"passed={run.passed_cases}")
         print(f"failed={run.failed_cases}")
-        print(f"case_count={len(case_results)}")
-        for index, case_result in enumerate(case_results, start=1):
+        print(f"stored_case_count={len(case_results)}")
+        print(f"case_count={len(shown_case_results)}")
+        for index, case_result in enumerate(shown_case_results, start=1):
             print(f"case.{index}.id={case_result.case_id}")
             print(f"case.{index}.status={case_result.status}")
             print(f"case.{index}.interaction_mode={case_result.interaction_mode}")
@@ -1410,6 +1417,19 @@ def _run_show_eval_run(args: argparse.Namespace) -> int:
                 print(f"- {reason}")
             print("END")
     return 0
+
+
+def _filter_eval_case_results(
+    args: argparse.Namespace,
+    case_results: list[EvaluationCaseResult],
+) -> list[EvaluationCaseResult]:
+    if not args.failed_only:
+        return case_results
+    return [
+        case_result
+        for case_result in case_results
+        if case_result.status == EvaluationCaseStatus.FAILED
+    ]
 
 
 def _run_show_llm_trace(args: argparse.Namespace) -> int:

@@ -2,11 +2,12 @@ import json
 from pathlib import Path
 
 from personality_jelly.cli.main import main
-from personality_jelly.domain import LLMRawOutput, Memory
+from personality_jelly.domain import EvaluationCaseResult, EvaluationRun, LLMRawOutput, Memory
 from personality_jelly.llm import ChatMessage, EmbeddingConfig, ModelConfig
 from personality_jelly.storage import (
     ConversationRepository,
     ContextPackageRepository,
+    EvaluationCaseResultRepository,
     EvaluationRunRepository,
     MemoryRepository,
     MessageRepository,
@@ -866,6 +867,85 @@ def test_cli_lists_and_shows_eval_runs(tmp_path: Path, capsys, monkeypatch) -> N
     assert "case.1.id=identity" in show_output
     assert "case.1.reasons<<END" in show_output
     assert "case.10.id=joke_pollution" in show_output
+
+
+def test_cli_show_eval_run_can_filter_failed_cases(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+    conversation_id = _output_value(demo_output, "conversation_id")
+
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        conversation = ConversationRepository(session).require(conversation_id)
+        assistant_message = MessageRepository(session).list_by_conversation(conversation_id)[-1]
+        EvaluationRunRepository(session).add(
+            EvaluationRun(
+                id="eval_mixed",
+                character_id=character_id,
+                persona_version_id=conversation.persona_version_id,
+                test_suite="mixed_show_suite",
+                status="completed",
+                total_cases=2,
+                passed_cases=1,
+                failed_cases=1,
+            )
+        )
+        EvaluationCaseResultRepository(session).add(
+            EvaluationCaseResult(
+                id="evalcase_passed",
+                run_id="eval_mixed",
+                case_id="passed_case",
+                prompt="Passed prompt.",
+                interaction_mode="reality_chat",
+                assistant_message_id=assistant_message.id,
+                status="passed",
+                reasons=["semantic evaluator accepted the response"],
+            )
+        )
+        EvaluationCaseResultRepository(session).add(
+            EvaluationCaseResult(
+                id="evalcase_failed",
+                run_id="eval_mixed",
+                case_id="failed_case",
+                prompt="Failed prompt.",
+                interaction_mode="reality_chat",
+                assistant_message_id=assistant_message.id,
+                status="failed",
+                reasons=["semantic evaluator rejected the response"],
+            )
+        )
+        session.commit()
+
+    show_exit_code = main(["show", "eval-run", "eval_mixed", "--failed-only"])
+    show_output = capsys.readouterr().out
+
+    assert demo_exit_code == 0
+    assert show_exit_code == 0
+    assert "stored_case_count=2" in show_output
+    assert "case_count=1" in show_output
+    assert "case.1.id=failed_case" in show_output
+    assert "case.1.status=failed" in show_output
+    assert "semantic evaluator rejected the response" in show_output
+    assert "passed_case" not in show_output
 
 
 def test_cli_runs_lists_and_shows_retrieval_benchmark(
