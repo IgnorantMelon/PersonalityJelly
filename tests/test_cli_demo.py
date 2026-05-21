@@ -1,13 +1,14 @@
 from pathlib import Path
 
 from personality_jelly.cli.main import main
-from personality_jelly.domain import Memory
+from personality_jelly.domain import LLMRawOutput, Memory
 from personality_jelly.llm import ChatMessage, EmbeddingConfig, ModelConfig
 from personality_jelly.storage import (
     ConversationRepository,
     ContextPackageRepository,
     MemoryRepository,
     MessageRepository,
+    LLMRawOutputRepository,
     create_all,
     create_database_engine,
     create_session_factory,
@@ -636,6 +637,96 @@ def test_cli_lists_and_shows_eval_runs(tmp_path: Path, capsys, monkeypatch) -> N
     assert "case.1.id=identity" in show_output
     assert "case.1.reasons<<END" in show_output
     assert "case.10.id=joke_pollution" in show_output
+
+
+def test_cli_lists_and_shows_llm_traces(tmp_path: Path, capsys, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    create_all(engine)
+    with session_factory() as session:
+        LLMRawOutputRepository(session).add(
+            LLMRawOutput(
+                id="llm_trace_001",
+                operation="runtime.mode.classification",
+                schema_name="InteractionModeClassification",
+                provider_name="stub",
+                model_name="stub",
+                response_schema={"title": "InteractionModeClassification"},
+                raw_output='{"mode":"reality_chat"}',
+                parsed_output={"mode": "reality_chat", "reasoning": "semantic decision"},
+            )
+        )
+        LLMRawOutputRepository(session).add(
+            LLMRawOutput(
+                id="llm_trace_002",
+                operation="memory.guard.semantic_decision",
+                schema_name="MemoryGuardDecision",
+                provider_name="stub",
+                model_name="stub",
+                response_schema={"title": "MemoryGuardDecision"},
+                raw_output='{"decision":"accept"}',
+                parsed_output=None,
+                validation_errors=['{"loc":["reasoning"],"msg":"Field required"}'],
+            )
+        )
+        session.commit()
+
+    list_exit_code = main(
+        [
+            "list",
+            "llm-traces",
+            "--operation",
+            "memory.guard.semantic_decision",
+        ]
+    )
+    list_output = capsys.readouterr().out
+
+    error_list_exit_code = main(["list", "llm-traces", "--with-errors"])
+    error_list_output = capsys.readouterr().out
+
+    show_exit_code = main(["show", "llm-trace", "llm_trace_002"])
+    show_output = capsys.readouterr().out
+
+    assert list_exit_code == 0
+    assert "llm_trace_count=1" in list_output
+    assert "llm_trace.1.id=llm_trace_002" in list_output
+    assert "llm_trace.1.operation=memory.guard.semantic_decision" in list_output
+    assert "llm_trace.1.schema_name=MemoryGuardDecision" in list_output
+    assert "llm_trace.1.validation_error_count=1" in list_output
+    assert error_list_exit_code == 0
+    assert "llm_trace_count=1" in error_list_output
+    assert "llm_trace.1.id=llm_trace_002" in error_list_output
+    assert show_exit_code == 0
+    assert "llm_trace_id=llm_trace_002" in show_output
+    assert "operation=memory.guard.semantic_decision" in show_output
+    assert "response_schema<<END" in show_output
+    assert '"title": "MemoryGuardDecision"' in show_output
+    assert "raw_output<<END" in show_output
+    assert '{"decision":"accept"}' in show_output
+    assert "parsed_output<<END" in show_output
+    assert "null" in show_output
+    assert "validation_errors<<END" in show_output
+    assert "Field required" in show_output
+
+
+def test_cli_show_llm_trace_reports_missing_trace(tmp_path: Path, capsys) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+
+    exit_code = main(
+        [
+            "show",
+            "llm-trace",
+            "llm_missing",
+            "--database-url",
+            database_url,
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "llm_missing" in captured.err
 
 
 def test_cli_show_eval_run_reports_missing_run(tmp_path: Path, capsys) -> None:
