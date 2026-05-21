@@ -1100,6 +1100,82 @@ def test_cli_dry_run_can_export_generated_retrieval_benchmark_cases(
     assert runs == []
 
 
+def test_cli_show_retrieval_eval_run_can_filter_failed_cases(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+
+    cases_file = tmp_path / "mixed-retrieval-cases.json"
+    cases_file.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": "passing_manual",
+                        "query": "Out-of-scope probe.",
+                        "expected_chunk_ids": [],
+                        "limit": 1,
+                    },
+                    {
+                        "id": "failing_manual",
+                        "query": "Missing source evidence.",
+                        "expected_chunk_ids": ["chunk_missing"],
+                        "limit": 1,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    eval_exit_code = main(
+        [
+            "eval",
+            "retrieval-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "retrieval_mixed_suite",
+            "--cases-file",
+            str(cases_file),
+        ]
+    )
+    eval_output = capsys.readouterr().out
+    run_id = _output_value(eval_output, "run_id")
+
+    show_exit_code = main(["show", "retrieval-eval-run", run_id, "--failed-only"])
+    show_output = capsys.readouterr().out
+
+    assert demo_exit_code == 0
+    assert eval_exit_code == 0
+    assert "total=2" in eval_output
+    assert "passed=1" in eval_output
+    assert "failed=1" in eval_output
+    assert show_exit_code == 0
+    assert "stored_case_count=2" in show_output
+    assert "case_count=1" in show_output
+    assert "report.total_cases=1" in show_output
+    assert "case.1.id=failing_manual" in show_output
+    assert "passing_manual" not in show_output
+
+
 def test_cli_dry_runs_retrieval_benchmark_with_cases_file(
     tmp_path: Path,
     capsys,
