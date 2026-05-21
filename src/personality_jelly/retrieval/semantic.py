@@ -12,8 +12,19 @@ from personality_jelly.storage import SourceChunkEmbeddingRepository, SourceChun
 
 
 @dataclass(frozen=True)
+class RetrievedSourceChunk:
+    chunk: SourceChunk
+    rank: int
+    score: float | None = None
+
+
+@dataclass(frozen=True)
 class SourceRetrievalResult:
-    chunks: list[SourceChunk]
+    results: list[RetrievedSourceChunk]
+
+    @property
+    def chunks(self) -> list[SourceChunk]:
+        return [result.chunk for result in self.results]
 
 
 def retrieve_source_chunks(
@@ -31,11 +42,17 @@ def retrieve_source_chunks(
 
     chunks = SourceChunkRepository(session).list_by_source_work(source_work_id)
     if not chunks:
-        return SourceRetrievalResult(chunks=[])
+        return SourceRetrievalResult(results=[])
 
     if provider is None or embedding_config is None:
         return SourceRetrievalResult(
-            chunks=_character_anchor_chunks(chunks, character=character, limit=limit),
+            results=[
+                RetrievedSourceChunk(chunk=chunk, rank=index)
+                for index, chunk in enumerate(
+                    _character_anchor_chunks(chunks, character=character, limit=limit),
+                    start=1,
+                )
+            ],
         )
 
     query_text = _retrieval_query_text(query=query, character=character)
@@ -56,7 +73,11 @@ def retrieve_source_chunks(
     ]
     scored.sort(key=lambda item: (-item[0], item[1]))
     return SourceRetrievalResult(
-        chunks=[chunk for score, _, chunk in scored[:limit] if score > 0.0],
+        results=[
+            RetrievedSourceChunk(chunk=chunk, rank=rank, score=score)
+            for rank, (score, _, chunk) in enumerate(scored[:limit], start=1)
+            if score > 0.0
+        ],
     )
 
 

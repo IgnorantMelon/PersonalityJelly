@@ -334,12 +334,12 @@ def test_cli_db_status_and_migrate_report_schema_versions(tmp_path: Path, capsys
 
     assert status_exit_code == 0
     assert "current_version=none" in status_output
-    assert "pending_count=2" in status_output
+    assert "pending_count=3" in status_output
     assert migrate_exit_code == 0
-    assert "applied_count=2" in migrate_output
+    assert "applied_count=3" in migrate_output
     assert "pending_count=0" in migrate_output
     assert migrated_status_exit_code == 0
-    assert "current_version=0002_source_chunk_embeddings" in migrated_status_output
+    assert "current_version=0003_retrieval_evaluation" in migrated_status_output
     assert "pending_count=0" in migrated_status_output
 
 
@@ -416,7 +416,7 @@ def test_cli_demo_auto_migrates_configured_database(
     status = get_migration_status(engine)
 
     assert exit_code == 0
-    assert status.current_version == "0002_source_chunk_embeddings"
+    assert status.current_version == "0003_retrieval_evaluation"
     assert status.pending == ()
 
 
@@ -637,6 +637,74 @@ def test_cli_lists_and_shows_eval_runs(tmp_path: Path, capsys, monkeypatch) -> N
     assert "case.1.id=identity" in show_output
     assert "case.1.reasons<<END" in show_output
     assert "case.10.id=joke_pollution" in show_output
+
+
+def test_cli_runs_lists_and_shows_retrieval_benchmark(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+
+    eval_exit_code = main(
+        [
+            "eval",
+            "retrieval-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "retrieval_cli_suite",
+            "--no-empty-case",
+        ]
+    )
+    eval_output = capsys.readouterr().out
+    run_id = _output_value(eval_output, "run_id")
+
+    list_exit_code = main(
+        [
+            "list",
+            "retrieval-eval-runs",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "retrieval_cli_suite",
+        ]
+    )
+    list_output = capsys.readouterr().out
+
+    show_exit_code = main(["show", "retrieval-eval-run", run_id])
+    show_output = capsys.readouterr().out
+
+    assert demo_exit_code == 0
+    assert eval_exit_code == 0
+    assert "status=completed" in eval_output
+    assert "test_suite=retrieval_cli_suite" in eval_output
+    assert f"character_id={character_id}" in eval_output
+    assert "embedding_model=stub-embedding" in eval_output
+    assert list_exit_code == 0
+    assert f"retrieval_eval_run.1.id={run_id}" in list_output
+    assert "retrieval_eval_run.1.test_suite=retrieval_cli_suite" in list_output
+    assert show_exit_code == 0
+    assert f"run_id={run_id}" in show_output
+    assert "case_count=1" in show_output
+    assert "case.1.id=claim_1" in show_output
+    assert "case.1.expected_chunk_ids=chunk_" in show_output
+    assert "case.1.retrieved_chunk_ids=" in show_output
 
 
 def test_cli_lists_and_shows_llm_traces(tmp_path: Path, capsys, monkeypatch) -> None:

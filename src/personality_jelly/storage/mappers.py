@@ -17,6 +17,8 @@ from personality_jelly.domain import (
     Memory,
     Message,
     PersonaVersion,
+    RetrievalEvaluationCaseResult,
+    RetrievalEvaluationRun,
     SourceChunk,
     SourceChunkEmbedding,
     SourceWork,
@@ -45,6 +47,8 @@ DomainT = TypeVar(
     LLMRawOutput,
     EvaluationRun,
     EvaluationCaseResult,
+    RetrievalEvaluationRun,
+    RetrievalEvaluationCaseResult,
 )
 
 
@@ -196,6 +200,30 @@ def evaluation_case_result_from_orm(
     row: orm.EvaluationCaseResultORM,
 ) -> EvaluationCaseResult:
     return EvaluationCaseResult.model_validate(_column_dict(row))
+
+
+def retrieval_evaluation_run_to_orm(
+    model: RetrievalEvaluationRun,
+) -> orm.RetrievalEvaluationRunORM:
+    return orm.RetrievalEvaluationRunORM(**model.model_dump())
+
+
+def retrieval_evaluation_run_from_orm(
+    row: orm.RetrievalEvaluationRunORM,
+) -> RetrievalEvaluationRun:
+    return RetrievalEvaluationRun.model_validate(_column_dict(row))
+
+
+def retrieval_evaluation_case_result_to_orm(
+    model: RetrievalEvaluationCaseResult,
+) -> orm.RetrievalEvaluationCaseResultORM:
+    return orm.RetrievalEvaluationCaseResultORM(**model.model_dump())
+
+
+def retrieval_evaluation_case_result_from_orm(
+    row: orm.RetrievalEvaluationCaseResultORM,
+) -> RetrievalEvaluationCaseResult:
+    return RetrievalEvaluationCaseResult.model_validate(_column_dict(row))
 
 
 def _column_dict(row) -> dict:

@@ -68,6 +68,8 @@ def test_retrieve_source_chunks_ranks_by_embedding_similarity() -> None:
         )
 
     assert len(result.chunks) == 2
+    assert [item.rank for item in result.results] == [1, 2]
+    assert result.results[0].score is not None
     assert result.chunks[0].text == "林霜总是先观察，再行动。"
     assert result.chunks[1].text == "林霜在雨夜里观察窗外的影子。"
     assert len(provider.calls) == 2

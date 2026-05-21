@@ -115,6 +115,14 @@ Run the MVP OOC and canon-pollution benchmark against an existing character:
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_...
 ```
 
+Run and inspect source retrieval quality benchmarks:
+
+```powershell
+.\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --provider env
+.\.venv\Scripts\pjelly.exe list retrieval-eval-runs --character-id char_...
+.\.venv\Scripts\pjelly.exe show retrieval-eval-run retrievaleval_...
+```
+
 Inspect or apply database schema migrations:
 
 ```powershell
@@ -147,7 +155,7 @@ Implemented:
 
 - SQLite + SQLAlchemy repositories for source works, chunks, source chunk embeddings, characters,
   canon claims, evidence, persona versions, conversations, messages, memories, context packages,
-  critic reports, failure cases, LLM raw outputs, and evaluation runs.
+  critic reports, failure cases, LLM raw outputs, evaluation runs, and retrieval evaluation runs.
 - Database schema migrations are tracked through `schema_migrations`; CLI database commands
   auto-apply pending migrations, and `pjelly db status/migrate` exposes explicit migration control.
 - TXT/Markdown ingestion with chapter/paragraph chunking and stable chunk IDs.
@@ -161,6 +169,9 @@ Implemented:
 - Semantic source retrieval in `retrieval/semantic.py`; configured embeddings rank chunks by vector
   similarity, persisted source chunk embeddings avoid repeated chunk embedding calls, and
   no-embedding fallback only uses character name/alias entity anchoring.
+- Retrieval-quality benchmark runs persist recall, ranking, first-relevant-rank, retrieved chunk
+  IDs, scores, and empty-result fallback outcomes without using fixed word matching as the quality
+  signal.
 - Runtime model settings can be loaded from gitignored `pjelly.toml` with `.env`/environment
   overrides; LLM and embedding cloud providers can be configured separately.
 - OpenAI-compatible structured output supports both strict `json_schema` mode and `json_object`
@@ -183,13 +194,15 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `94 passed`.
+- Full test suite currently passes: `101 passed`.
 
 ## Next development tasks
 
 Recent P1 progress:
 
 - Persisted source chunk embeddings and added schema migration `0002_source_chunk_embeddings`.
+- Added retrieval-quality benchmark persistence and schema migration
+  `0003_retrieval_evaluation`.
 - Added `pjelly.toml`/`.env` model configuration, separate LLM and embedding provider construction,
   and sanitized `pjelly config show` diagnostics.
 - Added `json_object` structured-output compatibility for OpenAI-compatible providers that do not
@@ -204,8 +217,7 @@ P0:
 P1:
 
 - Extend semantic tracing to future retrieval evaluators.
-- Add retrieval-quality benchmarks for recall, ranking, and empty-result fallback without using
-  fixed word matching as the quality signal.
+- Expand retrieval-quality benchmark cases and reporting beyond the default evidence-derived suite.
 - Expand the benchmark library for OOC, canon pollution, memory pollution, mode confusion, and
   reality-adaptation failures.
 - Improve conversation summary strategy so short-term scene state, user memory, relationship

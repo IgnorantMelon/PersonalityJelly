@@ -27,6 +27,8 @@ from personality_jelly.domain import (
     MemoryStatus,
     Message,
     PersonaVersion,
+    RetrievalEvaluationCaseResult,
+    RetrievalEvaluationRun,
     SourceChunk,
     SourceChunkEmbedding,
     SourceWork,
@@ -605,4 +607,78 @@ class EvaluationCaseResultRepository(
             orm.EvaluationCaseResultORM.status == status.value,
         )
         return len(self.session.scalars(statement).all())
+
+
+class RetrievalEvaluationRunRepository(
+    Repository[RetrievalEvaluationRun, orm.RetrievalEvaluationRunORM],
+):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.RetrievalEvaluationRunORM,
+            mappers.retrieval_evaluation_run_to_orm,
+            mappers.retrieval_evaluation_run_from_orm,
+        )
+
+    def list_recent(
+        self,
+        limit: int | None = None,
+        *,
+        character_id: str | None = None,
+        source_work_id: str | None = None,
+        test_suite: str | None = None,
+    ) -> list[RetrievalEvaluationRun]:
+        statement = select(orm.RetrievalEvaluationRunORM).order_by(
+            orm.RetrievalEvaluationRunORM.created_at.desc()
+        )
+        if character_id is not None:
+            statement = statement.where(orm.RetrievalEvaluationRunORM.character_id == character_id)
+        if source_work_id is not None:
+            statement = statement.where(
+                orm.RetrievalEvaluationRunORM.source_work_id == source_work_id
+            )
+        if test_suite is not None:
+            statement = statement.where(orm.RetrievalEvaluationRunORM.test_suite == test_suite)
+        if limit is not None:
+            statement = statement.limit(limit)
+        return self._all(statement)
+
+    def update_summary(
+        self,
+        run_id: str,
+        *,
+        status: EvaluationStatus,
+        passed_cases: int,
+        failed_cases: int,
+        completed_at,
+    ) -> RetrievalEvaluationRun:
+        row = self.session.get(orm.RetrievalEvaluationRunORM, run_id)
+        if row is None:
+            raise LookupError(f"RetrievalEvaluationRunORM {run_id!r} was not found")
+        row.status = status.value
+        row.passed_cases = passed_cases
+        row.failed_cases = failed_cases
+        row.completed_at = completed_at
+        self.session.flush()
+        return mappers.retrieval_evaluation_run_from_orm(row)
+
+
+class RetrievalEvaluationCaseResultRepository(
+    Repository[RetrievalEvaluationCaseResult, orm.RetrievalEvaluationCaseResultORM],
+):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.RetrievalEvaluationCaseResultORM,
+            mappers.retrieval_evaluation_case_result_to_orm,
+            mappers.retrieval_evaluation_case_result_from_orm,
+        )
+
+    def list_by_run(self, run_id: str) -> list[RetrievalEvaluationCaseResult]:
+        statement = (
+            select(orm.RetrievalEvaluationCaseResultORM)
+            .where(orm.RetrievalEvaluationCaseResultORM.run_id == run_id)
+            .order_by(orm.RetrievalEvaluationCaseResultORM.created_at.asc())
+        )
+        return self._all(statement)
 
