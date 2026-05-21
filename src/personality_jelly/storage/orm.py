@@ -304,5 +304,50 @@ class EvaluationCaseResultORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class RetrievalEvaluationRunORM(Base):
+    __tablename__ = "retrieval_evaluation_runs"
+    __table_args__ = (
+        Index(
+            "ix_retrieval_evaluation_runs_character_suite",
+            "character_id",
+            "test_suite",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    source_work_id: Mapped[str] = mapped_column(ForeignKey("source_works.id"), nullable=False)
+    character_id: Mapped[str] = mapped_column(ForeignKey("characters.id"), nullable=False)
+    test_suite: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    total_cases: Mapped[int] = mapped_column(Integer, nullable=False)
+    passed_cases: Mapped[int] = mapped_column(Integer, nullable=False)
+    failed_cases: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding_model: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RetrievalEvaluationCaseResultORM(Base):
+    __tablename__ = "retrieval_evaluation_case_results"
+    __table_args__ = (Index("ix_retrieval_evaluation_case_results_run", "run_id"),)
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("retrieval_evaluation_runs.id"),
+        nullable=False,
+    )
+    case_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_chunk_ids: Mapped[list[str]] = mapped_column(SAJSON, nullable=False, default=list)
+    retrieved_chunk_ids: Mapped[list[str]] = mapped_column(SAJSON, nullable=False, default=list)
+    retrieved_scores: Mapped[list[float | None]] = mapped_column(SAJSON, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    recall: Mapped[float] = mapped_column(Float, nullable=False)
+    first_relevant_rank: Mapped[int | None] = mapped_column(Integer)
+    ranking_score: Mapped[float] = mapped_column(Float, nullable=False)
+    reasons: Mapped[list[str]] = mapped_column(SAJSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 def create_all(bind) -> None:
     Base.metadata.create_all(bind=bind)

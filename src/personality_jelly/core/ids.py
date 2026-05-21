@@ -21,6 +21,8 @@ class EntityKind(StrEnum):
     LLM_RAW_OUTPUT = "llm_raw_output"
     EVALUATION_RUN = "evaluation_run"
     EVALUATION_CASE_RESULT = "evaluation_case_result"
+    RETRIEVAL_EVALUATION_RUN = "retrieval_evaluation_run"
+    RETRIEVAL_EVALUATION_CASE_RESULT = "retrieval_evaluation_case_result"
 
 
 ID_PREFIXES: dict[EntityKind, str] = {
@@ -42,6 +44,8 @@ ID_PREFIXES: dict[EntityKind, str] = {
     EntityKind.LLM_RAW_OUTPUT: "llmraw",
     EntityKind.EVALUATION_RUN: "eval",
     EntityKind.EVALUATION_CASE_RESULT: "evalcase",
+    EntityKind.RETRIEVAL_EVALUATION_RUN: "retrievaleval",
+    EntityKind.RETRIEVAL_EVALUATION_CASE_RESULT: "retrievalcase",
 }
 
 

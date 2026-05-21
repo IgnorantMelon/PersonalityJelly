@@ -4,7 +4,20 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, MetaData, String, Table, inspect, select
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    Text,
+    inspect,
+    select,
+)
 from sqlalchemy import JSON as SAJSON
 from sqlalchemy.engine import Engine
 
@@ -53,10 +66,20 @@ _schema_migrations = Table(
     Column("description", String(255), nullable=False),
     Column("applied_at", DateTime(timezone=True), nullable=False),
 )
+_source_works = Table(
+    "source_works",
+    _metadata,
+    Column("id", String(64), primary_key=True),
+)
 _source_chunks = Table(
     "source_chunks",
     _metadata,
     Column("id", String(96), primary_key=True),
+)
+_characters = Table(
+    "characters",
+    _metadata,
+    Column("id", String(64), primary_key=True),
 )
 _source_chunk_embeddings = Table(
     "source_chunk_embeddings",
@@ -73,6 +96,49 @@ _source_chunk_embeddings = Table(
         unique=True,
     ),
 )
+_retrieval_evaluation_runs = Table(
+    "retrieval_evaluation_runs",
+    _metadata,
+    Column("id", String(96), primary_key=True),
+    Column("source_work_id", String(64), ForeignKey("source_works.id"), nullable=False),
+    Column("character_id", String(64), ForeignKey("characters.id"), nullable=False),
+    Column("test_suite", String(128), nullable=False),
+    Column("status", String(32), nullable=False),
+    Column("total_cases", Integer, nullable=False),
+    Column("passed_cases", Integer, nullable=False),
+    Column("failed_cases", Integer, nullable=False),
+    Column("embedding_model", String(128)),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("completed_at", DateTime(timezone=True)),
+    Index(
+        "ix_retrieval_evaluation_runs_character_suite",
+        "character_id",
+        "test_suite",
+    ),
+)
+_retrieval_evaluation_case_results = Table(
+    "retrieval_evaluation_case_results",
+    _metadata,
+    Column("id", String(96), primary_key=True),
+    Column(
+        "run_id",
+        String(96),
+        ForeignKey("retrieval_evaluation_runs.id"),
+        nullable=False,
+    ),
+    Column("case_id", String(128), nullable=False),
+    Column("query", Text, nullable=False),
+    Column("expected_chunk_ids", SAJSON, nullable=False),
+    Column("retrieved_chunk_ids", SAJSON, nullable=False),
+    Column("retrieved_scores", SAJSON, nullable=False),
+    Column("status", String(32), nullable=False),
+    Column("recall", Float, nullable=False),
+    Column("first_relevant_rank", Integer),
+    Column("ranking_score", Float, nullable=False),
+    Column("reasons", SAJSON, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Index("ix_retrieval_evaluation_case_results_run", "run_id"),
+)
 
 
 def _apply_initial_schema(engine: Engine) -> None:
@@ -81,6 +147,11 @@ def _apply_initial_schema(engine: Engine) -> None:
 
 def _apply_source_chunk_embeddings(engine: Engine) -> None:
     _source_chunk_embeddings.create(engine, checkfirst=True)
+
+
+def _apply_retrieval_evaluation(engine: Engine) -> None:
+    _retrieval_evaluation_runs.create(engine, checkfirst=True)
+    _retrieval_evaluation_case_results.create(engine, checkfirst=True)
 
 
 MIGRATIONS: tuple[Migration, ...] = (
@@ -93,6 +164,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         version="0002_source_chunk_embeddings",
         description="Persist source chunk embeddings",
         apply=_apply_source_chunk_embeddings,
+    ),
+    Migration(
+        version="0003_retrieval_evaluation",
+        description="Persist retrieval quality evaluation runs",
+        apply=_apply_retrieval_evaluation,
     ),
 )
 

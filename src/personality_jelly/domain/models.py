@@ -223,3 +223,33 @@ class EvaluationCaseResult(DomainModel):
     reasons: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utc_now)
 
+
+class RetrievalEvaluationRun(DomainModel):
+    id: str
+    source_work_id: str
+    character_id: str
+    test_suite: str
+    status: EvaluationStatus = EvaluationStatus.RUNNING
+    total_cases: int = Field(ge=0)
+    passed_cases: int = Field(default=0, ge=0)
+    failed_cases: int = Field(default=0, ge=0)
+    embedding_model: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = None
+
+
+class RetrievalEvaluationCaseResult(DomainModel):
+    id: str
+    run_id: str
+    case_id: str
+    query: str
+    expected_chunk_ids: list[str] = Field(default_factory=list)
+    retrieved_chunk_ids: list[str] = Field(default_factory=list)
+    retrieved_scores: list[float | None] = Field(default_factory=list)
+    status: EvaluationCaseStatus
+    recall: float = Field(ge=0.0, le=1.0)
+    first_relevant_rank: int | None = None
+    ranking_score: float = Field(ge=0.0, le=1.0)
+    reasons: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utc_now)
+

@@ -3,6 +3,7 @@ from personality_jelly.domain import (
     Conversation,
     ContextPackage,
     CriticReport,
+    EvaluationStatus,
     FailureCase,
     InteractionMode,
     LLMRawOutput,
@@ -12,6 +13,8 @@ from personality_jelly.domain import (
     Message,
     MessageRole,
     PersonaVersion,
+    RetrievalEvaluationCaseResult,
+    RetrievalEvaluationRun,
     SourceChunkEmbedding,
     SourceWork,
     User,
@@ -27,6 +30,8 @@ from personality_jelly.storage import (
     MemoryRepository,
     MessageRepository,
     PersonaVersionRepository,
+    RetrievalEvaluationCaseResultRepository,
+    RetrievalEvaluationRunRepository,
     SourceChunkEmbeddingRepository,
     SourceChunkRepository,
     SourceWorkRepository,
@@ -401,4 +406,68 @@ def test_llm_raw_output_repository_roundtrips_structured_trace() -> None:
     assert stored.response_schema["title"] == "InteractionModeClassification"
     assert stored.parsed_output["mode"] == "roleplay_scene"
     assert traces[0].id == "llmraw_001"
+
+
+def test_retrieval_evaluation_repositories_roundtrip_run_and_cases() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        SourceWorkRepository(session).add(
+            SourceWork(id="sw_001", title="Retrieval Work", source_type="markdown")
+        )
+        CharacterRepository(session).add(
+            Character(
+                id="char_001",
+                source_work_id="sw_001",
+                canonical_name="Lin Shuang",
+            )
+        )
+        run = RetrievalEvaluationRun(
+            id="retrievaleval_001",
+            source_work_id="sw_001",
+            character_id="char_001",
+            test_suite="retrieval_suite",
+            total_cases=1,
+            embedding_model="fake-embedding",
+        )
+        RetrievalEvaluationRunRepository(session).add(run)
+        RetrievalEvaluationCaseResultRepository(session).add(
+            RetrievalEvaluationCaseResult(
+                id="retrievalcase_001",
+                run_id=run.id,
+                case_id="claim_1",
+                query="Lin Shuang observes before acting.",
+                expected_chunk_ids=["chunk_001"],
+                retrieved_chunk_ids=["chunk_001", "chunk_002"],
+                retrieved_scores=[0.92, 0.2],
+                status="passed",
+                recall=1.0,
+                first_relevant_rank=1,
+                ranking_score=1.0,
+                reasons=["recall=1.000"],
+            )
+        )
+        updated = RetrievalEvaluationRunRepository(session).update_summary(
+            run.id,
+            status=EvaluationStatus.COMPLETED,
+            passed_cases=1,
+            failed_cases=0,
+            completed_at=run.created_at,
+        )
+        session.commit()
+
+    with session_factory() as session:
+        run_repository = RetrievalEvaluationRunRepository(session)
+        case_repository = RetrievalEvaluationCaseResultRepository(session)
+        stored = run_repository.require("retrievaleval_001")
+        recent = run_repository.list_recent(character_id="char_001", test_suite="retrieval_suite")
+        cases = case_repository.list_by_run("retrievaleval_001")
+
+    assert updated.status == "completed"
+    assert stored.embedding_model == "fake-embedding"
+    assert recent[0].id == "retrievaleval_001"
+    assert cases[0].expected_chunk_ids == ["chunk_001"]
+    assert cases[0].retrieved_scores == [0.92, 0.2]
 

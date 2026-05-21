@@ -29,5 +29,7 @@ def test_create_all_creates_mvp_tables() -> None:
         "llm_raw_outputs",
         "evaluation_runs",
         "evaluation_case_results",
+        "retrieval_evaluation_runs",
+        "retrieval_evaluation_case_results",
     } <= table_names
 

@@ -21,7 +21,7 @@ from personality_jelly.domain import (
     User,
 )
 from personality_jelly.extraction import run_reader_extraction, verify_candidate_claims
-from personality_jelly.evaluation import run_ooc_benchmark
+from personality_jelly.evaluation import run_ooc_benchmark, run_retrieval_benchmark
 from personality_jelly.ingestion import SourceIngestionResult, ingest_text_file
 from personality_jelly.llm import (
     EmbeddingConfig,
@@ -60,6 +60,8 @@ from personality_jelly.storage.repositories import (
     MemoryRepository,
     MessageRepository,
     PersonaVersionRepository,
+    RetrievalEvaluationCaseResultRepository,
+    RetrievalEvaluationRunRepository,
     SourceWorkRepository,
     UserRepository,
 )
@@ -334,6 +336,36 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
     )
+    list_retrieval_eval_runs = list_subparsers.add_parser(
+        "retrieval-eval-runs",
+        help="List retrieval evaluation runs.",
+    )
+    list_retrieval_eval_runs.add_argument(
+        "--character-id",
+        default=None,
+        help="Optional character id filter.",
+    )
+    list_retrieval_eval_runs.add_argument(
+        "--source-work-id",
+        default=None,
+        help="Optional source work id filter.",
+    )
+    list_retrieval_eval_runs.add_argument(
+        "--test-suite",
+        default=None,
+        help="Optional test suite filter.",
+    )
+    list_retrieval_eval_runs.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of retrieval evaluation runs to print.",
+    )
+    list_retrieval_eval_runs.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
 
     archive_parser = subparsers.add_parser("archive", help="Archive persisted resources.")
     archive_subparsers = archive_parser.add_subparsers(dest="resource")
@@ -484,6 +516,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
     )
+    show_retrieval_eval_run = show_subparsers.add_parser(
+        "retrieval-eval-run",
+        help="Show a stored retrieval evaluation run.",
+    )
+    show_retrieval_eval_run.add_argument("run_id", help="Retrieval evaluation run id.")
+    show_retrieval_eval_run.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
 
     eval_parser = subparsers.add_parser("eval", help="Run evaluation tasks.")
     eval_subparsers = eval_parser.add_subparsers(dest="resource")
@@ -512,6 +554,38 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("stub", "env"),
         default="stub",
         help="LLM provider source: stub for deterministic local output, env for PJ_* settings.",
+    )
+    retrieval_benchmark = eval_subparsers.add_parser(
+        "retrieval-benchmark",
+        help="Run source retrieval quality benchmark cases.",
+    )
+    retrieval_benchmark.add_argument("--character-id", required=True, help="Character id to evaluate.")
+    retrieval_benchmark.add_argument(
+        "--test-suite",
+        default="retrieval_default",
+        help="Test suite label to record with the run.",
+    )
+    retrieval_benchmark.add_argument(
+        "--max-cases",
+        type=int,
+        default=20,
+        help="Maximum number of verified-claim evidence cases to generate.",
+    )
+    retrieval_benchmark.add_argument(
+        "--no-empty-case",
+        action="store_true",
+        help="Skip the empty-result fallback case.",
+    )
+    retrieval_benchmark.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    retrieval_benchmark.add_argument(
+        "--provider",
+        choices=("stub", "env"),
+        default="stub",
+        help="Embedding provider source: stub for deterministic local fallback, env for PJ_* settings.",
     )
 
     db_parser = subparsers.add_parser("db", help="Manage database schema migrations.")
@@ -703,6 +777,8 @@ def _run_list(args: argparse.Namespace) -> int:
         return _run_list_eval_runs(args)
     if args.resource == "llm-traces":
         return _run_list_llm_traces(args)
+    if args.resource == "retrieval-eval-runs":
+        return _run_list_retrieval_eval_runs(args)
     raise CliError("list resource is required")
 
 
@@ -745,12 +821,16 @@ def _run_show(args: argparse.Namespace) -> int:
         return _run_show_eval_run(args)
     if args.resource == "llm-trace":
         return _run_show_llm_trace(args)
+    if args.resource == "retrieval-eval-run":
+        return _run_show_retrieval_eval_run(args)
     raise CliError("show resource is required")
 
 
 def _run_eval(args: argparse.Namespace) -> int:
     if args.resource == "ooc-benchmark":
         return _run_ooc_benchmark(args)
+    if args.resource == "retrieval-benchmark":
+        return _run_retrieval_benchmark(args)
     raise CliError("eval resource is required")
 
 
@@ -989,6 +1069,38 @@ def _run_list_llm_traces(args: argparse.Namespace) -> int:
             print(f"llm_trace.{index}.model_name={trace.model_name or 'none'}")
             print(f"llm_trace.{index}.validation_error_count={len(trace.validation_errors)}")
             print(f"llm_trace.{index}.created_at={trace.created_at.isoformat()}")
+    return 0
+
+
+def _run_list_retrieval_eval_runs(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        raise CliError("--limit must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        runs = RetrievalEvaluationRunRepository(session).list_recent(
+            limit=args.limit,
+            character_id=args.character_id,
+            source_work_id=args.source_work_id,
+            test_suite=args.test_suite,
+        )
+
+        print(f"database_url={database_url}")
+        print(f"retrieval_eval_run_count={len(runs)}")
+        for index, run in enumerate(runs, start=1):
+            print(f"retrieval_eval_run.{index}.id={run.id}")
+            print(f"retrieval_eval_run.{index}.status={run.status}")
+            print(f"retrieval_eval_run.{index}.test_suite={run.test_suite}")
+            print(f"retrieval_eval_run.{index}.source_work_id={run.source_work_id}")
+            print(f"retrieval_eval_run.{index}.character_id={run.character_id}")
+            print(f"retrieval_eval_run.{index}.embedding_model={run.embedding_model or 'none'}")
+            print(f"retrieval_eval_run.{index}.total={run.total_cases}")
+            print(f"retrieval_eval_run.{index}.passed={run.passed_cases}")
+            print(f"retrieval_eval_run.{index}.failed={run.failed_cases}")
     return 0
 
 
@@ -1238,6 +1350,47 @@ def _run_show_llm_trace(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            run = RetrievalEvaluationRunRepository(session).require(args.run_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+        case_results = RetrievalEvaluationCaseResultRepository(session).list_by_run(run.id)
+
+        print(f"database_url={database_url}")
+        print(f"run_id={run.id}")
+        print(f"status={run.status}")
+        print(f"test_suite={run.test_suite}")
+        print(f"source_work_id={run.source_work_id}")
+        print(f"character_id={run.character_id}")
+        print(f"embedding_model={run.embedding_model or 'none'}")
+        print(f"total={run.total_cases}")
+        print(f"passed={run.passed_cases}")
+        print(f"failed={run.failed_cases}")
+        print(f"case_count={len(case_results)}")
+        for index, case_result in enumerate(case_results, start=1):
+            print(f"case.{index}.id={case_result.case_id}")
+            print(f"case.{index}.status={case_result.status}")
+            print(f"case.{index}.recall={case_result.recall}")
+            print(f"case.{index}.first_relevant_rank={case_result.first_relevant_rank or 'none'}")
+            print(f"case.{index}.ranking_score={case_result.ranking_score}")
+            print(f"case.{index}.expected_chunk_ids={','.join(case_result.expected_chunk_ids)}")
+            print(f"case.{index}.retrieved_chunk_ids={','.join(case_result.retrieved_chunk_ids)}")
+            print(f"case.{index}.query={case_result.query}")
+            print(f"case.{index}.reasons<<END")
+            for reason in case_result.reasons:
+                print(f"- {reason}")
+            print("END")
+    return 0
+
+
 def _run_archive_memory(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
@@ -1392,6 +1545,56 @@ def _run_ooc_benchmark(args: argparse.Namespace) -> int:
         print(f"case.{index}.id={case_result.case_id}")
         print(f"case.{index}.status={case_result.status}")
         print(f"case.{index}.critic_report_id={case_result.critic_report_id or 'none'}")
+    return 0
+
+
+def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
+    if args.max_cases < 1:
+        raise CliError("--max-cases must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    if args.provider == "stub":
+        embedding_provider: LLMProvider | None = StubProvider()
+        embedding_config: EmbeddingConfig | None = EmbeddingConfig(model="stub-embedding")
+    else:
+        embedding_provider, embedding_config = _resolve_embedding_provider(
+            args.provider,
+            settings=settings,
+        )
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            result = run_retrieval_benchmark(
+                session,
+                character_id=args.character_id,
+                provider=embedding_provider,
+                embedding_config=embedding_config,
+                test_suite=args.test_suite,
+                max_cases=args.max_cases,
+                include_empty_case=not args.no_empty_case,
+            )
+        except (LookupError, ValueError) as exc:
+            raise CliError(str(exc)) from exc
+        session.commit()
+
+    print(f"database_url={database_url}")
+    print(f"run_id={result.run.id}")
+    print(f"status={result.run.status}")
+    print(f"test_suite={result.run.test_suite}")
+    print(f"source_work_id={result.run.source_work_id}")
+    print(f"character_id={result.run.character_id}")
+    print(f"embedding_model={result.run.embedding_model or 'none'}")
+    print(f"total={result.run.total_cases}")
+    print(f"passed={result.run.passed_cases}")
+    print(f"failed={result.run.failed_cases}")
+    for index, case_result in enumerate(result.case_results, start=1):
+        print(f"case.{index}.id={case_result.case_id}")
+        print(f"case.{index}.status={case_result.status}")
+        print(f"case.{index}.recall={case_result.recall}")
+        print(f"case.{index}.first_relevant_rank={case_result.first_relevant_rank or 'none'}")
     return 0
 
 
