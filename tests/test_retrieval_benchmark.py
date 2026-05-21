@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 from personality_jelly.domain import (
     CanonClaim,
     Character,
@@ -8,6 +11,7 @@ from personality_jelly.domain import (
 )
 from personality_jelly.evaluation import (
     RetrievalBenchmarkCase,
+    load_retrieval_benchmark_cases_file,
     run_retrieval_benchmark,
     summarize_retrieval_benchmark,
 )
@@ -38,6 +42,95 @@ class RetrievalEmbeddingProvider:
 
     def embed_texts(self, texts: list[str], embedding_config: EmbeddingConfig) -> list[list[float]]:
         return [_vector_for_text(text) for text in texts]
+
+
+def test_load_retrieval_benchmark_cases_file_normalizes_explicit_cases(
+    tmp_path: Path,
+) -> None:
+    cases_file = tmp_path / "retrieval-cases.json"
+    cases_file.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": " manual_evidence ",
+                        "query": " How does Lin Shuang decide? ",
+                        "expected_chunk_ids": [" chunk_a ", "chunk_b"],
+                        "limit": 2,
+                    },
+                    {
+                        "id": "manual_empty",
+                        "query": "Out-of-scope probe.",
+                        "expected_chunk_ids": [],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cases = load_retrieval_benchmark_cases_file(cases_file)
+
+    assert cases == (
+        RetrievalBenchmarkCase(
+            id="manual_evidence",
+            query="How does Lin Shuang decide?",
+            expected_chunk_ids=("chunk_a", "chunk_b"),
+            limit=2,
+        ),
+        RetrievalBenchmarkCase(
+            id="manual_empty",
+            query="Out-of-scope probe.",
+            expected_chunk_ids=(),
+            limit=4,
+        ),
+    )
+
+
+def test_load_retrieval_benchmark_cases_file_rejects_duplicate_case_ids(
+    tmp_path: Path,
+) -> None:
+    cases_file = tmp_path / "retrieval-cases.json"
+    cases_file.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": "manual",
+                        "query": "First query.",
+                        "expected_chunk_ids": ["chunk_a"],
+                    },
+                    {
+                        "id": "manual",
+                        "query": "Second query.",
+                        "expected_chunk_ids": [],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        load_retrieval_benchmark_cases_file(cases_file)
+    except ValueError as error:
+        assert "duplicate retrieval benchmark case ids: manual" in str(error)
+    else:
+        raise AssertionError("Expected duplicate retrieval benchmark case ids to be rejected")
+
+
+def test_load_retrieval_benchmark_cases_file_rejects_empty_cases(
+    tmp_path: Path,
+) -> None:
+    cases_file = tmp_path / "retrieval-cases.json"
+    cases_file.write_text(json.dumps({"cases": []}), encoding="utf-8")
+
+    try:
+        load_retrieval_benchmark_cases_file(cases_file)
+    except ValueError as error:
+        assert "cases: List should have at least 1 item" in str(error)
+    else:
+        raise AssertionError("Expected empty retrieval benchmark cases to be rejected")
 
 
 def test_run_retrieval_benchmark_persists_ranking_and_empty_result_metrics() -> None:

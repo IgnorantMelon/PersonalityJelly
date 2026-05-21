@@ -19,6 +19,7 @@ from personality_jelly.evaluation.retrieval_benchmark import (
     RetrievalBenchmarkReport,
     RetrievalBenchmarkRunResult,
     build_default_retrieval_benchmark_cases,
+    load_retrieval_benchmark_cases_file,
     run_retrieval_benchmark,
     summarize_retrieval_benchmark,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "RetrievalBenchmarkRunResult",
     "build_default_retrieval_benchmark_cases",
     "get_benchmark_cases",
+    "load_retrieval_benchmark_cases_file",
     "run_ooc_benchmark",
     "run_retrieval_benchmark",
     "summarize_retrieval_benchmark",

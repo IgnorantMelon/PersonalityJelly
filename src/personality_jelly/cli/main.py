@@ -24,8 +24,10 @@ from personality_jelly.extraction import run_reader_extraction, verify_candidate
 from personality_jelly.evaluation import (
     BENCHMARK_CASE_SUITES,
     BenchmarkCase,
+    RetrievalBenchmarkCase,
     build_default_retrieval_benchmark_cases,
     get_benchmark_cases,
+    load_retrieval_benchmark_cases_file,
     run_ooc_benchmark,
     run_retrieval_benchmark,
     summarize_retrieval_benchmark,
@@ -594,12 +596,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max-cases",
         type=int,
         default=20,
-        help="Maximum number of verified-claim evidence cases to generate.",
+        help=(
+            "Maximum number of verified-claim evidence cases to generate "
+            "when --cases-file is omitted."
+        ),
     )
     retrieval_benchmark.add_argument(
         "--no-empty-case",
         action="store_true",
-        help="Skip the empty-result fallback case.",
+        help="Skip the generated empty-result fallback case when --cases-file is omitted.",
+    )
+    retrieval_benchmark.add_argument(
+        "--cases-file",
+        type=Path,
+        default=None,
+        help="JSON file with explicit retrieval benchmark cases.",
     )
     retrieval_benchmark.add_argument(
         "--database-url",
@@ -1766,12 +1777,14 @@ def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
 
     with session_factory() as session:
         try:
+            cases = _load_explicit_retrieval_benchmark_cases(args)
             result = run_retrieval_benchmark(
                 session,
                 character_id=args.character_id,
                 provider=embedding_provider,
                 embedding_config=embedding_config,
                 test_suite=args.test_suite,
+                cases=cases,
                 max_cases=args.max_cases,
                 include_empty_case=not args.no_empty_case,
             )
@@ -1828,12 +1841,14 @@ def _dry_run_retrieval_benchmark(
     with session_factory() as session:
         try:
             character = CharacterRepository(session).require(args.character_id)
-            cases = build_default_retrieval_benchmark_cases(
-                session,
-                character_id=character.id,
-                max_cases=args.max_cases,
-                include_empty_case=not args.no_empty_case,
-            )
+            cases = _load_explicit_retrieval_benchmark_cases(args)
+            if cases is None:
+                cases = build_default_retrieval_benchmark_cases(
+                    session,
+                    character_id=character.id,
+                    max_cases=args.max_cases,
+                    include_empty_case=not args.no_empty_case,
+                )
         except (LookupError, ValueError) as exc:
             raise CliError(str(exc)) from exc
 
@@ -1866,6 +1881,14 @@ def _dry_run_retrieval_benchmark(
         if args.verbose:
             print(f"case.{index}.query={benchmark_case.query}")
     return 0
+
+
+def _load_explicit_retrieval_benchmark_cases(
+    args: argparse.Namespace,
+) -> tuple[RetrievalBenchmarkCase, ...] | None:
+    if args.cases_file is None:
+        return None
+    return load_retrieval_benchmark_cases_file(args.cases_file)
 
 
 def _print_retrieval_benchmark_run_summary(
