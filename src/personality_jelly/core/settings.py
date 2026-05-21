@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.openai.com/v1"
     llm_api_key: str | None = None
     llm_timeout_seconds: float = Field(default=60.0, gt=0.0)
+    llm_json_response_format: str = "json_schema"
     embedding_provider: str | None = None
     embedding_model: str | None = None
     embedding_base_url: str | None = None
@@ -96,7 +97,7 @@ def _flatten_project_config(data: dict[str, Any]) -> dict[str, Any]:
         data.get("llm"),
         flattened,
         prefix="llm",
-        fields=("provider", "model", "base_url", "timeout_seconds"),
+        fields=("provider", "model", "base_url", "timeout_seconds", "json_response_format"),
     )
     _copy_section(
         data.get("embedding"),

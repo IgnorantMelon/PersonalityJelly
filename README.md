@@ -22,6 +22,7 @@ provider = "openai-compatible"
 base_url = "https://api.openai.com/v1"
 model = "gpt-4.1-mini"
 timeout_seconds = 60
+json_response_format = "json_schema"
 
 [embedding]
 provider = "openai-compatible"
@@ -40,6 +41,10 @@ $env:PJ_EMBEDDING_API_KEY = "<api-key>"
 Environment variables still override `pjelly.toml`; use `PJ_CONFIG_FILE` to point to another TOML
 file. If `PJ_EMBEDDING_PROVIDER`, `PJ_EMBEDDING_BASE_URL`, or `PJ_EMBEDDING_API_KEY` are omitted,
 the embedding client falls back to the LLM provider endpoint and key.
+
+Set `llm.json_response_format = "json_object"` for OpenAI-compatible providers that do not support
+`response_format.type = "json_schema"` but do support JSON object mode. In that mode Personality
+Jelly injects the Pydantic JSON Schema into the prompt and still validates the returned object.
 
 Use `personality_jelly.llm.build_llm_provider(Settings())` to construct the configured provider.
 Use `personality_jelly.llm.build_embedding_provider(Settings())` to construct the configured
@@ -162,7 +167,7 @@ Implemented:
   memory guard, and benchmark evaluator, including operation, schema, provider, model, raw output,
   parsed output, and validation errors.
 - CLI coverage for demo, turn, list, show, eval, archive, edit, and summarize.
-- Full test suite currently passes: `90 passed`.
+- Full test suite currently passes: `94 passed`.
 
 ## Next development tasks
 

@@ -1,6 +1,10 @@
 from personality_jelly.core import EntityKind, Settings, generate_id
 
 
+def _settings_without_project_file(**values) -> Settings:
+    return Settings(config_file="missing-test-pjelly.toml", _env_file=None, **values)
+
+
 def test_generate_id_uses_expected_prefix() -> None:
     generated = generate_id(EntityKind.CONVERSATION)
 
@@ -12,7 +16,7 @@ def test_settings_use_project_env_prefix(monkeypatch) -> None:
     monkeypatch.setenv("PJ_DATABASE_URL", "sqlite:///test.db")
     monkeypatch.setenv("PJ_LOG_LEVEL", "DEBUG")
 
-    settings = Settings()
+    settings = _settings_without_project_file()
 
     assert settings.database_url == "sqlite:///test.db"
     assert settings.log_level == "DEBUG"
@@ -30,6 +34,7 @@ provider = "openai-compatible"
 base_url = "https://chat.example/v1"
 model = "chat-model"
 timeout_seconds = 30
+json_response_format = "json_object"
 
 [embedding]
 provider = "openai-compatible"
@@ -41,7 +46,7 @@ timeout_seconds = 15
     )
     monkeypatch.setenv("PJ_CONFIG_FILE", str(config_file))
 
-    settings = Settings()
+    settings = Settings(_env_file=None)
 
     assert settings.database_url == "sqlite:///configured.db"
     assert settings.log_level == "WARNING"
@@ -49,6 +54,7 @@ timeout_seconds = 15
     assert settings.llm_base_url == "https://chat.example/v1"
     assert settings.llm_model == "chat-model"
     assert settings.llm_timeout_seconds == 30
+    assert settings.llm_json_response_format == "json_object"
     assert settings.embedding_provider == "openai-compatible"
     assert settings.embedding_base_url == "https://embedding.example/v1"
     assert settings.embedding_model == "embedding-model"
@@ -69,7 +75,7 @@ model = "configured-model"
     monkeypatch.setenv("PJ_CONFIG_FILE", str(config_file))
     monkeypatch.setenv("PJ_LLM_MODEL", "env-model")
 
-    settings = Settings()
+    settings = Settings(_env_file=None)
 
     assert settings.llm_base_url == "https://configured.example/v1"
     assert settings.llm_model == "env-model"
@@ -90,11 +96,13 @@ api_key = "unsafe-embedding-key"
         encoding="utf-8",
     )
     monkeypatch.setenv("PJ_CONFIG_FILE", str(config_file))
+    monkeypatch.setenv("PJ_LLM_API_KEY", "")
+    monkeypatch.setenv("PJ_EMBEDDING_API_KEY", "")
 
-    settings = Settings()
+    settings = Settings(_env_file=None)
 
-    assert settings.llm_api_key is None
-    assert settings.embedding_api_key is None
+    assert settings.llm_api_key == ""
+    assert settings.embedding_api_key == ""
 
 
 def test_init_config_file_selects_project_toml(tmp_path) -> None:
@@ -108,7 +116,7 @@ model = "custom-model"
         encoding="utf-8",
     )
 
-    settings = Settings(config_file=str(config_file))
+    settings = Settings(config_file=str(config_file), _env_file=None)
 
     assert settings.resolved_config_file == config_file
     assert settings.llm_model == "custom-model"

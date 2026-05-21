@@ -3,6 +3,7 @@
 from personality_jelly.llm.openai_compatible import (
     OpenAICompatibleConfig,
     OpenAICompatibleError,
+    OpenAIJSONResponseFormat,
     OpenAICompatibleProvider,
 )
 from personality_jelly.llm.provider import (
@@ -22,6 +23,7 @@ __all__ = [
     "ModelConfig",
     "OpenAICompatibleConfig",
     "OpenAICompatibleError",
+    "OpenAIJSONResponseFormat",
     "OpenAICompatibleProvider",
     "RepositoryLLMTraceRecorder",
     "build_embedding_provider",
