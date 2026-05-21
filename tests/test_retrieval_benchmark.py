@@ -11,6 +11,7 @@ from personality_jelly.domain import (
 )
 from personality_jelly.evaluation import (
     RetrievalBenchmarkCase,
+    build_retrieval_benchmark_cases_from_results,
     export_retrieval_benchmark_cases_file,
     load_retrieval_benchmark_cases_file,
     run_retrieval_benchmark,
@@ -186,6 +187,70 @@ def test_export_retrieval_benchmark_cases_file_refuses_existing_file(
     export_retrieval_benchmark_cases_file(cases_file, cases, overwrite=True)
 
     assert load_retrieval_benchmark_cases_file(cases_file) == cases
+
+
+def test_build_retrieval_benchmark_cases_from_results_filters_failed_cases() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        SourceWorkRepository(session).add(
+            SourceWork(id="sw_001", title="Failure Export", source_type="markdown")
+        )
+        chunks = chunk_source_text(
+            "sw_001",
+            "\n\n".join(
+                [
+                    "Lin Shuang watches the window before making a decision.",
+                    "The bell rings over an empty street.",
+                ]
+            ),
+        )
+        SourceChunkRepository(session).add_many(chunks)
+        CharacterRepository(session).add(
+            Character(
+                id="char_001",
+                source_work_id="sw_001",
+                canonical_name="Lin Shuang",
+            )
+        )
+
+        result = run_retrieval_benchmark(
+            session,
+            character_id="char_001",
+            provider=RetrievalEmbeddingProvider(),
+            embedding_config=EmbeddingConfig(model="fake-embedding"),
+            cases=(
+                RetrievalBenchmarkCase(
+                    id="passing",
+                    query="How does Lin Shuang decide?",
+                    expected_chunk_ids=(chunks[0].id,),
+                    limit=1,
+                ),
+                RetrievalBenchmarkCase(
+                    id="failing",
+                    query="Missing source evidence.",
+                    expected_chunk_ids=("chunk_missing",),
+                    limit=1,
+                ),
+            ),
+        )
+
+    cases = build_retrieval_benchmark_cases_from_results(
+        result.case_results,
+        failed_only=True,
+        limit=3,
+    )
+
+    assert cases == (
+        RetrievalBenchmarkCase(
+            id="failing",
+            query="Missing source evidence.",
+            expected_chunk_ids=("chunk_missing",),
+            limit=3,
+        ),
+    )
 
 
 def test_run_retrieval_benchmark_persists_ranking_and_empty_result_metrics() -> None:

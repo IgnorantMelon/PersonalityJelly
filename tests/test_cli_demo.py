@@ -916,8 +916,21 @@ def test_cli_runs_lists_and_shows_retrieval_benchmark(
     )
     list_output = capsys.readouterr().out
 
-    show_exit_code = main(["show", "retrieval-eval-run", run_id])
+    failed_cases_file = tmp_path / "failed-retrieval-cases.json"
+    show_exit_code = main(
+        [
+            "show",
+            "retrieval-eval-run",
+            run_id,
+            "--export-cases-file",
+            str(failed_cases_file),
+            "--failed-only",
+            "--export-case-limit",
+            "3",
+        ]
+    )
     show_output = capsys.readouterr().out
+    failed_cases_payload = json.loads(failed_cases_file.read_text(encoding="utf-8"))
 
     assert demo_exit_code == 0
     assert eval_exit_code == 0
@@ -936,12 +949,17 @@ def test_cli_runs_lists_and_shows_retrieval_benchmark(
     assert "retrieval_eval_run.1.test_suite=retrieval_cli_suite" in list_output
     assert show_exit_code == 0
     assert f"run_id={run_id}" in show_output
+    assert f"exported_cases_file={failed_cases_file}" in show_output
     assert "case_count=1" in show_output
     assert "report.evidence_case_count=1" in show_output
     assert "report.no_relevant_result_count=1" in show_output
     assert "case.1.id=claim_1" in show_output
     assert "case.1.expected_chunk_ids=chunk_" in show_output
     assert "case.1.retrieved_chunk_ids=" in show_output
+    assert failed_cases_payload["cases"][0]["id"] == "claim_1"
+    assert failed_cases_payload["cases"][0]["query"]
+    assert failed_cases_payload["cases"][0]["expected_chunk_ids"][0].startswith("chunk_")
+    assert failed_cases_payload["cases"][0]["limit"] == 3
 
     verbose_exit_code = main(
         [

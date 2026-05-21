@@ -203,6 +203,32 @@ def export_retrieval_benchmark_cases_file(
     return case_file
 
 
+def build_retrieval_benchmark_cases_from_results(
+    case_results: list[RetrievalEvaluationCaseResult],
+    *,
+    failed_only: bool = False,
+    limit: int = 4,
+) -> tuple[RetrievalBenchmarkCase, ...]:
+    if limit < 1:
+        raise ValueError("limit must be greater than 0")
+
+    cases: list[RetrievalBenchmarkCase] = []
+    for case_result in case_results:
+        if failed_only and case_result.status != EvaluationCaseStatus.FAILED:
+            continue
+        cases.append(
+            RetrievalBenchmarkCase(
+                id=case_result.case_id,
+                query=case_result.query,
+                expected_chunk_ids=tuple(case_result.expected_chunk_ids),
+                limit=limit,
+            )
+        )
+    if not cases:
+        raise ValueError("No retrieval benchmark case results matched the export filters")
+    return tuple(cases)
+
+
 def build_default_retrieval_benchmark_cases(
     session: Session,
     *,
