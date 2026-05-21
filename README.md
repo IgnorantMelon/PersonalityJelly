@@ -130,7 +130,7 @@ network access or environment variables.
 
 ## Current project status
 
-Last updated: 2026-05-20.
+Last updated: 2026-05-21.
 
 Personality Jelly is still in the "plan three MVP" phase: a single-work, single-protagonist
 novel character brain with clear boundaries for later multi-agent and platform evolution.
@@ -155,6 +155,9 @@ Implemented:
   no-embedding fallback only uses character name/alias entity anchoring.
 - Runtime model settings can be loaded from gitignored `pjelly.toml` with `.env`/environment
   overrides; LLM and embedding cloud providers can be configured separately.
+- OpenAI-compatible structured output supports both strict `json_schema` mode and `json_object`
+  compatibility mode. In `json_object` mode, Personality Jelly injects the Pydantic schema into
+  the prompt and still validates the returned object.
 - Structured memory safety validation through `MemoryGuardDecision`; guard-unavailable memories are
   downgraded to `candidate` for review instead of being accepted.
 - Candidate memories can be reviewed from the CLI and promoted to `accepted` or `rejected` with a
@@ -167,9 +170,21 @@ Implemented:
   memory guard, and benchmark evaluator, including operation, schema, provider, model, raw output,
   parsed output, and validation errors.
 - CLI coverage for demo, turn, list, show, eval, archive, edit, and summarize.
+- Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
+  `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
+  embedding vector dimension is 1024.
 - Full test suite currently passes: `94 passed`.
 
 ## Next development tasks
+
+Recent P1 progress:
+
+- Persisted source chunk embeddings and added schema migration `0002_source_chunk_embeddings`.
+- Added `pjelly.toml`/`.env` model configuration, separate LLM and embedding provider construction,
+  and sanitized `pjelly config show` diagnostics.
+- Added `json_object` structured-output compatibility for OpenAI-compatible providers that do not
+  support strict `json_schema`.
+- Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:
 
