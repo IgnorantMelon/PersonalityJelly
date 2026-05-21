@@ -641,6 +641,25 @@ def test_cli_runs_ooc_benchmark(tmp_path: Path, capsys, monkeypatch) -> None:
     assert "case.10.id=joke_pollution" in eval_output
     assert "case.10.status=passed" in eval_output
 
+    verbose_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "verbose_cli_suite",
+            "--verbose",
+        ]
+    )
+    verbose_output = capsys.readouterr().out
+
+    assert verbose_exit_code == 0
+    assert "test_suite=verbose_cli_suite" in verbose_output
+    assert "case.1.prompt=" in verbose_output
+    assert "case.1.reasons<<END" in verbose_output
+    assert "- stub provider: benchmark case passed." in verbose_output
+
 
 def test_cli_dry_runs_ooc_benchmark_without_persisting_run(
     tmp_path: Path,
@@ -674,6 +693,7 @@ def test_cli_dry_runs_ooc_benchmark_without_persisting_run(
             "--case-suite",
             "expanded_boundaries",
             "--dry-run",
+            "--verbose",
         ]
     )
     dry_run_output = capsys.readouterr().out
@@ -693,6 +713,7 @@ def test_cli_dry_runs_ooc_benchmark_without_persisting_run(
     assert "total=20" in dry_run_output
     assert "will_create_run=false" in dry_run_output
     assert "will_call_provider=false" in dry_run_output
+    assert "case.1.prompt=" in dry_run_output
     assert "case.20.id=reality_modern_payment" in dry_run_output
     assert runs == []
 
@@ -920,6 +941,28 @@ def test_cli_runs_lists_and_shows_retrieval_benchmark(
     assert "case.1.id=claim_1" in show_output
     assert "case.1.expected_chunk_ids=chunk_" in show_output
     assert "case.1.retrieved_chunk_ids=" in show_output
+
+    verbose_exit_code = main(
+        [
+            "eval",
+            "retrieval-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "retrieval_verbose_suite",
+            "--no-empty-case",
+            "--verbose",
+        ]
+    )
+    verbose_output = capsys.readouterr().out
+
+    assert verbose_exit_code == 0
+    assert "test_suite=retrieval_verbose_suite" in verbose_output
+    assert "case.1.ranking_score=" in verbose_output
+    assert "case.1.expected_chunk_ids=chunk_" in verbose_output
+    assert "case.1.retrieved_scores=" in verbose_output
+    assert "case.1.query=" in verbose_output
+    assert "case.1.reasons<<END" in verbose_output
 
 
 def test_cli_dry_runs_retrieval_benchmark_without_persisting_run(
