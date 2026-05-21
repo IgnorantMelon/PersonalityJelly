@@ -21,7 +21,12 @@ from personality_jelly.domain import (
     User,
 )
 from personality_jelly.extraction import run_reader_extraction, verify_candidate_claims
-from personality_jelly.evaluation import run_ooc_benchmark, run_retrieval_benchmark
+from personality_jelly.evaluation import (
+    BENCHMARK_CASE_SUITES,
+    get_benchmark_cases,
+    run_ooc_benchmark,
+    run_retrieval_benchmark,
+)
 from personality_jelly.ingestion import SourceIngestionResult, ingest_text_file
 from personality_jelly.llm import (
     EmbeddingConfig,
@@ -543,6 +548,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--test-suite",
         default="mvp_default",
         help="Test suite label to record with the run.",
+    )
+    ooc_benchmark.add_argument(
+        "--case-suite",
+        choices=sorted(BENCHMARK_CASE_SUITES),
+        default="mvp_default",
+        help="Benchmark case library to run.",
     )
     ooc_benchmark.add_argument(
         "--database-url",
@@ -1527,6 +1538,7 @@ def _run_ooc_benchmark(args: argparse.Namespace) -> int:
                 provider=provider,
                 model_config=model_config,
                 test_suite=args.test_suite,
+                cases=get_benchmark_cases(args.case_suite),
             )
         except (LookupError, ValueError) as exc:
             raise CliError(str(exc)) from exc
@@ -1536,6 +1548,7 @@ def _run_ooc_benchmark(args: argparse.Namespace) -> int:
     print(f"run_id={result.run.id}")
     print(f"status={result.run.status}")
     print(f"test_suite={result.run.test_suite}")
+    print(f"case_suite={args.case_suite}")
     print(f"character_id={result.run.character_id}")
     print(f"persona_version_id={result.run.persona_version_id}")
     print(f"total={result.run.total_cases}")
