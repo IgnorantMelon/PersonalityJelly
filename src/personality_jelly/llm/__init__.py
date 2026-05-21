@@ -12,7 +12,7 @@ from personality_jelly.llm.provider import (
     ModelConfig,
 )
 from personality_jelly.llm.tracing import LLMTraceRecorder, RepositoryLLMTraceRecorder
-from personality_jelly.llm.factory import build_llm_provider
+from personality_jelly.llm.factory import build_embedding_provider, build_llm_provider
 
 __all__ = [
     "ChatMessage",
@@ -24,6 +24,7 @@ __all__ = [
     "OpenAICompatibleError",
     "OpenAICompatibleProvider",
     "RepositoryLLMTraceRecorder",
+    "build_embedding_provider",
     "build_llm_provider",
 ]
 
