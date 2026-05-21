@@ -26,6 +26,7 @@ from personality_jelly.evaluation import (
     BenchmarkCase,
     RetrievalBenchmarkCase,
     build_default_retrieval_benchmark_cases,
+    export_retrieval_benchmark_cases_file,
     get_benchmark_cases,
     load_retrieval_benchmark_cases_file,
     run_ooc_benchmark,
@@ -611,6 +612,17 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="JSON file with explicit retrieval benchmark cases.",
+    )
+    retrieval_benchmark.add_argument(
+        "--export-cases-file",
+        type=Path,
+        default=None,
+        help="Write the resolved retrieval benchmark cases to a JSON file.",
+    )
+    retrieval_benchmark.add_argument(
+        "--overwrite-cases-file",
+        action="store_true",
+        help="Allow --export-cases-file to replace an existing file.",
     )
     retrieval_benchmark.add_argument(
         "--database-url",
@@ -1777,7 +1789,18 @@ def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
 
     with session_factory() as session:
         try:
-            cases = _load_explicit_retrieval_benchmark_cases(args)
+            explicit_cases = _load_explicit_retrieval_benchmark_cases(args)
+            cases = explicit_cases
+            if cases is None and args.export_cases_file is not None:
+                character = CharacterRepository(session).require(args.character_id)
+                cases = build_default_retrieval_benchmark_cases(
+                    session,
+                    character_id=character.id,
+                    max_cases=args.max_cases,
+                    include_empty_case=not args.no_empty_case,
+                )
+            if cases is not None:
+                _export_retrieval_benchmark_cases_if_requested(args, cases)
             result = run_retrieval_benchmark(
                 session,
                 character_id=args.character_id,
@@ -1849,6 +1872,7 @@ def _dry_run_retrieval_benchmark(
                     max_cases=args.max_cases,
                     include_empty_case=not args.no_empty_case,
                 )
+            _export_retrieval_benchmark_cases_if_requested(args, cases)
         except (LookupError, ValueError) as exc:
             raise CliError(str(exc)) from exc
 
@@ -1873,6 +1897,8 @@ def _dry_run_retrieval_benchmark(
     print("will_create_run=false")
     print("will_call_provider=false")
     print("will_call_embedding_provider=false")
+    if args.export_cases_file is not None:
+        print(f"exported_cases_file={args.export_cases_file}")
     for index, benchmark_case in enumerate(cases, start=1):
         print(f"case.{index}.id={benchmark_case.id}")
         print(f"case.{index}.expected_count={len(benchmark_case.expected_chunk_ids)}")
@@ -1889,6 +1915,19 @@ def _load_explicit_retrieval_benchmark_cases(
     if args.cases_file is None:
         return None
     return load_retrieval_benchmark_cases_file(args.cases_file)
+
+
+def _export_retrieval_benchmark_cases_if_requested(
+    args: argparse.Namespace,
+    cases: tuple[RetrievalBenchmarkCase, ...],
+) -> None:
+    if args.export_cases_file is None:
+        return
+    export_retrieval_benchmark_cases_file(
+        args.export_cases_file,
+        cases,
+        overwrite=args.overwrite_cases_file,
+    )
 
 
 def _print_retrieval_benchmark_run_summary(

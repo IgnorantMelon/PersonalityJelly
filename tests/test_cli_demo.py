@@ -1023,6 +1023,65 @@ def test_cli_dry_runs_retrieval_benchmark_without_persisting_run(
     assert runs == []
 
 
+def test_cli_dry_run_can_export_generated_retrieval_benchmark_cases(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+    export_file = tmp_path / "exports" / "retrieval-cases.json"
+
+    dry_run_exit_code = main(
+        [
+            "eval",
+            "retrieval-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "retrieval_export_cases",
+            "--no-empty-case",
+            "--dry-run",
+            "--export-cases-file",
+            str(export_file),
+        ]
+    )
+    dry_run_output = capsys.readouterr().out
+
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        runs = RetrievalEvaluationRunRepository(session).list_recent()
+
+    exported_payload = json.loads(export_file.read_text(encoding="utf-8"))
+
+    assert demo_exit_code == 0
+    assert dry_run_exit_code == 0
+    assert "run_id=dry-run" in dry_run_output
+    assert "total=1" in dry_run_output
+    assert "exported_cases_file=" in dry_run_output
+    assert "case.1.id=claim_1" in dry_run_output
+    assert exported_payload["cases"][0]["id"] == "claim_1"
+    assert exported_payload["cases"][0]["query"]
+    assert exported_payload["cases"][0]["expected_chunk_ids"][0].startswith("chunk_")
+    assert exported_payload["cases"][0]["limit"] == 4
+    assert runs == []
+
+
 def test_cli_dry_runs_retrieval_benchmark_with_cases_file(
     tmp_path: Path,
     capsys,

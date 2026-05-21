@@ -161,6 +161,48 @@ def load_retrieval_benchmark_cases_file(
     )
 
 
+def export_retrieval_benchmark_cases_file(
+    path: Path | str,
+    cases: tuple[RetrievalBenchmarkCase, ...],
+    *,
+    overwrite: bool = False,
+) -> Path:
+    case_file = Path(path)
+    if case_file.exists() and not overwrite:
+        raise ValueError(
+            f"Retrieval benchmark cases file already exists: {case_file}. "
+            "Use --overwrite-cases-file to replace it."
+        )
+
+    payload = {
+        "cases": [
+            {
+                "id": benchmark_case.id,
+                "query": benchmark_case.query,
+                "expected_chunk_ids": list(benchmark_case.expected_chunk_ids),
+                "limit": benchmark_case.limit,
+            }
+            for benchmark_case in cases
+        ]
+    }
+    try:
+        cases_file = _RetrievalBenchmarkCasesFile.model_validate(payload)
+    except ValidationError as exc:
+        message = _format_cases_file_validation_error(exc)
+        raise ValueError(f"Cannot export retrieval benchmark cases: {message}") from exc
+
+    try:
+        case_file.parent.mkdir(parents=True, exist_ok=True)
+        case_file.write_text(
+            json.dumps(cases_file.model_dump(), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        message = f"Unable to write retrieval benchmark cases file {case_file}: {exc}"
+        raise ValueError(message) from exc
+    return case_file
+
+
 def build_default_retrieval_benchmark_cases(
     session: Session,
     *,
