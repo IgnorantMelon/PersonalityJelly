@@ -118,6 +118,7 @@ Run the MVP OOC and canon-pollution benchmark against an existing character:
 ```powershell
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_...
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_... --case-suite expanded_boundaries
+.\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_... --case-suite boundary_regression
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_... --dry-run
 ```
 
@@ -197,8 +198,9 @@ Implemented:
   recorded review reason.
 - Structured benchmark case evaluation through `BenchmarkCaseEvaluation`; benchmark pass/fail is
   not mechanically derived from critic actions.
-- OOC benchmark case suites include the stable `mvp_default` set and an expanded boundary suite for
-  OOC, canon pollution, memory pollution, mode confusion, and reality adaptation probes.
+- OOC benchmark case suites include the stable `mvp_default` set, `expanded_boundaries`, and
+  `boundary_regression` for OOC, canon pollution, memory pollution, mode confusion, reality
+  adaptation, and high-risk prompt-boundary probes.
 - Critic `suggested_action` is a domain enum with `accept`, `retry`, and `log` as the only valid
   workflow actions.
 - Structured semantic operations now persist tracing records for the interaction-mode classifier,
@@ -210,7 +212,7 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `112 passed`.
+- Full test suite currently passes: `113 passed`.
 
 ## Next development tasks
 
@@ -225,6 +227,7 @@ Recent P1 progress:
   support strict `json_schema`.
 - Added CLI trace inspection for structured LLM raw outputs, including error-only filtering.
 - Added an expanded OOC benchmark case suite selectable with `--case-suite expanded_boundaries`.
+- Added a stronger OOC boundary regression suite selectable with `--case-suite boundary_regression`.
 - Added layered conversation summary output to keep short-term state, user memory, relationship
   notes, and reflective notes separate.
 - Added `pjelly config check` diagnostics for local provider construction without network calls.
@@ -241,8 +244,8 @@ P1:
 
 - Extend semantic tracing to future retrieval evaluators.
 - Expand retrieval-quality benchmark cases beyond the default evidence-derived suite.
-- Continue curating benchmark cases from observed OOC, canon pollution, memory pollution, mode
-  confusion, and reality-adaptation failures.
+- Continue curating benchmark cases from observed failures; current OOC suites now include
+  `mvp_default`, `expanded_boundaries`, and `boundary_regression`.
 - Continue hardening downstream consumption of layered summaries after CLI layer inspection.
 - Improve CLI diagnostics with verbose tracing, clearer errors, and richer batch benchmark output.
 

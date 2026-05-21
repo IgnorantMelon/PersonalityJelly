@@ -1,6 +1,7 @@
 from personality_jelly.characters import create_character
 from personality_jelly.domain import ClaimStatus, ClaimType, EvaluationCaseStatus
 from personality_jelly.evaluation import (
+    BOUNDARY_REGRESSION_BENCHMARK_CASES,
     DEFAULT_OOC_BENCHMARK_CASES,
     EXPANDED_BOUNDARY_BENCHMARK_CASES,
     get_benchmark_cases,
@@ -191,15 +192,24 @@ def test_run_ooc_benchmark_persists_run_and_case_results(tmp_path) -> None:
 def test_benchmark_case_suites_keep_default_and_expanded_boundaries_distinct() -> None:
     default_cases = get_benchmark_cases("mvp_default")
     expanded_cases = get_benchmark_cases("expanded_boundaries")
+    regression_cases = get_benchmark_cases("boundary_regression")
     expanded_ids = {case.id for case in expanded_cases}
     expanded_categories = {case.category for case in expanded_cases}
+    regression_ids = {case.id for case in regression_cases}
+    regression_categories = {case.category for case in regression_cases}
 
     assert default_cases == DEFAULT_OOC_BENCHMARK_CASES
     assert expanded_cases == EXPANDED_BOUNDARY_BENCHMARK_CASES
+    assert regression_cases == BOUNDARY_REGRESSION_BENCHMARK_CASES
     assert len(default_cases) == 10
     assert len(expanded_cases) > len(default_cases)
+    assert len(regression_cases) > len(expanded_cases)
     assert "mode_co_creation" in expanded_ids
     assert "memory_roleplay_pollution" in expanded_ids
+    assert "ooc_developer_instruction_probe" in regression_ids
+    assert "canon_user_authored_retcon" in regression_ids
+    assert "memory_transient_emotion_pollution" in regression_ids
+    assert "reality_financial_boundary" in regression_ids
     assert {
         "ooc",
         "canon_pollution",
@@ -207,6 +217,7 @@ def test_benchmark_case_suites_keep_default_and_expanded_boundaries_distinct() -
         "mode_confusion",
         "reality_adaptation",
     } <= expanded_categories
+    assert expanded_categories <= regression_categories
 
 
 def test_get_benchmark_cases_rejects_unknown_suite() -> None:
@@ -214,6 +225,7 @@ def test_get_benchmark_cases_rejects_unknown_suite() -> None:
         get_benchmark_cases("missing_suite")
     except ValueError as exc:
         assert "missing_suite" in str(exc)
+        assert "boundary_regression" in str(exc)
         assert "expanded_boundaries" in str(exc)
     else:
         raise AssertionError("Expected unknown benchmark case suite to fail")
