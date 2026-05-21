@@ -617,6 +617,10 @@ def _build_parser() -> argparse.ArgumentParser:
     config_parser = subparsers.add_parser("config", help="Inspect runtime configuration.")
     config_subparsers = config_parser.add_subparsers(dest="resource")
     config_subparsers.add_parser("show", help="Show sanitized runtime configuration.")
+    config_subparsers.add_parser(
+        "check",
+        help="Check configured provider construction without making network requests.",
+    )
     return parser
 
 
@@ -1614,6 +1618,8 @@ def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
 def _run_config(args: argparse.Namespace) -> int:
     if args.resource == "show":
         return _run_config_show(args)
+    if args.resource == "check":
+        return _run_config_check(args)
     raise CliError("config resource is required")
 
 
@@ -1642,6 +1648,60 @@ def _run_config_show(args: argparse.Namespace) -> int:
         f"{_bool_text(bool(settings.embedding_api_key or settings.llm_api_key))}"
     )
     return 0
+
+
+def _run_config_check(args: argparse.Namespace) -> int:
+    settings = Settings()
+    llm_model = settings.llm_model.strip() if settings.llm_model else ""
+    embedding_model = settings.embedding_model.strip() if settings.embedding_model else ""
+    embedding_provider = settings.embedding_provider or settings.llm_provider
+    embedding_uses_llm_credentials = not bool(settings.embedding_api_key)
+
+    print(f"config_file={settings.resolved_config_file}")
+    print(f"llm.provider={_display_value(settings.llm_provider)}")
+    print(f"llm.model={_display_value(settings.llm_model)}")
+    print(f"llm.api_key_configured={_bool_text(bool(settings.llm_api_key))}")
+    print(f"embedding.provider={_display_value(embedding_provider)}")
+    print(f"embedding.model={_display_value(settings.embedding_model)}")
+    print(
+        "embedding.api_key_configured="
+        f"{_bool_text(bool(settings.embedding_api_key or settings.llm_api_key))}"
+    )
+    print(f"embedding.uses_llm_credentials={_bool_text(embedding_uses_llm_credentials)}")
+
+    errors: list[str] = []
+    llm_status = _provider_check_status(
+        lambda: build_llm_provider(settings),
+        errors=errors,
+        label="llm",
+    )
+    if not llm_model:
+        errors.append("llm.model is not configured")
+    embedding_status = "skipped"
+    if embedding_model:
+        embedding_status = _provider_check_status(
+            lambda: build_embedding_provider(settings),
+            errors=errors,
+            label="embedding",
+        )
+    else:
+        errors.append("embedding.model is not configured; semantic retrieval will use fallback")
+
+    print(f"llm.status={llm_status}")
+    print(f"embedding.status={embedding_status}")
+    print(f"error_count={len(errors)}")
+    for index, error in enumerate(errors, start=1):
+        print(f"error.{index}={error}")
+    return 0 if not errors else 2
+
+
+def _provider_check_status(build_provider, *, errors: list[str], label: str) -> str:
+    try:
+        build_provider()
+    except ValueError as exc:
+        errors.append(f"{label}: {exc}")
+        return "error"
+    return "ok"
 
 
 def _resolve_database_url(args: argparse.Namespace, settings: Settings) -> str:

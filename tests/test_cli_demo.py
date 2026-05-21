@@ -246,6 +246,65 @@ model = "embedding-model"
     assert "embedding-secret" not in output
 
 
+def test_cli_config_check_reports_provider_readiness(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    config_file = tmp_path / "pjelly.toml"
+    config_file.write_text(
+        """
+[llm]
+provider = "openai-compatible"
+base_url = "https://chat.example/v1"
+model = "chat-model"
+json_response_format = "json_object"
+
+[embedding]
+provider = "openai-compatible"
+base_url = "https://embedding.example/v1"
+model = "embedding-model"
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PJ_CONFIG_FILE", str(config_file))
+    monkeypatch.setenv("PJ_LLM_API_KEY", "llm-secret")
+    monkeypatch.setenv("PJ_EMBEDDING_API_KEY", "embedding-secret")
+
+    exit_code = main(["config", "check"])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "llm.status=ok" in output
+    assert "embedding.status=ok" in output
+    assert "error_count=0" in output
+    assert "llm-secret" not in output
+    assert "embedding-secret" not in output
+
+
+def test_cli_config_check_reports_missing_provider_settings(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PJ_CONFIG_FILE", str(tmp_path / "missing-pjelly.toml"))
+    monkeypatch.delenv("PJ_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("PJ_LLM_MODEL", raising=False)
+    monkeypatch.delenv("PJ_LLM_API_KEY", raising=False)
+    monkeypatch.delenv("PJ_EMBEDDING_MODEL", raising=False)
+    monkeypatch.delenv("PJ_EMBEDDING_API_KEY", raising=False)
+
+    exit_code = main(["config", "check"])
+
+    output = capsys.readouterr().out
+    assert exit_code == 2
+    assert "llm.status=error" in output
+    assert "embedding.status=skipped" in output
+    assert "llm: PJ_LLM_PROVIDER is not configured" in output
+    assert "llm.model is not configured" in output
+    assert "embedding.model is not configured" in output
+
+
 def test_cli_demo_reuses_existing_records_from_configured_database(
     tmp_path: Path,
     capsys,
