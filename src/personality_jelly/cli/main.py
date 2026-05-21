@@ -43,6 +43,7 @@ from personality_jelly.runtime import (
     RoleplayTurnProviders,
     create_conversation,
     create_user,
+    parse_layered_summary,
     send_roleplay_turn,
     summarize_conversation,
 )
@@ -1159,6 +1160,7 @@ def _run_show_conversation(args: argparse.Namespace) -> int:
         print(f"character={character.canonical_name}")
         print(f"persona_version_id={conversation.persona_version_id}")
         print(f"mode={conversation.current_mode}")
+        _print_summary_layers(conversation.summary)
         print(f"message_count={len(messages)}")
         for index, message in enumerate(recent_messages, start=1):
             print(f"message.{index}.id={message.id}")
@@ -1538,6 +1540,7 @@ def _run_summarize_conversation(args: argparse.Namespace) -> int:
     print(f"database_url={database_url}")
     print(f"conversation_id={result.conversation.id}")
     print(f"summary={result.conversation.summary}")
+    _print_summary_layers(result.conversation.summary)
     return 0
 
 
@@ -1701,6 +1704,20 @@ def _print_retrieval_benchmark_report(report) -> None:
         f"{report.retrieved_nonempty_when_expected_empty_count}"
     )
     print(f"report.missing_expected_chunk_count={report.missing_expected_chunk_count}")
+
+
+def _print_summary_layers(summary: str | None) -> None:
+    layers = parse_layered_summary(summary)
+    print(f"summary.short_term_scene_state={layers.short_term_scene_state}")
+    print(f"summary.user_memory_candidate_count={len(layers.user_memory_candidates)}")
+    for index, item in enumerate(layers.user_memory_candidates, start=1):
+        print(f"summary.user_memory_candidate.{index}={item}")
+    print(f"summary.relationship_memory_note_count={len(layers.relationship_memory_notes)}")
+    for index, item in enumerate(layers.relationship_memory_notes, start=1):
+        print(f"summary.relationship_memory_note.{index}={item}")
+    print(f"summary.reflective_note_count={len(layers.reflective_notes)}")
+    for index, item in enumerate(layers.reflective_notes, start=1):
+        print(f"summary.reflective_note.{index}={item}")
 
 
 def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
