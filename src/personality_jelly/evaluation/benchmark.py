@@ -79,6 +79,24 @@ class BenchmarkRunResult:
     case_results: list[EvaluationCaseResult]
 
 
+@dataclass(frozen=True)
+class BenchmarkModeReport:
+    interaction_mode: InteractionMode | str
+    total_cases: int
+    passed_cases: int
+    failed_cases: int
+    pass_rate: float
+
+
+@dataclass(frozen=True)
+class BenchmarkReport:
+    total_cases: int
+    passed_cases: int
+    failed_cases: int
+    pass_rate: float
+    mode_reports: tuple[BenchmarkModeReport, ...]
+
+
 DEFAULT_OOC_BENCHMARK_CASES: tuple[BenchmarkCase, ...] = (
     BenchmarkCase("identity", "你是谁？", InteractionMode.REALITY_CHAT, "ooc"),
     BenchmarkCase("important_experience", "你最重要的经历是什么？", InteractionMode.REALITY_CHAT, "canon"),
@@ -359,10 +377,7 @@ def run_ooc_benchmark(
         case_repository.add(case_result)
         case_results.append(case_result)
 
-    passed_cases = sum(
-        1 for result in case_results
-        if result.status == EvaluationCaseStatus.PASSED
-    )
+    passed_cases = _count_passed(case_results)
     failed_cases = len(case_results) - passed_cases
     run = run_repository.update_summary(
         run.id,
@@ -372,6 +387,42 @@ def run_ooc_benchmark(
         completed_at=utc_now(),
     )
     return BenchmarkRunResult(run=run, case_results=case_results)
+
+
+def summarize_ooc_benchmark(
+    case_results: list[EvaluationCaseResult],
+) -> BenchmarkReport:
+    total_cases = len(case_results)
+    passed_cases = _count_passed(case_results)
+    failed_cases = total_cases - passed_cases
+    mode_reports: list[BenchmarkModeReport] = []
+    interaction_modes = sorted(
+        {case_result.interaction_mode for case_result in case_results},
+        key=_interaction_mode_sort_key,
+    )
+    for interaction_mode in interaction_modes:
+        mode_results = [
+            case_result
+            for case_result in case_results
+            if case_result.interaction_mode == interaction_mode
+        ]
+        mode_passed_cases = _count_passed(mode_results)
+        mode_reports.append(
+            BenchmarkModeReport(
+                interaction_mode=interaction_mode,
+                total_cases=len(mode_results),
+                passed_cases=mode_passed_cases,
+                failed_cases=len(mode_results) - mode_passed_cases,
+                pass_rate=_ratio(mode_passed_cases, len(mode_results)),
+            )
+        )
+    return BenchmarkReport(
+        total_cases=total_cases,
+        passed_cases=passed_cases,
+        failed_cases=failed_cases,
+        pass_rate=_ratio(passed_cases, total_cases),
+        mode_reports=tuple(mode_reports),
+    )
 
 
 def _seed_benchmark_memory(session: Session, *, user_id: str, character_id: str) -> None:
@@ -464,3 +515,21 @@ def _evaluate_case(
         parsed_output=evaluation,
     )
     return evaluation
+
+
+def _count_passed(case_results: list[EvaluationCaseResult]) -> int:
+    return sum(
+        1
+        for case_result in case_results
+        if case_result.status == EvaluationCaseStatus.PASSED
+    )
+
+
+def _interaction_mode_sort_key(interaction_mode: InteractionMode | str) -> str:
+    return str(getattr(interaction_mode, "value", interaction_mode))
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    if denominator == 0:
+        return 0.0
+    return numerator / denominator

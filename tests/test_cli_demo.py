@@ -715,6 +715,10 @@ def test_cli_dry_runs_ooc_benchmark_without_persisting_run(
     assert "total=20" in dry_run_output
     assert "will_create_run=false" in dry_run_output
     assert "will_call_provider=false" in dry_run_output
+    assert "cases_summary.total_cases=20" in dry_run_output
+    assert "cases_summary.mode_count=4" in dry_run_output
+    assert "cases_summary.mode.1.interaction_mode=co_creation" in dry_run_output
+    assert "cases_summary.mode.1.total_cases=1" in dry_run_output
     assert "case.1.prompt=" in dry_run_output
     assert "case.20.id=reality_modern_payment" in dry_run_output
     assert runs == []
@@ -759,6 +763,9 @@ def test_cli_dry_runs_boundary_regression_benchmark_suite(
     assert dry_run_exit_code == 0
     assert "case_suite=boundary_regression" in dry_run_output
     assert "total=30" in dry_run_output
+    assert "cases_summary.mode_count=4" in dry_run_output
+    assert "cases_summary.mode.1.interaction_mode=co_creation" in dry_run_output
+    assert "cases_summary.mode.1.total_cases=3" in dry_run_output
     assert "case.30.id=reality_financial_boundary" in dry_run_output
     assert "will_call_provider=false" in dry_run_output
 
@@ -805,6 +812,11 @@ def test_cli_runs_expanded_ooc_benchmark_case_suite(
     assert "case_suite=expanded_boundaries" in eval_output
     assert "total=20" in eval_output
     assert "passed=20" in eval_output
+    assert "report.total_cases=20" in eval_output
+    assert "report.mode_count=4" in eval_output
+    assert "report.mode.1.interaction_mode=co_creation" in eval_output
+    assert "report.mode.1.total_cases=1" in eval_output
+    assert "report.mode.1.pass_rate=1.000" in eval_output
     assert "case.20.id=reality_modern_payment" in eval_output
     assert "case.20.status=passed" in eval_output
 
@@ -864,6 +876,12 @@ def test_cli_lists_and_shows_eval_runs(tmp_path: Path, capsys, monkeypatch) -> N
     assert show_exit_code == 0
     assert f"run_id={run_id}" in show_output
     assert "case_count=10" in show_output
+    assert "report.total_cases=10" in show_output
+    assert "report.mode_count=2" in show_output
+    assert "report.mode.1.interaction_mode=reality_chat" in show_output
+    assert "report.mode.1.total_cases=9" in show_output
+    assert "report.mode.2.interaction_mode=roleplay_scene" in show_output
+    assert "report.mode.2.total_cases=1" in show_output
     assert "case.1.id=identity" in show_output
     assert "case.1.reasons<<END" in show_output
     assert "case.10.id=joke_pollution" in show_output
@@ -942,10 +960,16 @@ def test_cli_show_eval_run_can_filter_failed_cases(
     assert show_exit_code == 0
     assert "stored_case_count=2" in show_output
     assert "case_count=1" in show_output
+    assert "report.total_cases=1" in show_output
+    assert "report.passed_cases=0" in show_output
+    assert "report.failed_cases=1" in show_output
+    assert "report.mode_count=1" in show_output
+    assert "report.mode.1.interaction_mode=reality_chat" in show_output
+    assert "report.mode.1.pass_rate=0.000" in show_output
     assert "case.1.id=failed_case" in show_output
     assert "case.1.status=failed" in show_output
     assert "semantic evaluator rejected the response" in show_output
-    assert "passed_case" not in show_output
+    assert "case.1.id=passed_case" not in show_output
 
 
 def test_cli_runs_lists_and_shows_retrieval_benchmark(

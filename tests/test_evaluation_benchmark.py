@@ -1,11 +1,18 @@
 from personality_jelly.characters import create_character
-from personality_jelly.domain import ClaimStatus, ClaimType, EvaluationCaseStatus
+from personality_jelly.domain import (
+    ClaimStatus,
+    ClaimType,
+    EvaluationCaseResult,
+    EvaluationCaseStatus,
+    InteractionMode,
+)
 from personality_jelly.evaluation import (
     BOUNDARY_REGRESSION_BENCHMARK_CASES,
     DEFAULT_OOC_BENCHMARK_CASES,
     EXPANDED_BOUNDARY_BENCHMARK_CASES,
     get_benchmark_cases,
     run_ooc_benchmark,
+    summarize_ooc_benchmark,
 )
 from personality_jelly.extraction import run_reader_extraction, verify_candidate_claims
 from personality_jelly.ingestion import ingest_text_file
@@ -123,6 +130,57 @@ class BenchmarkFakeProvider:
 
     def embed_texts(self, texts: list[str], embedding_config: EmbeddingConfig) -> list[list[float]]:
         raise NotImplementedError
+
+
+def test_summarize_ooc_benchmark_reports_totals_by_interaction_mode() -> None:
+    report = summarize_ooc_benchmark(
+        [
+            EvaluationCaseResult(
+                id="evalcase_1",
+                run_id="eval_1",
+                case_id="reality_passed",
+                prompt="Reality prompt.",
+                interaction_mode=InteractionMode.REALITY_CHAT,
+                assistant_message_id="msg_1",
+                status=EvaluationCaseStatus.PASSED,
+            ),
+            EvaluationCaseResult(
+                id="evalcase_2",
+                run_id="eval_1",
+                case_id="reality_failed",
+                prompt="Reality failed prompt.",
+                interaction_mode=InteractionMode.REALITY_CHAT,
+                assistant_message_id="msg_2",
+                status=EvaluationCaseStatus.FAILED,
+            ),
+            EvaluationCaseResult(
+                id="evalcase_3",
+                run_id="eval_1",
+                case_id="roleplay_failed",
+                prompt="Roleplay prompt.",
+                interaction_mode=InteractionMode.ROLEPLAY_SCENE,
+                assistant_message_id="msg_3",
+                status=EvaluationCaseStatus.FAILED,
+            ),
+        ]
+    )
+
+    assert report.total_cases == 3
+    assert report.passed_cases == 1
+    assert report.failed_cases == 2
+    assert report.pass_rate == 1 / 3
+    assert [mode.interaction_mode for mode in report.mode_reports] == [
+        InteractionMode.REALITY_CHAT,
+        InteractionMode.ROLEPLAY_SCENE,
+    ]
+    assert report.mode_reports[0].total_cases == 2
+    assert report.mode_reports[0].passed_cases == 1
+    assert report.mode_reports[0].failed_cases == 1
+    assert report.mode_reports[0].pass_rate == 0.5
+    assert report.mode_reports[1].total_cases == 1
+    assert report.mode_reports[1].passed_cases == 0
+    assert report.mode_reports[1].failed_cases == 1
+    assert report.mode_reports[1].pass_rate == 0.0
 
 
 def test_run_ooc_benchmark_persists_run_and_case_results(tmp_path) -> None:
