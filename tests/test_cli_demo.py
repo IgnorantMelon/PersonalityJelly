@@ -579,6 +579,52 @@ def test_cli_runs_ooc_benchmark(tmp_path: Path, capsys, monkeypatch) -> None:
     assert "case.10.status=passed" in eval_output
 
 
+def test_cli_runs_expanded_ooc_benchmark_case_suite(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+
+    eval_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "expanded_cli_suite",
+            "--case-suite",
+            "expanded_boundaries",
+        ]
+    )
+    eval_output = capsys.readouterr().out
+
+    assert demo_exit_code == 0
+    assert eval_exit_code == 0
+    assert "test_suite=expanded_cli_suite" in eval_output
+    assert "case_suite=expanded_boundaries" in eval_output
+    assert "total=20" in eval_output
+    assert "passed=20" in eval_output
+    assert "case.20.id=reality_modern_payment" in eval_output
+    assert "case.20.status=passed" in eval_output
+
+
 def test_cli_lists_and_shows_eval_runs(tmp_path: Path, capsys, monkeypatch) -> None:
     source_file = tmp_path / "sample.md"
     source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")

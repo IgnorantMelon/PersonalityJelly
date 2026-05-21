@@ -113,6 +113,7 @@ Run the MVP OOC and canon-pollution benchmark against an existing character:
 
 ```powershell
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_...
+.\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_... --case-suite expanded_boundaries
 ```
 
 Run and inspect source retrieval quality benchmarks:
@@ -183,6 +184,8 @@ Implemented:
   recorded review reason.
 - Structured benchmark case evaluation through `BenchmarkCaseEvaluation`; benchmark pass/fail is
   not mechanically derived from critic actions.
+- OOC benchmark case suites include the stable `mvp_default` set and an expanded boundary suite for
+  OOC, canon pollution, memory pollution, mode confusion, and reality adaptation probes.
 - Critic `suggested_action` is a domain enum with `accept`, `retry`, and `log` as the only valid
   workflow actions.
 - Structured semantic operations now persist tracing records for the interaction-mode classifier,
@@ -194,7 +197,7 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `101 passed`.
+- Full test suite currently passes: `104 passed`.
 
 ## Next development tasks
 
@@ -208,6 +211,7 @@ Recent P1 progress:
 - Added `json_object` structured-output compatibility for OpenAI-compatible providers that do not
   support strict `json_schema`.
 - Added CLI trace inspection for structured LLM raw outputs, including error-only filtering.
+- Added an expanded OOC benchmark case suite selectable with `--case-suite expanded_boundaries`.
 - Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:
@@ -218,8 +222,8 @@ P1:
 
 - Extend semantic tracing to future retrieval evaluators.
 - Expand retrieval-quality benchmark cases and reporting beyond the default evidence-derived suite.
-- Expand the benchmark library for OOC, canon pollution, memory pollution, mode confusion, and
-  reality-adaptation failures.
+- Continue curating benchmark cases from observed OOC, canon pollution, memory pollution, mode
+  confusion, and reality-adaptation failures.
 - Improve conversation summary strategy so short-term scene state, user memory, relationship
   memory, and reflective memory cannot contaminate each other.
 - Improve CLI diagnostics with dry-run, verbose tracing, richer provider checks, and clearer batch

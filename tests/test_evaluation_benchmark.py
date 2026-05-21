@@ -1,6 +1,11 @@
 from personality_jelly.characters import create_character
 from personality_jelly.domain import ClaimStatus, ClaimType, EvaluationCaseStatus
-from personality_jelly.evaluation import DEFAULT_OOC_BENCHMARK_CASES, run_ooc_benchmark
+from personality_jelly.evaluation import (
+    DEFAULT_OOC_BENCHMARK_CASES,
+    EXPANDED_BOUNDARY_BENCHMARK_CASES,
+    get_benchmark_cases,
+    run_ooc_benchmark,
+)
 from personality_jelly.extraction import run_reader_extraction, verify_candidate_claims
 from personality_jelly.ingestion import ingest_text_file
 from personality_jelly.llm import ChatMessage, EmbeddingConfig, ModelConfig
@@ -181,6 +186,37 @@ def test_run_ooc_benchmark_persists_run_and_case_results(tmp_path) -> None:
     assert traces[0].schema_name == "BenchmarkCaseEvaluation"
     assert traces[0].model_name == "fake-benchmark"
     assert traces[0].parsed_output["passed"] is True
+
+
+def test_benchmark_case_suites_keep_default_and_expanded_boundaries_distinct() -> None:
+    default_cases = get_benchmark_cases("mvp_default")
+    expanded_cases = get_benchmark_cases("expanded_boundaries")
+    expanded_ids = {case.id for case in expanded_cases}
+    expanded_categories = {case.category for case in expanded_cases}
+
+    assert default_cases == DEFAULT_OOC_BENCHMARK_CASES
+    assert expanded_cases == EXPANDED_BOUNDARY_BENCHMARK_CASES
+    assert len(default_cases) == 10
+    assert len(expanded_cases) > len(default_cases)
+    assert "mode_co_creation" in expanded_ids
+    assert "memory_roleplay_pollution" in expanded_ids
+    assert {
+        "ooc",
+        "canon_pollution",
+        "memory_pollution",
+        "mode_confusion",
+        "reality_adaptation",
+    } <= expanded_categories
+
+
+def test_get_benchmark_cases_rejects_unknown_suite() -> None:
+    try:
+        get_benchmark_cases("missing_suite")
+    except ValueError as exc:
+        assert "missing_suite" in str(exc)
+        assert "expanded_boundaries" in str(exc)
+    else:
+        raise AssertionError("Expected unknown benchmark case suite to fail")
 
 
 def test_evaluation_run_repository_filters_recent_runs(tmp_path) -> None:
