@@ -1359,8 +1359,21 @@ def test_cli_summarizes_conversation(
     assert f"conversation_id={conversation_id}" in summarize_output
     assert "summary=# Short-term Scene State" in summarize_output
     assert "stub provider: user asked the character" in summarize_output
+    assert (
+        "summary.short_term_scene_state=stub provider: user asked the character"
+        in summarize_output
+    )
+    assert "summary.user_memory_candidate_count=1" in summarize_output
+    assert "summary.reflective_note_count=1" in summarize_output
     assert conversation.summary.startswith("# Short-term Scene State")
     assert "# User Memory Candidates" in conversation.summary
+
+    show_exit_code = main(["show", "conversation", conversation_id, "--messages", "0"])
+    show_output = capsys.readouterr().out
+
+    assert show_exit_code == 0
+    assert "summary.user_memory_candidate_count=1" in show_output
+    assert "summary.reflective_note.1=Keep user memory separate from canon." in show_output
 
 
 def test_cli_shows_context_package_and_critic_report(

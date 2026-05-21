@@ -21,6 +21,14 @@ class ConversationSummaryResult:
     conversation: Conversation
 
 
+@dataclass(frozen=True)
+class ConversationSummaryLayers:
+    short_term_scene_state: str
+    user_memory_candidates: list[str]
+    relationship_memory_notes: list[str]
+    reflective_notes: list[str]
+
+
 def summarize_conversation(
     session: Session,
     *,
@@ -62,6 +70,36 @@ def summarize_conversation(
     return ConversationSummaryResult(conversation=updated)
 
 
+def parse_layered_summary(summary: str | None) -> ConversationSummaryLayers:
+    if summary is None or not summary.strip():
+        return ConversationSummaryLayers(
+            short_term_scene_state="none",
+            user_memory_candidates=[],
+            relationship_memory_notes=[],
+            reflective_notes=[],
+        )
+
+    sections = _parse_markdown_sections(summary)
+    if not sections:
+        return ConversationSummaryLayers(
+            short_term_scene_state=summary.strip(),
+            user_memory_candidates=[],
+            relationship_memory_notes=[],
+            reflective_notes=[],
+        )
+
+    return ConversationSummaryLayers(
+        short_term_scene_state=_section_text(
+            sections,
+            "Short-term Scene State",
+            default="none",
+        ),
+        user_memory_candidates=_section_items(sections, "User Memory Candidates"),
+        relationship_memory_notes=_section_items(sections, "Relationship Memory Notes"),
+        reflective_notes=_section_items(sections, "Reflective Notes"),
+    )
+
+
 def _format_layered_summary(draft: ConversationSummaryDraft) -> str:
     return "\n".join(
         [
@@ -82,3 +120,39 @@ def _format_layered_summary(draft: ConversationSummaryDraft) -> str:
 
 def _format_items(items: list[str]) -> str:
     return "\n".join(f"- {item}" for item in items) if items else "- none"
+
+
+def _parse_markdown_sections(summary: str) -> dict[str, list[str]]:
+    sections: dict[str, list[str]] = {}
+    current_heading: str | None = None
+    for line in summary.splitlines():
+        if line.startswith("# "):
+            current_heading = line[2:].strip()
+            sections[current_heading] = []
+            continue
+        if current_heading is not None:
+            sections[current_heading].append(line)
+    return sections
+
+
+def _section_text(
+    sections: dict[str, list[str]],
+    heading: str,
+    *,
+    default: str,
+) -> str:
+    text = "\n".join(line for line in sections.get(heading, [])).strip()
+    return text if text else default
+
+
+def _section_items(sections: dict[str, list[str]], heading: str) -> list[str]:
+    items: list[str] = []
+    for line in sections.get(heading, []):
+        stripped = line.strip()
+        if not stripped or stripped == "- none":
+            continue
+        if stripped.startswith("- "):
+            items.append(stripped[2:].strip())
+        else:
+            items.append(stripped)
+    return items

@@ -1,7 +1,11 @@
 from personality_jelly.characters import create_character
 from personality_jelly.domain import Message, MessageRole, PersonaVersion, SourceWork, User
 from personality_jelly.llm import ChatMessage, EmbeddingConfig, ModelConfig
-from personality_jelly.runtime import create_conversation, summarize_conversation
+from personality_jelly.runtime import (
+    create_conversation,
+    parse_layered_summary,
+    summarize_conversation,
+)
 from personality_jelly.runtime.summary_schemas import ConversationSummaryDraft
 from personality_jelly.storage import (
     ConversationRepository,
@@ -121,3 +125,46 @@ def test_conversation_summary_schema_rejects_single_mixed_summary() -> None:
         assert "summary" in str(exc)
     else:
         raise AssertionError("Expected mixed single-field summary to fail validation")
+
+
+def test_parse_layered_summary_returns_structured_layers() -> None:
+    summary = "\n".join(
+        [
+            "# Short-term Scene State",
+            "The user is planning a quiet scene.",
+            "",
+            "# User Memory Candidates",
+            "- User prefers late-night writing.",
+            "- User likes concise replies.",
+            "",
+            "# Relationship Memory Notes",
+            "- User trusts the character with drafting.",
+            "",
+            "# Reflective Notes",
+            "- Keep co-created fiction separate from canon.",
+        ]
+    )
+
+    layers = parse_layered_summary(summary)
+
+    assert layers.short_term_scene_state == "The user is planning a quiet scene."
+    assert layers.user_memory_candidates == [
+        "User prefers late-night writing.",
+        "User likes concise replies.",
+    ]
+    assert layers.relationship_memory_notes == [
+        "User trusts the character with drafting.",
+    ]
+    assert layers.reflective_notes == [
+        "Keep co-created fiction separate from canon.",
+    ]
+
+
+def test_parse_layered_summary_handles_empty_and_legacy_summary() -> None:
+    empty = parse_layered_summary(None)
+    legacy = parse_layered_summary("Legacy unlayered summary.")
+
+    assert empty.short_term_scene_state == "none"
+    assert empty.user_memory_candidates == []
+    assert legacy.short_term_scene_state == "Legacy unlayered summary."
+    assert legacy.relationship_memory_notes == []
