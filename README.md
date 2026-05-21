@@ -127,6 +127,9 @@ Run and inspect source retrieval quality benchmarks:
 .\.venv\Scripts\pjelly.exe show retrieval-eval-run retrievaleval_...
 ```
 
+Retrieval benchmark output includes aggregate `report.*` diagnostics for evidence cases,
+empty-result probes, recall, ranking, and missing expected evidence chunks.
+
 Inspect or apply database schema migrations:
 
 ```powershell
@@ -177,7 +180,8 @@ Implemented:
   no-embedding fallback only uses character name/alias entity anchoring.
 - Retrieval-quality benchmark runs persist recall, ranking, first-relevant-rank, retrieved chunk
   IDs, scores, and empty-result fallback outcomes without using fixed word matching as the quality
-  signal.
+  signal; CLI run/show output derives aggregate reporting for evidence cases, empty probes,
+  average recall, ranking score, and missing expected chunks.
 - Runtime model settings can be loaded from gitignored `pjelly.toml` with `.env`/environment
   overrides; LLM and embedding cloud providers can be configured separately.
 - OpenAI-compatible structured output supports both strict `json_schema` mode and `json_object`
@@ -202,7 +206,7 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `109 passed`.
+- Full test suite currently passes: `110 passed`.
 
 ## Next development tasks
 
@@ -221,6 +225,7 @@ Recent P1 progress:
   notes, and reflective notes separate.
 - Added `pjelly config check` diagnostics for local provider construction without network calls.
 - Added benchmark dry-run diagnostics and pass-rate summaries for OOC and retrieval eval CLI runs.
+- Added aggregate retrieval benchmark report diagnostics in CLI run/show output.
 - Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:
@@ -230,7 +235,7 @@ P0:
 P1:
 
 - Extend semantic tracing to future retrieval evaluators.
-- Expand retrieval-quality benchmark cases and reporting beyond the default evidence-derived suite.
+- Expand retrieval-quality benchmark cases beyond the default evidence-derived suite.
 - Continue curating benchmark cases from observed OOC, canon pollution, memory pollution, mode
   confusion, and reality-adaptation failures.
 - Continue hardening conversation summary review and downstream consumption of layered summaries.

@@ -862,12 +862,18 @@ def test_cli_runs_lists_and_shows_retrieval_benchmark(
     assert "embedding_model=stub-embedding" in eval_output
     assert "pass_rate=0.000" in eval_output
     assert "failed_case_count=1" in eval_output
+    assert "report.evidence_case_count=1" in eval_output
+    assert "report.empty_case_count=0" in eval_output
+    assert "report.average_recall=0.000" in eval_output
+    assert "report.missing_expected_chunk_count=1" in eval_output
     assert list_exit_code == 0
     assert f"retrieval_eval_run.1.id={run_id}" in list_output
     assert "retrieval_eval_run.1.test_suite=retrieval_cli_suite" in list_output
     assert show_exit_code == 0
     assert f"run_id={run_id}" in show_output
     assert "case_count=1" in show_output
+    assert "report.evidence_case_count=1" in show_output
+    assert "report.no_relevant_result_count=1" in show_output
     assert "case.1.id=claim_1" in show_output
     assert "case.1.expected_chunk_ids=chunk_" in show_output
     assert "case.1.retrieved_chunk_ids=" in show_output
