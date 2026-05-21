@@ -165,13 +165,20 @@ def export_retrieval_benchmark_cases_file(
     path: Path | str,
     cases: tuple[RetrievalBenchmarkCase, ...],
     *,
+    append: bool = False,
     overwrite: bool = False,
 ) -> Path:
     case_file = Path(path)
-    if case_file.exists() and not overwrite:
+    if append:
+        cases = _merge_retrieval_benchmark_cases(
+            load_retrieval_benchmark_cases_file(case_file) if case_file.exists() else (),
+            cases,
+            overwrite=overwrite,
+        )
+    elif case_file.exists() and not overwrite:
         raise ValueError(
             f"Retrieval benchmark cases file already exists: {case_file}. "
-            "Use --overwrite-cases-file to replace it."
+            "Use --append-cases-file to add cases or --overwrite-cases-file to replace it."
         )
 
     payload = {
@@ -201,6 +208,29 @@ def export_retrieval_benchmark_cases_file(
         message = f"Unable to write retrieval benchmark cases file {case_file}: {exc}"
         raise ValueError(message) from exc
     return case_file
+
+
+def _merge_retrieval_benchmark_cases(
+    existing_cases: tuple[RetrievalBenchmarkCase, ...],
+    new_cases: tuple[RetrievalBenchmarkCase, ...],
+    *,
+    overwrite: bool,
+) -> tuple[RetrievalBenchmarkCase, ...]:
+    merged_by_id = {benchmark_case.id: benchmark_case for benchmark_case in existing_cases}
+    duplicate_ids = [
+        benchmark_case.id
+        for benchmark_case in new_cases
+        if benchmark_case.id in merged_by_id
+    ]
+    if duplicate_ids and not overwrite:
+        unique_duplicates = ", ".join(dict.fromkeys(duplicate_ids))
+        raise ValueError(
+            "Retrieval benchmark cases file already contains case ids: "
+            f"{unique_duplicates}. Use --overwrite-cases-file to replace duplicates."
+        )
+    for benchmark_case in new_cases:
+        merged_by_id[benchmark_case.id] = benchmark_case
+    return tuple(merged_by_id.values())
 
 
 def build_retrieval_benchmark_cases_from_results(

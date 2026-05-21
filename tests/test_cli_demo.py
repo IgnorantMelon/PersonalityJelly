@@ -1063,6 +1063,22 @@ def test_cli_dry_run_can_export_generated_retrieval_benchmark_cases(
     demo_output = capsys.readouterr().out
     character_id = _output_value(demo_output, "character_id")
     export_file = tmp_path / "exports" / "retrieval-cases.json"
+    export_file.parent.mkdir(parents=True)
+    export_file.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": "manual_existing",
+                        "query": "Existing curated query.",
+                        "expected_chunk_ids": ["chunk_existing"],
+                        "limit": 2,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
 
     dry_run_exit_code = main(
         [
@@ -1076,6 +1092,7 @@ def test_cli_dry_run_can_export_generated_retrieval_benchmark_cases(
             "--dry-run",
             "--export-cases-file",
             str(export_file),
+            "--append-cases-file",
         ]
     )
     dry_run_output = capsys.readouterr().out
@@ -1093,10 +1110,12 @@ def test_cli_dry_run_can_export_generated_retrieval_benchmark_cases(
     assert "total=1" in dry_run_output
     assert "exported_cases_file=" in dry_run_output
     assert "case.1.id=claim_1" in dry_run_output
-    assert exported_payload["cases"][0]["id"] == "claim_1"
-    assert exported_payload["cases"][0]["query"]
-    assert exported_payload["cases"][0]["expected_chunk_ids"][0].startswith("chunk_")
-    assert exported_payload["cases"][0]["limit"] == 4
+    assert exported_payload["cases"][0]["id"] == "manual_existing"
+    assert exported_payload["cases"][0]["limit"] == 2
+    assert exported_payload["cases"][1]["id"] == "claim_1"
+    assert exported_payload["cases"][1]["query"]
+    assert exported_payload["cases"][1]["expected_chunk_ids"][0].startswith("chunk_")
+    assert exported_payload["cases"][1]["limit"] == 4
     assert runs == []
 
 
