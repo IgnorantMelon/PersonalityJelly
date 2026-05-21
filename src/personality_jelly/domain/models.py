@@ -51,6 +51,14 @@ class SourceChunk(DomainModel):
     char_end: int | None = None
 
 
+class SourceChunkEmbedding(DomainModel):
+    id: str
+    source_chunk_id: str
+    embedding_model: str
+    embedding: list[float]
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class Character(DomainModel):
     id: str
     source_work_id: str

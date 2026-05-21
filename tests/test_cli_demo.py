@@ -238,12 +238,12 @@ def test_cli_db_status_and_migrate_report_schema_versions(tmp_path: Path, capsys
 
     assert status_exit_code == 0
     assert "current_version=none" in status_output
-    assert "pending_count=1" in status_output
+    assert "pending_count=2" in status_output
     assert migrate_exit_code == 0
-    assert "applied_count=1" in migrate_output
+    assert "applied_count=2" in migrate_output
     assert "pending_count=0" in migrate_output
     assert migrated_status_exit_code == 0
-    assert "current_version=0001_initial_schema" in migrated_status_output
+    assert "current_version=0002_source_chunk_embeddings" in migrated_status_output
     assert "pending_count=0" in migrated_status_output
 
 
@@ -320,7 +320,7 @@ def test_cli_demo_auto_migrates_configured_database(
     status = get_migration_status(engine)
 
     assert exit_code == 0
-    assert status.current_version == "0001_initial_schema"
+    assert status.current_version == "0002_source_chunk_embeddings"
     assert status.pending == ()
 
 

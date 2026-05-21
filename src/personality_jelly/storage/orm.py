@@ -48,6 +48,24 @@ class SourceChunkORM(Base):
     source_work: Mapped[SourceWorkORM] = relationship(back_populates="chunks")
 
 
+class SourceChunkEmbeddingORM(Base):
+    __tablename__ = "source_chunk_embeddings"
+    __table_args__ = (
+        Index(
+            "ux_source_chunk_embeddings_chunk_model",
+            "source_chunk_id",
+            "embedding_model",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    source_chunk_id: Mapped[str] = mapped_column(ForeignKey("source_chunks.id"), nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(128), nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(SAJSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class CharacterORM(Base):
     __tablename__ = "characters"
     __table_args__ = (Index("ix_characters_work_name", "source_work_id", "canonical_name"),)

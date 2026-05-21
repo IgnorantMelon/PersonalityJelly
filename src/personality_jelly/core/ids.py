@@ -5,6 +5,7 @@ from uuid import uuid4
 class EntityKind(StrEnum):
     SOURCE_WORK = "source_work"
     SOURCE_CHUNK = "source_chunk"
+    SOURCE_CHUNK_EMBEDDING = "source_chunk_embedding"
     CHARACTER = "character"
     CANON_CLAIM = "canon_claim"
     EVIDENCE_REF = "evidence_ref"
@@ -25,6 +26,7 @@ class EntityKind(StrEnum):
 ID_PREFIXES: dict[EntityKind, str] = {
     EntityKind.SOURCE_WORK: "sw",
     EntityKind.SOURCE_CHUNK: "chunk",
+    EntityKind.SOURCE_CHUNK_EMBEDDING: "chunkemb",
     EntityKind.CHARACTER: "char",
     EntityKind.CANON_CLAIM: "claim",
     EntityKind.EVIDENCE_REF: "ev",

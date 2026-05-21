@@ -28,6 +28,7 @@ from personality_jelly.domain.models import (
     Message,
     PersonaVersion,
     SourceChunk,
+    SourceChunkEmbedding,
     SourceWork,
     User,
 )
@@ -58,6 +59,7 @@ __all__ = [
     "MessageRole",
     "PersonaVersion",
     "SourceChunk",
+    "SourceChunkEmbedding",
     "SourceWork",
     "User",
 ]

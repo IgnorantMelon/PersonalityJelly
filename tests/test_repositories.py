@@ -12,6 +12,7 @@ from personality_jelly.domain import (
     Message,
     MessageRole,
     PersonaVersion,
+    SourceChunkEmbedding,
     SourceWork,
     User,
 )
@@ -26,6 +27,7 @@ from personality_jelly.storage import (
     MemoryRepository,
     MessageRepository,
     PersonaVersionRepository,
+    SourceChunkEmbeddingRepository,
     SourceChunkRepository,
     SourceWorkRepository,
     UserRepository,
@@ -50,6 +52,16 @@ def test_repository_roundtrip_for_source_character_conversation_and_memory() -> 
 
         chunks = chunk_source_text("sw_001", "# 第一章\n\n她站在窗前。\n\n她听见钟声。")
         SourceChunkRepository(session).add_many(chunks)
+        SourceChunkEmbeddingRepository(session).add_many(
+            [
+                SourceChunkEmbedding(
+                    id="chunkemb_001",
+                    source_chunk_id=chunks[0].id,
+                    embedding_model="fake-embedding",
+                    embedding=[0.9, 0.1],
+                )
+            ]
+        )
 
         character = Character(
             id="char_001",
@@ -106,7 +118,13 @@ def test_repository_roundtrip_for_source_character_conversation_and_memory() -> 
 
     with session_factory() as session:
         assert SourceWorkRepository(session).require("sw_001").title == "测试作品"
-        assert len(SourceChunkRepository(session).list_by_source_work("sw_001")) == 2
+        stored_chunks = SourceChunkRepository(session).list_by_source_work("sw_001")
+        assert len(stored_chunks) == 2
+        stored_embeddings = SourceChunkEmbeddingRepository(session).list_for_chunks(
+            [chunk.id for chunk in stored_chunks],
+            embedding_model="fake-embedding",
+        )
+        assert stored_embeddings[0].embedding == [0.9, 0.1]
         assert CharacterRepository(session).list_by_source_work("sw_001")[0].aliases == ["主角"]
         assert PersonaVersionRepository(session).latest_for_character("char_001").id == "pv_001"
         conversations = ConversationRepository(session).list_for_user_character(

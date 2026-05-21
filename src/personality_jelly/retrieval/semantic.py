@@ -5,9 +5,10 @@ import math
 
 from sqlalchemy.orm import Session
 
-from personality_jelly.domain import Character, SourceChunk
+from personality_jelly.core import EntityKind, generate_id
+from personality_jelly.domain import Character, SourceChunk, SourceChunkEmbedding
 from personality_jelly.llm import EmbeddingConfig, LLMProvider
-from personality_jelly.storage import SourceChunkRepository
+from personality_jelly.storage import SourceChunkEmbeddingRepository, SourceChunkRepository
 
 
 @dataclass(frozen=True)
@@ -38,15 +39,20 @@ def retrieve_source_chunks(
         )
 
     query_text = _retrieval_query_text(query=query, character=character)
-    embeddings = provider.embed_texts(
-        [query_text, *[chunk.text for chunk in chunks]],
+    query_embedding = provider.embed_texts(
+        [query_text],
+        embedding_config=embedding_config,
+    )[0]
+    chunk_embeddings = _load_or_create_chunk_embeddings(
+        session,
+        chunks=chunks,
+        provider=provider,
         embedding_config=embedding_config,
     )
-    query_embedding = embeddings[0]
-    chunk_embeddings = embeddings[1:]
     scored = [
         (_cosine_similarity(query_embedding, chunk_embedding), index, chunk)
-        for index, (chunk, chunk_embedding) in enumerate(zip(chunks, chunk_embeddings, strict=True))
+        for index, chunk in enumerate(chunks)
+        for chunk_embedding in [chunk_embeddings[chunk.id]]
     ]
     scored.sort(key=lambda item: (-item[0], item[1]))
     return SourceRetrievalResult(
@@ -64,6 +70,51 @@ def _retrieval_query_text(*, query: str, character: Character) -> str:
             query,
         ]
     )
+
+
+def _load_or_create_chunk_embeddings(
+    session: Session,
+    *,
+    chunks: list[SourceChunk],
+    provider: LLMProvider,
+    embedding_config: EmbeddingConfig,
+) -> dict[str, list[float]]:
+    repository = SourceChunkEmbeddingRepository(session)
+    existing_embeddings = repository.list_for_chunks(
+        [chunk.id for chunk in chunks],
+        embedding_model=embedding_config.model,
+    )
+    embeddings_by_chunk_id = {
+        embedding.source_chunk_id: embedding.embedding
+        for embedding in existing_embeddings
+    }
+    missing_chunks = [
+        chunk for chunk in chunks if chunk.id not in embeddings_by_chunk_id
+    ]
+    if not missing_chunks:
+        return embeddings_by_chunk_id
+
+    generated_embeddings = provider.embed_texts(
+        [chunk.text for chunk in missing_chunks],
+        embedding_config=embedding_config,
+    )
+    new_embeddings = [
+        SourceChunkEmbedding(
+            id=generate_id(EntityKind.SOURCE_CHUNK_EMBEDDING),
+            source_chunk_id=chunk.id,
+            embedding_model=embedding_config.model,
+            embedding=embedding,
+        )
+        for chunk, embedding in zip(missing_chunks, generated_embeddings, strict=True)
+    ]
+    repository.add_many(new_embeddings)
+    embeddings_by_chunk_id.update(
+        {
+            embedding.source_chunk_id: embedding.embedding
+            for embedding in new_embeddings
+        }
+    )
+    return embeddings_by_chunk_id
 
 
 def _character_anchor_chunks(
