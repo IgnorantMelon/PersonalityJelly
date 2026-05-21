@@ -23,6 +23,8 @@ from personality_jelly.domain import (
 from personality_jelly.extraction import run_reader_extraction, verify_candidate_claims
 from personality_jelly.evaluation import (
     BENCHMARK_CASE_SUITES,
+    BenchmarkCase,
+    build_default_retrieval_benchmark_cases,
     get_benchmark_cases,
     run_ooc_benchmark,
     run_retrieval_benchmark,
@@ -566,6 +568,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default="stub",
         help="LLM provider source: stub for deterministic local output, env for PJ_* settings.",
     )
+    ooc_benchmark.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate benchmark inputs and list cases without creating rows or calling providers.",
+    )
     retrieval_benchmark = eval_subparsers.add_parser(
         "retrieval-benchmark",
         help="Run source retrieval quality benchmark cases.",
@@ -597,6 +604,11 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("stub", "env"),
         default="stub",
         help="Embedding provider source: stub for deterministic local fallback, env for PJ_* settings.",
+    )
+    retrieval_benchmark.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate generated cases without creating rows or calling embedding providers.",
     )
 
     db_parser = subparsers.add_parser("db", help="Manage database schema migrations.")
@@ -1528,6 +1540,10 @@ def _run_summarize_conversation(args: argparse.Namespace) -> int:
 def _run_ooc_benchmark(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
+    cases = get_benchmark_cases(args.case_suite)
+    if args.dry_run:
+        return _dry_run_ooc_benchmark(args, database_url=database_url, cases=cases)
+
     provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
     engine = create_database_engine(database_url)
     ensure_database_ready(engine)
@@ -1542,22 +1558,24 @@ def _run_ooc_benchmark(args: argparse.Namespace) -> int:
                 provider=provider,
                 model_config=model_config,
                 test_suite=args.test_suite,
-                cases=get_benchmark_cases(args.case_suite),
+                cases=cases,
             )
         except (LookupError, ValueError) as exc:
             raise CliError(str(exc)) from exc
         session.commit()
 
-    print(f"database_url={database_url}")
-    print(f"run_id={result.run.id}")
-    print(f"status={result.run.status}")
-    print(f"test_suite={result.run.test_suite}")
-    print(f"case_suite={args.case_suite}")
-    print(f"character_id={result.run.character_id}")
-    print(f"persona_version_id={result.run.persona_version_id}")
-    print(f"total={result.run.total_cases}")
-    print(f"passed={result.run.passed_cases}")
-    print(f"failed={result.run.failed_cases}")
+    _print_ooc_benchmark_run_summary(
+        database_url=database_url,
+        run_id=result.run.id,
+        status=result.run.status,
+        test_suite=result.run.test_suite,
+        case_suite=args.case_suite,
+        character_id=result.run.character_id,
+        persona_version_id=result.run.persona_version_id,
+        total_cases=result.run.total_cases,
+        passed_cases=result.run.passed_cases,
+        failed_cases=result.run.failed_cases,
+    )
     for index, case_result in enumerate(result.case_results, start=1):
         print(f"case.{index}.id={case_result.case_id}")
         print(f"case.{index}.status={case_result.status}")
@@ -1565,11 +1583,109 @@ def _run_ooc_benchmark(args: argparse.Namespace) -> int:
     return 0
 
 
+def _dry_run_ooc_benchmark(
+    args: argparse.Namespace,
+    *,
+    database_url: str,
+    cases: tuple[BenchmarkCase, ...],
+) -> int:
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            character = CharacterRepository(session).require(args.character_id)
+            persona = _resolve_benchmark_persona(
+                session,
+                character_id=character.id,
+                persona_version_id=args.persona_version_id,
+            )
+        except (LookupError, ValueError) as exc:
+            raise CliError(str(exc)) from exc
+
+    _print_ooc_benchmark_run_summary(
+        database_url=database_url,
+        run_id="dry-run",
+        status="dry_run",
+        test_suite=args.test_suite,
+        case_suite=args.case_suite,
+        character_id=character.id,
+        persona_version_id=persona.id,
+        total_cases=len(cases),
+        passed_cases=0,
+        failed_cases=0,
+    )
+    print(f"provider={args.provider}")
+    print("will_create_run=false")
+    print("will_call_provider=false")
+    for index, benchmark_case in enumerate(cases, start=1):
+        print(f"case.{index}.id={benchmark_case.id}")
+        print(f"case.{index}.category={benchmark_case.category}")
+        print(f"case.{index}.interaction_mode={benchmark_case.interaction_mode}")
+    return 0
+
+
+def _resolve_benchmark_persona(
+    session,
+    *,
+    character_id: str,
+    persona_version_id: str | None,
+) -> PersonaVersion:
+    persona_repository = PersonaVersionRepository(session)
+    persona = (
+        persona_repository.require(persona_version_id)
+        if persona_version_id is not None
+        else persona_repository.latest_for_character(character_id)
+    )
+    if persona is None:
+        raise ValueError(f"Character {character_id!r} has no persona version")
+    if persona.character_id != character_id:
+        raise ValueError(
+            f"Persona version {persona.id!r} does not belong to character {character_id!r}"
+        )
+    return persona
+
+
+def _print_ooc_benchmark_run_summary(
+    *,
+    database_url: str,
+    run_id: str,
+    status: str,
+    test_suite: str,
+    case_suite: str,
+    character_id: str,
+    persona_version_id: str,
+    total_cases: int,
+    passed_cases: int,
+    failed_cases: int,
+) -> None:
+    print(f"database_url={database_url}")
+    print(f"run_id={run_id}")
+    print(f"status={status}")
+    print(f"test_suite={test_suite}")
+    print(f"case_suite={case_suite}")
+    print(f"character_id={character_id}")
+    print(f"persona_version_id={persona_version_id}")
+    print(f"total={total_cases}")
+    print(f"passed={passed_cases}")
+    print(f"failed={failed_cases}")
+    print(f"pass_rate={_format_ratio(passed_cases, total_cases)}")
+    print(f"failed_case_count={failed_cases}")
+
+
 def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
     if args.max_cases < 1:
         raise CliError("--max-cases must be greater than 0")
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
+    if args.dry_run:
+        return _dry_run_retrieval_benchmark(
+            args,
+            database_url=database_url,
+            settings=settings,
+        )
+
     if args.provider == "stub":
         embedding_provider: LLMProvider | None = StubProvider()
         embedding_config: EmbeddingConfig | None = EmbeddingConfig(model="stub-embedding")
@@ -1597,22 +1713,102 @@ def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
             raise CliError(str(exc)) from exc
         session.commit()
 
-    print(f"database_url={database_url}")
-    print(f"run_id={result.run.id}")
-    print(f"status={result.run.status}")
-    print(f"test_suite={result.run.test_suite}")
-    print(f"source_work_id={result.run.source_work_id}")
-    print(f"character_id={result.run.character_id}")
-    print(f"embedding_model={result.run.embedding_model or 'none'}")
-    print(f"total={result.run.total_cases}")
-    print(f"passed={result.run.passed_cases}")
-    print(f"failed={result.run.failed_cases}")
+    _print_retrieval_benchmark_run_summary(
+        database_url=database_url,
+        run_id=result.run.id,
+        status=result.run.status,
+        test_suite=result.run.test_suite,
+        source_work_id=result.run.source_work_id,
+        character_id=result.run.character_id,
+        embedding_model=result.run.embedding_model,
+        total_cases=result.run.total_cases,
+        passed_cases=result.run.passed_cases,
+        failed_cases=result.run.failed_cases,
+    )
     for index, case_result in enumerate(result.case_results, start=1):
         print(f"case.{index}.id={case_result.case_id}")
         print(f"case.{index}.status={case_result.status}")
         print(f"case.{index}.recall={case_result.recall}")
         print(f"case.{index}.first_relevant_rank={case_result.first_relevant_rank or 'none'}")
     return 0
+
+
+def _dry_run_retrieval_benchmark(
+    args: argparse.Namespace,
+    *,
+    database_url: str,
+    settings: Settings,
+) -> int:
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            character = CharacterRepository(session).require(args.character_id)
+            cases = build_default_retrieval_benchmark_cases(
+                session,
+                character_id=character.id,
+                max_cases=args.max_cases,
+                include_empty_case=not args.no_empty_case,
+            )
+        except (LookupError, ValueError) as exc:
+            raise CliError(str(exc)) from exc
+
+    embedding_config = (
+        EmbeddingConfig(model="stub-embedding")
+        if args.provider == "stub"
+        else _resolve_embedding_config(settings)
+    )
+    _print_retrieval_benchmark_run_summary(
+        database_url=database_url,
+        run_id="dry-run",
+        status="dry_run",
+        test_suite=args.test_suite,
+        source_work_id=character.source_work_id,
+        character_id=character.id,
+        embedding_model=embedding_config.model if embedding_config is not None else None,
+        total_cases=len(cases),
+        passed_cases=0,
+        failed_cases=0,
+    )
+    print(f"provider={args.provider}")
+    print("will_create_run=false")
+    print("will_call_provider=false")
+    print("will_call_embedding_provider=false")
+    for index, benchmark_case in enumerate(cases, start=1):
+        print(f"case.{index}.id={benchmark_case.id}")
+        print(f"case.{index}.expected_count={len(benchmark_case.expected_chunk_ids)}")
+        print(f"case.{index}.limit={benchmark_case.limit}")
+        print(f"case.{index}.expected_chunk_ids={','.join(benchmark_case.expected_chunk_ids)}")
+    return 0
+
+
+def _print_retrieval_benchmark_run_summary(
+    *,
+    database_url: str,
+    run_id: str,
+    status: str,
+    test_suite: str,
+    source_work_id: str,
+    character_id: str,
+    embedding_model: str | None,
+    total_cases: int,
+    passed_cases: int,
+    failed_cases: int,
+) -> None:
+    print(f"database_url={database_url}")
+    print(f"run_id={run_id}")
+    print(f"status={status}")
+    print(f"test_suite={test_suite}")
+    print(f"source_work_id={source_work_id}")
+    print(f"character_id={character_id}")
+    print(f"embedding_model={embedding_model or 'none'}")
+    print(f"total={total_cases}")
+    print(f"passed={passed_cases}")
+    print(f"failed={failed_cases}")
+    print(f"pass_rate={_format_ratio(passed_cases, total_cases)}")
+    print(f"failed_case_count={failed_cases}")
 
 
 def _run_config(args: argparse.Namespace) -> int:
@@ -1769,6 +1965,12 @@ def _display_value(value: str | None) -> str:
 
 def _bool_text(value: bool) -> str:
     return "true" if value else "false"
+
+
+def _format_ratio(numerator: int, denominator: int) -> str:
+    if denominator == 0:
+        return "0.000"
+    return f"{numerator / denominator:.3f}"
 
 
 def _json_block(value) -> str:

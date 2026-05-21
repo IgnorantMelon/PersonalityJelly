@@ -115,12 +115,14 @@ Run the MVP OOC and canon-pollution benchmark against an existing character:
 ```powershell
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_...
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_... --case-suite expanded_boundaries
+.\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_... --dry-run
 ```
 
 Run and inspect source retrieval quality benchmarks:
 
 ```powershell
 .\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --provider env
+.\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --dry-run
 .\.venv\Scripts\pjelly.exe list retrieval-eval-runs --character-id char_...
 .\.venv\Scripts\pjelly.exe show retrieval-eval-run retrievaleval_...
 ```
@@ -200,7 +202,7 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `107 passed`.
+- Full test suite currently passes: `109 passed`.
 
 ## Next development tasks
 
@@ -218,6 +220,7 @@ Recent P1 progress:
 - Added layered conversation summary output to keep short-term state, user memory, relationship
   notes, and reflective notes separate.
 - Added `pjelly config check` diagnostics for local provider construction without network calls.
+- Added benchmark dry-run diagnostics and pass-rate summaries for OOC and retrieval eval CLI runs.
 - Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:
@@ -231,7 +234,7 @@ P1:
 - Continue curating benchmark cases from observed OOC, canon pollution, memory pollution, mode
   confusion, and reality-adaptation failures.
 - Continue hardening conversation summary review and downstream consumption of layered summaries.
-- Improve CLI diagnostics with dry-run, verbose tracing, and clearer batch benchmark output.
+- Improve CLI diagnostics with verbose tracing, clearer errors, and richer batch benchmark output.
 
 P2:
 
