@@ -17,6 +17,7 @@ from personality_jelly.domain import (
     MemoryScope,
     MemoryStatus,
     PersonaVersion,
+    RetrievalEvaluationCaseResult,
     SourceWork,
     User,
 )
@@ -26,6 +27,7 @@ from personality_jelly.evaluation import (
     BenchmarkCase,
     RetrievalBenchmarkCase,
     build_default_retrieval_benchmark_cases,
+    build_retrieval_benchmark_cases_from_results,
     export_retrieval_benchmark_cases_file,
     get_benchmark_cases,
     load_retrieval_benchmark_cases_file,
@@ -537,6 +539,28 @@ def _build_parser() -> argparse.ArgumentParser:
         "--database-url",
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_retrieval_eval_run.add_argument(
+        "--export-cases-file",
+        type=Path,
+        default=None,
+        help="Write this run's retrieval cases to a JSON cases file.",
+    )
+    show_retrieval_eval_run.add_argument(
+        "--failed-only",
+        action="store_true",
+        help="Only export failed retrieval cases when --export-cases-file is set.",
+    )
+    show_retrieval_eval_run.add_argument(
+        "--export-case-limit",
+        type=int,
+        default=4,
+        help="Retrieval limit to store in exported cases from this run.",
+    )
+    show_retrieval_eval_run.add_argument(
+        "--overwrite-cases-file",
+        action="store_true",
+        help="Allow --export-cases-file to replace an existing file.",
     )
 
     eval_parser = subparsers.add_parser("eval", help="Run evaluation tasks.")
@@ -1414,6 +1438,8 @@ def _run_show_llm_trace(args: argparse.Namespace) -> int:
 
 
 def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
+    if args.export_case_limit < 1:
+        raise CliError("--export-case-limit must be greater than 0")
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
     engine = create_database_engine(database_url)
@@ -1426,6 +1452,13 @@ def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
         except LookupError as exc:
             raise CliError(str(exc)) from exc
         case_results = RetrievalEvaluationCaseResultRepository(session).list_by_run(run.id)
+        try:
+            exported_cases_file = _export_retrieval_eval_run_cases_if_requested(
+                args,
+                case_results,
+            )
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
 
         print(f"database_url={database_url}")
         print(f"run_id={run.id}")
@@ -1438,6 +1471,8 @@ def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
         print(f"passed={run.passed_cases}")
         print(f"failed={run.failed_cases}")
         print(f"case_count={len(case_results)}")
+        if exported_cases_file is not None:
+            print(f"exported_cases_file={exported_cases_file}")
         _print_retrieval_benchmark_report(
             summarize_retrieval_benchmark(case_results)
         )
@@ -1455,6 +1490,24 @@ def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
                 print(f"- {reason}")
             print("END")
     return 0
+
+
+def _export_retrieval_eval_run_cases_if_requested(
+    args: argparse.Namespace,
+    case_results: list[RetrievalEvaluationCaseResult],
+) -> Path | None:
+    if args.export_cases_file is None:
+        return None
+    cases = build_retrieval_benchmark_cases_from_results(
+        case_results,
+        failed_only=args.failed_only,
+        limit=args.export_case_limit,
+    )
+    return export_retrieval_benchmark_cases_file(
+        args.export_cases_file,
+        cases,
+        overwrite=args.overwrite_cases_file,
+    )
 
 
 def _run_archive_memory(args: argparse.Namespace) -> int:

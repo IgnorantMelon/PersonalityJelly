@@ -133,12 +133,15 @@ Run and inspect source retrieval quality benchmarks:
 .\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --cases-file .\retrieval-cases.json --dry-run
 .\.venv\Scripts\pjelly.exe list retrieval-eval-runs --character-id char_...
 .\.venv\Scripts\pjelly.exe show retrieval-eval-run retrievaleval_...
+.\.venv\Scripts\pjelly.exe show retrieval-eval-run retrievaleval_... --failed-only --export-cases-file .\failed-retrieval-cases.json
 ```
 
 Retrieval benchmark output includes aggregate `report.*` diagnostics for evidence cases,
 empty-result probes, recall, ranking, and missing expected evidence chunks.
 Use `--export-cases-file` during dry-run to snapshot the generated verified-claim cases into a
 JSON file for review and curation.
+Use `show retrieval-eval-run --failed-only --export-cases-file` to convert failed stored cases into
+an explicit regression cases file.
 Use `--cases-file` to run manually curated retrieval probes instead of generated verified-claim
 cases. The JSON shape is:
 
@@ -239,7 +242,7 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `120 passed`.
+- Full test suite currently passes: `121 passed`.
 
 ## Next development tasks
 
@@ -264,6 +267,8 @@ Recent P1 progress:
 - Added verbose per-case diagnostics for OOC and retrieval benchmark CLI runs.
 - Added manual retrieval benchmark case files through `eval retrieval-benchmark --cases-file`.
 - Added retrieval benchmark case export through `eval retrieval-benchmark --export-cases-file`.
+- Added failed-case retrieval benchmark export from stored runs through
+  `show retrieval-eval-run --failed-only --export-cases-file`.
 - Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:
