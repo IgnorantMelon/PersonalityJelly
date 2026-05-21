@@ -1174,8 +1174,10 @@ def test_cli_summarizes_conversation(
     assert demo_exit_code == 0
     assert summarize_exit_code == 0
     assert f"conversation_id={conversation_id}" in summarize_output
-    assert "summary=stub provider:" in summarize_output
-    assert conversation.summary.startswith("stub provider:")
+    assert "summary=# Short-term Scene State" in summarize_output
+    assert "stub provider: user asked the character" in summarize_output
+    assert conversation.summary.startswith("# Short-term Scene State")
+    assert "# User Memory Candidates" in conversation.summary
 
 
 def test_cli_shows_context_package_and_critic_report(

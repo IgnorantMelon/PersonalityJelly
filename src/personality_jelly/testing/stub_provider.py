@@ -97,7 +97,12 @@ class StubProvider:
             }
         if schema_title == "ConversationSummaryDraft":
             return {
-                "summary": "stub provider: 用户希望角色记住当前偏好，角色以克制方式回应。",
+                "short_term_scene_state": (
+                    "stub provider: user asked the character to remember a current preference."
+                ),
+                "user_memory_candidates": ["User wants the character to remember a preference."],
+                "relationship_memory_notes": [],
+                "reflective_notes": ["Keep user memory separate from canon."],
             }
         raise ValueError(f"Unsupported schema title: {schema_title!r}")
 

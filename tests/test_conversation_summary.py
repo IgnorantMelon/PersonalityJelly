@@ -2,6 +2,7 @@ from personality_jelly.characters import create_character
 from personality_jelly.domain import Message, MessageRole, PersonaVersion, SourceWork, User
 from personality_jelly.llm import ChatMessage, EmbeddingConfig, ModelConfig
 from personality_jelly.runtime import create_conversation, summarize_conversation
+from personality_jelly.runtime.summary_schemas import ConversationSummaryDraft
 from personality_jelly.storage import (
     ConversationRepository,
     MessageRepository,
@@ -25,7 +26,12 @@ class SummaryFakeProvider:
 
     def generate_json(self, messages, schema, model_config):
         self.prompt = messages[-1].content
-        return {"summary": "用户说自己喜欢夜里写作，角色已经记住这个偏好。"}
+        return {
+            "short_term_scene_state": "用户正在和角色进行现实会谈。",
+            "user_memory_candidates": ["用户喜欢夜里写作。"],
+            "relationship_memory_notes": ["用户希望角色记住写作偏好。"],
+            "reflective_notes": ["不要把临时剧情写入 canon。"],
+        }
 
     def embed_texts(self, texts: list[str], embedding_config: EmbeddingConfig) -> list[list[float]]:
         raise NotImplementedError
@@ -92,7 +98,26 @@ def test_summarize_conversation_updates_conversation_summary() -> None:
     with session_factory() as session:
         updated = ConversationRepository(session).require("conv_001")
 
-    assert result.conversation.summary == "用户说自己喜欢夜里写作，角色已经记住这个偏好。"
+    assert "# Short-term Scene State" in result.conversation.summary
+    assert "用户正在和角色进行现实会谈。" in result.conversation.summary
+    assert "# User Memory Candidates" in result.conversation.summary
+    assert "- 用户喜欢夜里写作。" in result.conversation.summary
+    assert "# Relationship Memory Notes" in result.conversation.summary
+    assert "- 用户希望角色记住写作偏好。" in result.conversation.summary
+    assert "# Reflective Notes" in result.conversation.summary
+    assert "- 不要把临时剧情写入 canon。" in result.conversation.summary
     assert updated.summary == result.conversation.summary
     assert "previous_summary:\nnone" in provider.prompt
+    assert "summary_boundaries:" in provider.prompt
+    assert "Temporary roleplay, jokes, and co-created fiction are not canon." in provider.prompt
     assert "- user: 请记住，我喜欢夜里写作。" in provider.prompt
+
+
+def test_conversation_summary_schema_rejects_single_mixed_summary() -> None:
+    try:
+        ConversationSummaryDraft.model_validate({"summary": "mixed summary"})
+    except ValueError as exc:
+        assert "short_term_scene_state" in str(exc)
+        assert "summary" in str(exc)
+    else:
+        raise AssertionError("Expected mixed single-field summary to fail validation")
