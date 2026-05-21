@@ -11,6 +11,7 @@ from personality_jelly.domain import (
 )
 from personality_jelly.evaluation import (
     RetrievalBenchmarkCase,
+    export_retrieval_benchmark_cases_file,
     load_retrieval_benchmark_cases_file,
     run_retrieval_benchmark,
     summarize_retrieval_benchmark,
@@ -131,6 +132,60 @@ def test_load_retrieval_benchmark_cases_file_rejects_empty_cases(
         assert "cases: List should have at least 1 item" in str(error)
     else:
         raise AssertionError("Expected empty retrieval benchmark cases to be rejected")
+
+
+def test_export_retrieval_benchmark_cases_file_round_trips_cases(
+    tmp_path: Path,
+) -> None:
+    cases_file = tmp_path / "nested" / "retrieval-cases.json"
+    cases = (
+        RetrievalBenchmarkCase(
+            id="manual_evidence",
+            query="How does Lin Shuang decide?",
+            expected_chunk_ids=("chunk_a",),
+            limit=2,
+        ),
+        RetrievalBenchmarkCase(
+            id="manual_empty",
+            query="Out-of-scope probe.",
+            expected_chunk_ids=(),
+        ),
+    )
+
+    exported_path = export_retrieval_benchmark_cases_file(cases_file, cases)
+
+    payload = json.loads(cases_file.read_text(encoding="utf-8"))
+    assert exported_path == cases_file
+    assert payload["cases"][0]["id"] == "manual_evidence"
+    assert payload["cases"][0]["expected_chunk_ids"] == ["chunk_a"]
+    assert payload["cases"][1]["limit"] == 4
+    assert load_retrieval_benchmark_cases_file(cases_file) == cases
+
+
+def test_export_retrieval_benchmark_cases_file_refuses_existing_file(
+    tmp_path: Path,
+) -> None:
+    cases_file = tmp_path / "retrieval-cases.json"
+    cases_file.write_text("{}", encoding="utf-8")
+    cases = (
+        RetrievalBenchmarkCase(
+            id="manual",
+            query="How does Lin Shuang decide?",
+            expected_chunk_ids=("chunk_a",),
+        ),
+    )
+
+    try:
+        export_retrieval_benchmark_cases_file(cases_file, cases)
+    except ValueError as error:
+        assert "already exists" in str(error)
+        assert "--overwrite-cases-file" in str(error)
+    else:
+        raise AssertionError("Expected export to refuse an existing cases file")
+
+    export_retrieval_benchmark_cases_file(cases_file, cases, overwrite=True)
+
+    assert load_retrieval_benchmark_cases_file(cases_file) == cases
 
 
 def test_run_retrieval_benchmark_persists_ranking_and_empty_result_metrics() -> None:
