@@ -88,6 +88,14 @@ Find and inspect persisted conversations:
 .\.venv\Scripts\pjelly.exe show critic-report cr_...
 ```
 
+Inspect structured LLM traces:
+
+```powershell
+.\.venv\Scripts\pjelly.exe list llm-traces --operation memory.guard.semantic_decision
+.\.venv\Scripts\pjelly.exe list llm-traces --with-errors
+.\.venv\Scripts\pjelly.exe show llm-trace llmraw_...
+```
+
 Inspect character profile assets and canon claims:
 
 ```powershell
@@ -169,6 +177,8 @@ Implemented:
 - Structured semantic operations now persist tracing records for the interaction-mode classifier,
   memory guard, and benchmark evaluator, including operation, schema, provider, model, raw output,
   parsed output, and validation errors.
+- CLI trace inspection exposes persisted structured LLM traces through `list llm-traces` and
+  `show llm-trace`, with filters for operation, schema, provider, model, and validation errors.
 - CLI coverage for demo, turn, list, show, eval, archive, edit, and summarize.
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
@@ -184,6 +194,7 @@ Recent P1 progress:
   and sanitized `pjelly config show` diagnostics.
 - Added `json_object` structured-output compatibility for OpenAI-compatible providers that do not
   support strict `json_schema`.
+- Added CLI trace inspection for structured LLM raw outputs, including error-only filtering.
 - Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:
@@ -192,8 +203,7 @@ P0:
 
 P1:
 
-- Extend semantic tracing to future retrieval evaluators and expose trace inspection through CLI
-  diagnostics.
+- Extend semantic tracing to future retrieval evaluators.
 - Add retrieval-quality benchmarks for recall, ranking, and empty-result fallback without using
   fixed word matching as the quality signal.
 - Expand the benchmark library for OOC, canon pollution, memory pollution, mode confusion, and

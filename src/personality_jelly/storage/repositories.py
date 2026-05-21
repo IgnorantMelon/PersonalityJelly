@@ -506,6 +506,34 @@ class LLMRawOutputRepository(Repository[LLMRawOutput, orm.LLMRawOutputORM]):
             statement = statement.limit(limit)
         return self._all(statement)
 
+    def list_recent(
+        self,
+        limit: int | None = None,
+        *,
+        operation: str | None = None,
+        schema_name: str | None = None,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+        with_errors: bool = False,
+    ) -> list[LLMRawOutput]:
+        statement = select(orm.LLMRawOutputORM).order_by(orm.LLMRawOutputORM.created_at.desc())
+        if operation is not None:
+            statement = statement.where(orm.LLMRawOutputORM.operation == operation)
+        if schema_name is not None:
+            statement = statement.where(orm.LLMRawOutputORM.schema_name == schema_name)
+        if provider_name is not None:
+            statement = statement.where(orm.LLMRawOutputORM.provider_name == provider_name)
+        if model_name is not None:
+            statement = statement.where(orm.LLMRawOutputORM.model_name == model_name)
+        if limit is not None and not with_errors:
+            statement = statement.limit(limit)
+        traces = self._all(statement)
+        if with_errors:
+            traces = [trace for trace in traces if trace.validation_errors]
+            if limit is not None:
+                traces = traces[:limit]
+        return traces
+
 
 class EvaluationRunRepository(Repository[EvaluationRun, orm.EvaluationRunORM]):
     def __init__(self, session: Session) -> None:

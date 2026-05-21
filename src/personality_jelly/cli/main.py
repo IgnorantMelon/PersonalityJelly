@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,6 +56,7 @@ from personality_jelly.storage.repositories import (
     EvaluationRunRepository,
     EvidenceRefRepository,
     FailureCaseRepository,
+    LLMRawOutputRepository,
     MemoryRepository,
     MessageRepository,
     PersonaVersionRepository,
@@ -292,6 +294,46 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
     )
+    list_llm_traces = list_subparsers.add_parser(
+        "llm-traces",
+        help="List structured LLM trace records.",
+    )
+    list_llm_traces.add_argument(
+        "--operation",
+        default=None,
+        help="Optional operation filter.",
+    )
+    list_llm_traces.add_argument(
+        "--schema-name",
+        default=None,
+        help="Optional schema name filter.",
+    )
+    list_llm_traces.add_argument(
+        "--provider-name",
+        default=None,
+        help="Optional provider name filter.",
+    )
+    list_llm_traces.add_argument(
+        "--model-name",
+        default=None,
+        help="Optional model name filter.",
+    )
+    list_llm_traces.add_argument(
+        "--with-errors",
+        action="store_true",
+        help="Only include traces with validation errors.",
+    )
+    list_llm_traces.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of trace records to print.",
+    )
+    list_llm_traces.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
 
     archive_parser = subparsers.add_parser("archive", help="Archive persisted resources.")
     archive_subparsers = archive_parser.add_subparsers(dest="resource")
@@ -428,6 +470,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     show_eval_run.add_argument("run_id", help="Evaluation run id.")
     show_eval_run.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_llm_trace = show_subparsers.add_parser(
+        "llm-trace",
+        help="Show a structured LLM trace record.",
+    )
+    show_llm_trace.add_argument("trace_id", help="LLM raw output trace id.")
+    show_llm_trace.add_argument(
         "--database-url",
         default=None,
         help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
@@ -649,6 +701,8 @@ def _run_list(args: argparse.Namespace) -> int:
         return _run_list_failure_cases(args)
     if args.resource == "eval-runs":
         return _run_list_eval_runs(args)
+    if args.resource == "llm-traces":
+        return _run_list_llm_traces(args)
     raise CliError("list resource is required")
 
 
@@ -689,6 +743,8 @@ def _run_show(args: argparse.Namespace) -> int:
         return _run_show_failure_case(args)
     if args.resource == "eval-run":
         return _run_show_eval_run(args)
+    if args.resource == "llm-trace":
+        return _run_show_llm_trace(args)
     raise CliError("show resource is required")
 
 
@@ -904,6 +960,38 @@ def _run_list_eval_runs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_list_llm_traces(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        raise CliError("--limit must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        traces = LLMRawOutputRepository(session).list_recent(
+            limit=args.limit,
+            operation=args.operation,
+            schema_name=args.schema_name,
+            provider_name=args.provider_name,
+            model_name=args.model_name,
+            with_errors=args.with_errors,
+        )
+
+        print(f"database_url={database_url}")
+        print(f"llm_trace_count={len(traces)}")
+        for index, trace in enumerate(traces, start=1):
+            print(f"llm_trace.{index}.id={trace.id}")
+            print(f"llm_trace.{index}.operation={trace.operation}")
+            print(f"llm_trace.{index}.schema_name={trace.schema_name}")
+            print(f"llm_trace.{index}.provider_name={trace.provider_name}")
+            print(f"llm_trace.{index}.model_name={trace.model_name or 'none'}")
+            print(f"llm_trace.{index}.validation_error_count={len(trace.validation_errors)}")
+            print(f"llm_trace.{index}.created_at={trace.created_at.isoformat()}")
+    return 0
+
+
 def _run_show_conversation(args: argparse.Namespace) -> int:
     if args.messages < 0:
         raise CliError("--messages must be 0 or greater")
@@ -1110,6 +1198,43 @@ def _run_show_eval_run(args: argparse.Namespace) -> int:
             for reason in case_result.reasons:
                 print(f"- {reason}")
             print("END")
+    return 0
+
+
+def _run_show_llm_trace(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            trace = LLMRawOutputRepository(session).require(args.trace_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"llm_trace_id={trace.id}")
+        print(f"operation={trace.operation}")
+        print(f"schema_name={trace.schema_name}")
+        print(f"provider_name={trace.provider_name}")
+        print(f"model_name={trace.model_name or 'none'}")
+        print(f"validation_error_count={len(trace.validation_errors)}")
+        print(f"created_at={trace.created_at.isoformat()}")
+        print("response_schema<<END")
+        print(_json_block(trace.response_schema))
+        print("END")
+        print("raw_output<<END")
+        print(trace.raw_output)
+        print("END")
+        print("parsed_output<<END")
+        print(_json_block(trace.parsed_output))
+        print("END")
+        print("validation_errors<<END")
+        for error in trace.validation_errors:
+            print(error)
+        print("END")
     return 0
 
 
@@ -1368,6 +1493,10 @@ def _display_value(value: str | None) -> str:
 
 def _bool_text(value: bool) -> str:
     return "true" if value else "false"
+
+
+def _json_block(value) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2)
 
 
 def _prepare_demo_persona(
