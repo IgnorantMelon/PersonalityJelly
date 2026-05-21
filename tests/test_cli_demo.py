@@ -1265,6 +1265,14 @@ def test_cli_dry_runs_retrieval_benchmark_with_cases_file(
     assert "run_id=dry-run" in dry_run_output
     assert "test_suite=retrieval_manual_cases" in dry_run_output
     assert "total=2" in dry_run_output
+    assert "cases_source=cases_file" in dry_run_output
+    assert f"cases_file={cases_file}" in dry_run_output
+    assert "cases_summary.total_cases=2" in dry_run_output
+    assert "cases_summary.evidence_case_count=1" in dry_run_output
+    assert "cases_summary.empty_case_count=1" in dry_run_output
+    assert "cases_summary.expected_chunk_ref_count=1" in dry_run_output
+    assert "cases_summary.min_limit=1" in dry_run_output
+    assert "cases_summary.max_limit=4" in dry_run_output
     assert "will_create_run=false" in dry_run_output
     assert "case.1.id=manual_observation" in dry_run_output
     assert "case.1.expected_count=1" in dry_run_output

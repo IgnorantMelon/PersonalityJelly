@@ -15,6 +15,7 @@ from personality_jelly.evaluation import (
     export_retrieval_benchmark_cases_file,
     load_retrieval_benchmark_cases_file,
     run_retrieval_benchmark,
+    summarize_retrieval_benchmark_cases,
     summarize_retrieval_benchmark,
 )
 from personality_jelly.ingestion import chunk_source_text
@@ -44,6 +45,32 @@ class RetrievalEmbeddingProvider:
 
     def embed_texts(self, texts: list[str], embedding_config: EmbeddingConfig) -> list[list[float]]:
         return [_vector_for_text(text) for text in texts]
+
+
+def test_summarize_retrieval_benchmark_cases_reports_case_shape() -> None:
+    summary = summarize_retrieval_benchmark_cases(
+        (
+            RetrievalBenchmarkCase(
+                id="evidence",
+                query="Evidence query.",
+                expected_chunk_ids=("chunk_a", "chunk_b"),
+                limit=2,
+            ),
+            RetrievalBenchmarkCase(
+                id="empty",
+                query="Empty query.",
+                expected_chunk_ids=(),
+                limit=5,
+            ),
+        )
+    )
+
+    assert summary.total_cases == 2
+    assert summary.evidence_case_count == 1
+    assert summary.empty_case_count == 1
+    assert summary.expected_chunk_ref_count == 2
+    assert summary.min_limit == 2
+    assert summary.max_limit == 5
 
 
 def test_load_retrieval_benchmark_cases_file_normalizes_explicit_cases(

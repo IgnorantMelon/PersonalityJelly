@@ -146,7 +146,8 @@ rejected unless `--overwrite-cases-file` is also set.
 Use `show retrieval-eval-run --failed-only` to inspect only failed stored cases, and add
 `--export-cases-file` to convert that filtered set into an explicit regression cases file.
 Use `--cases-file` to run manually curated retrieval probes instead of generated verified-claim
-cases. The JSON shape is:
+cases. `--cases-file --dry-run` validates the JSON file and prints `cases_summary.*` diagnostics.
+The JSON shape is:
 
 ```json
 {
@@ -245,7 +246,7 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `124 passed`.
+- Full test suite currently passes: `125 passed`.
 
 ## Next development tasks
 
@@ -273,6 +274,7 @@ Recent P1 progress:
 - Added failed-case retrieval benchmark export from stored runs through
   `show retrieval-eval-run --failed-only --export-cases-file`.
 - Added append mode for retrieval benchmark case export with duplicate-id protection.
+- Added retrieval cases-file dry-run summary diagnostics for curated JSON validation.
 - Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:
