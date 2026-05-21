@@ -3,6 +3,7 @@ from __future__ import annotations
 from personality_jelly.core.settings import Settings
 from personality_jelly.llm.openai_compatible import (
     OpenAICompatibleConfig,
+    OpenAIJSONResponseFormat,
     OpenAICompatibleProvider,
 )
 from personality_jelly.llm.provider import LLMProvider
@@ -18,6 +19,9 @@ def build_llm_provider(settings: Settings) -> LLMProvider:
                 base_url=settings.llm_base_url,
                 api_key=settings.llm_api_key,
                 timeout_seconds=settings.llm_timeout_seconds,
+                json_response_format=_json_response_format(
+                    settings.llm_json_response_format,
+                ),
             )
         )
     if not provider_name:
@@ -39,8 +43,22 @@ def build_embedding_provider(settings: Settings) -> LLMProvider:
                 api_key=api_key,
                 timeout_seconds=settings.embedding_timeout_seconds
                 or settings.llm_timeout_seconds,
+                json_response_format=_json_response_format(
+                    settings.llm_json_response_format,
+                ),
             )
         )
     if not provider_name:
         raise ValueError("PJ_EMBEDDING_PROVIDER or PJ_LLM_PROVIDER is not configured")
     raise ValueError(f"Unsupported embedding provider {provider_name!r}")
+
+
+def _json_response_format(value: str) -> OpenAIJSONResponseFormat:
+    normalized = value.strip().lower()
+    try:
+        return OpenAIJSONResponseFormat(normalized)
+    except ValueError as exc:
+        allowed = ", ".join(item.value for item in OpenAIJSONResponseFormat)
+        raise ValueError(
+            f"Unsupported PJ_LLM_JSON_RESPONSE_FORMAT {value!r}; expected one of: {allowed}"
+        ) from exc

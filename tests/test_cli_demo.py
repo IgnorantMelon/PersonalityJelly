@@ -181,9 +181,10 @@ def test_cli_demo_uses_separate_embedding_provider_when_configured(
 def test_cli_demo_env_provider_requires_model(tmp_path: Path, capsys, monkeypatch) -> None:
     source_file = tmp_path / "sample.md"
     source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
+    monkeypatch.setenv("PJ_CONFIG_FILE", str(tmp_path / "missing-pjelly.toml"))
     monkeypatch.setenv("PJ_LLM_PROVIDER", "openai-compatible")
     monkeypatch.setenv("PJ_LLM_API_KEY", "test-key")
-    monkeypatch.delenv("PJ_LLM_MODEL", raising=False)
+    monkeypatch.setenv("PJ_LLM_MODEL", "")
 
     exit_code = main(
         [
@@ -213,6 +214,7 @@ def test_cli_config_show_prints_sanitized_cloud_settings(
 provider = "openai-compatible"
 base_url = "https://chat.example/v1"
 model = "chat-model"
+json_response_format = "json_object"
 
 [embedding]
 provider = "openai-compatible"
@@ -233,6 +235,7 @@ model = "embedding-model"
     assert "llm.provider=openai-compatible" in output
     assert "llm.base_url=https://chat.example/v1" in output
     assert "llm.model=chat-model" in output
+    assert "llm.json_response_format=json_object" in output
     assert "llm.api_key_configured=true" in output
     assert "embedding.provider=openai-compatible" in output
     assert "embedding.base_url=https://embedding.example/v1" in output

@@ -1286,6 +1286,7 @@ def _run_config_show(args: argparse.Namespace) -> int:
     print(f"llm.base_url={settings.llm_base_url}")
     print(f"llm.model={_display_value(settings.llm_model)}")
     print(f"llm.timeout_seconds={settings.llm_timeout_seconds:g}")
+    print(f"llm.json_response_format={settings.llm_json_response_format}")
     print(f"llm.api_key_configured={_bool_text(bool(settings.llm_api_key))}")
     embedding_provider = settings.embedding_provider or settings.llm_provider
     print(f"embedding.provider={_display_value(embedding_provider)}")
