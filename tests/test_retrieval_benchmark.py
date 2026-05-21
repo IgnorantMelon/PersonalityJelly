@@ -189,6 +189,102 @@ def test_export_retrieval_benchmark_cases_file_refuses_existing_file(
     assert load_retrieval_benchmark_cases_file(cases_file) == cases
 
 
+def test_export_retrieval_benchmark_cases_file_appends_to_existing_file(
+    tmp_path: Path,
+) -> None:
+    cases_file = tmp_path / "retrieval-cases.json"
+    export_retrieval_benchmark_cases_file(
+        cases_file,
+        (
+            RetrievalBenchmarkCase(
+                id="existing",
+                query="Existing query.",
+                expected_chunk_ids=("chunk_existing",),
+            ),
+        ),
+    )
+
+    export_retrieval_benchmark_cases_file(
+        cases_file,
+        (
+            RetrievalBenchmarkCase(
+                id="new",
+                query="New query.",
+                expected_chunk_ids=("chunk_new",),
+                limit=2,
+            ),
+        ),
+        append=True,
+    )
+
+    assert load_retrieval_benchmark_cases_file(cases_file) == (
+        RetrievalBenchmarkCase(
+            id="existing",
+            query="Existing query.",
+            expected_chunk_ids=("chunk_existing",),
+        ),
+        RetrievalBenchmarkCase(
+            id="new",
+            query="New query.",
+            expected_chunk_ids=("chunk_new",),
+            limit=2,
+        ),
+    )
+
+
+def test_export_retrieval_benchmark_cases_file_append_rejects_duplicate_ids(
+    tmp_path: Path,
+) -> None:
+    cases_file = tmp_path / "retrieval-cases.json"
+    export_retrieval_benchmark_cases_file(
+        cases_file,
+        (
+            RetrievalBenchmarkCase(
+                id="duplicate",
+                query="Original query.",
+                expected_chunk_ids=("chunk_original",),
+            ),
+            RetrievalBenchmarkCase(
+                id="kept",
+                query="Kept query.",
+                expected_chunk_ids=("chunk_kept",),
+            ),
+        ),
+    )
+
+    replacement = (
+        RetrievalBenchmarkCase(
+            id="duplicate",
+            query="Replacement query.",
+            expected_chunk_ids=("chunk_replacement",),
+            limit=2,
+        ),
+    )
+    try:
+        export_retrieval_benchmark_cases_file(cases_file, replacement, append=True)
+    except ValueError as error:
+        assert "already contains case ids: duplicate" in str(error)
+        assert "--overwrite-cases-file" in str(error)
+    else:
+        raise AssertionError("Expected append export to reject duplicate case ids")
+
+    export_retrieval_benchmark_cases_file(
+        cases_file,
+        replacement,
+        append=True,
+        overwrite=True,
+    )
+
+    assert load_retrieval_benchmark_cases_file(cases_file) == (
+        replacement[0],
+        RetrievalBenchmarkCase(
+            id="kept",
+            query="Kept query.",
+            expected_chunk_ids=("chunk_kept",),
+        ),
+    )
+
+
 def test_build_retrieval_benchmark_cases_from_results_filters_failed_cases() -> None:
     engine = create_database_engine("sqlite:///:memory:")
     create_all(engine)

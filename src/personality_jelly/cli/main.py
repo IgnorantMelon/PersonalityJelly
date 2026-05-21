@@ -563,6 +563,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow --export-cases-file to replace an existing file.",
     )
+    show_retrieval_eval_run.add_argument(
+        "--append-cases-file",
+        action="store_true",
+        help="Append exported cases to an existing --export-cases-file by case id.",
+    )
 
     eval_parser = subparsers.add_parser("eval", help="Run evaluation tasks.")
     eval_subparsers = eval_parser.add_subparsers(dest="resource")
@@ -648,6 +653,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--overwrite-cases-file",
         action="store_true",
         help="Allow --export-cases-file to replace an existing file.",
+    )
+    retrieval_benchmark.add_argument(
+        "--append-cases-file",
+        action="store_true",
+        help="Append exported cases to an existing --export-cases-file by case id.",
     )
     retrieval_benchmark.add_argument(
         "--database-url",
@@ -1522,6 +1532,7 @@ def _export_retrieval_eval_run_cases_if_requested(
     return export_retrieval_benchmark_cases_file(
         args.export_cases_file,
         cases,
+        append=args.append_cases_file,
         overwrite=args.overwrite_cases_file,
     )
 
@@ -1995,6 +2006,7 @@ def _export_retrieval_benchmark_cases_if_requested(
     export_retrieval_benchmark_cases_file(
         args.export_cases_file,
         cases,
+        append=args.append_cases_file,
         overwrite=args.overwrite_cases_file,
     )
 

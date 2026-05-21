@@ -130,6 +130,7 @@ Run and inspect source retrieval quality benchmarks:
 .\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --dry-run
 .\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --verbose
 .\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --dry-run --export-cases-file .\retrieval-cases.json
+.\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --dry-run --export-cases-file .\retrieval-cases.json --append-cases-file
 .\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --cases-file .\retrieval-cases.json --dry-run
 .\.venv\Scripts\pjelly.exe list retrieval-eval-runs --character-id char_...
 .\.venv\Scripts\pjelly.exe show retrieval-eval-run retrievaleval_...
@@ -140,6 +141,8 @@ Retrieval benchmark output includes aggregate `report.*` diagnostics for evidenc
 empty-result probes, recall, ranking, and missing expected evidence chunks.
 Use `--export-cases-file` during dry-run to snapshot the generated verified-claim cases into a
 JSON file for review and curation.
+Use `--append-cases-file` to add exported cases into an existing cases file; duplicate case IDs are
+rejected unless `--overwrite-cases-file` is also set.
 Use `show retrieval-eval-run --failed-only` to inspect only failed stored cases, and add
 `--export-cases-file` to convert that filtered set into an explicit regression cases file.
 Use `--cases-file` to run manually curated retrieval probes instead of generated verified-claim
@@ -242,7 +245,7 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `122 passed`.
+- Full test suite currently passes: `124 passed`.
 
 ## Next development tasks
 
@@ -269,6 +272,7 @@ Recent P1 progress:
 - Added retrieval benchmark case export through `eval retrieval-benchmark --export-cases-file`.
 - Added failed-case retrieval benchmark export from stored runs through
   `show retrieval-eval-run --failed-only --export-cases-file`.
+- Added append mode for retrieval benchmark case export with duplicate-id protection.
 - Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:
