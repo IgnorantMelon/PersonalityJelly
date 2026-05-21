@@ -575,6 +575,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Validate benchmark inputs and list cases without creating rows or calling providers.",
     )
+    ooc_benchmark.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print case prompts, modes, and evaluation reasons.",
+    )
     retrieval_benchmark = eval_subparsers.add_parser(
         "retrieval-benchmark",
         help="Run source retrieval quality benchmark cases.",
@@ -611,6 +616,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Validate generated cases without creating rows or calling embedding providers.",
+    )
+    retrieval_benchmark.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print case queries, expected/retrieved chunks, scores, and reasons.",
     )
 
     db_parser = subparsers.add_parser("db", help="Manage database schema migrations.")
@@ -1587,6 +1597,14 @@ def _run_ooc_benchmark(args: argparse.Namespace) -> int:
         print(f"case.{index}.id={case_result.case_id}")
         print(f"case.{index}.status={case_result.status}")
         print(f"case.{index}.critic_report_id={case_result.critic_report_id or 'none'}")
+        if args.verbose:
+            print(f"case.{index}.interaction_mode={case_result.interaction_mode}")
+            print(f"case.{index}.assistant_message_id={case_result.assistant_message_id}")
+            print(f"case.{index}.prompt={case_result.prompt}")
+            print(f"case.{index}.reasons<<END")
+            for reason in case_result.reasons:
+                print(f"- {reason}")
+            print("END")
     return 0
 
 
@@ -1630,6 +1648,8 @@ def _dry_run_ooc_benchmark(
         print(f"case.{index}.id={benchmark_case.id}")
         print(f"case.{index}.category={benchmark_case.category}")
         print(f"case.{index}.interaction_mode={benchmark_case.interaction_mode}")
+        if args.verbose:
+            print(f"case.{index}.prompt={benchmark_case.prompt}")
     return 0
 
 
@@ -1779,6 +1799,19 @@ def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
         print(f"case.{index}.status={case_result.status}")
         print(f"case.{index}.recall={case_result.recall}")
         print(f"case.{index}.first_relevant_rank={case_result.first_relevant_rank or 'none'}")
+        if args.verbose:
+            print(f"case.{index}.ranking_score={case_result.ranking_score}")
+            print(f"case.{index}.expected_chunk_ids={','.join(case_result.expected_chunk_ids)}")
+            print(f"case.{index}.retrieved_chunk_ids={','.join(case_result.retrieved_chunk_ids)}")
+            print(
+                "case."
+                f"{index}.retrieved_scores={_format_optional_decimal_list(case_result.retrieved_scores)}"
+            )
+            print(f"case.{index}.query={case_result.query}")
+            print(f"case.{index}.reasons<<END")
+            for reason in case_result.reasons:
+                print(f"- {reason}")
+            print("END")
     return 0
 
 
@@ -1830,6 +1863,8 @@ def _dry_run_retrieval_benchmark(
         print(f"case.{index}.expected_count={len(benchmark_case.expected_chunk_ids)}")
         print(f"case.{index}.limit={benchmark_case.limit}")
         print(f"case.{index}.expected_chunk_ids={','.join(benchmark_case.expected_chunk_ids)}")
+        if args.verbose:
+            print(f"case.{index}.query={benchmark_case.query}")
     return 0
 
 
@@ -2024,6 +2059,10 @@ def _format_ratio(numerator: int, denominator: int) -> str:
 
 def _format_decimal(value: float) -> str:
     return f"{value:.3f}"
+
+
+def _format_optional_decimal_list(values: list[float | None]) -> str:
+    return ",".join("none" if value is None else _format_decimal(value) for value in values)
 
 
 def _json_block(value) -> str:

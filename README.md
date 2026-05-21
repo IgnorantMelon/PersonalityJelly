@@ -120,6 +120,7 @@ Run the MVP OOC and canon-pollution benchmark against an existing character:
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_... --case-suite expanded_boundaries
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_... --case-suite boundary_regression
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_... --dry-run
+.\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_... --verbose
 ```
 
 Run and inspect source retrieval quality benchmarks:
@@ -127,6 +128,7 @@ Run and inspect source retrieval quality benchmarks:
 ```powershell
 .\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --provider env
 .\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --dry-run
+.\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --verbose
 .\.venv\Scripts\pjelly.exe list retrieval-eval-runs --character-id char_...
 .\.venv\Scripts\pjelly.exe show retrieval-eval-run retrievaleval_...
 ```
@@ -208,7 +210,8 @@ Implemented:
   parsed output, and validation errors.
 - CLI trace inspection exposes persisted structured LLM traces through `list llm-traces` and
   `show llm-trace`, with filters for operation, schema, provider, model, and validation errors.
-- CLI coverage for demo, turn, list, show, eval, archive, edit, and summarize.
+- CLI coverage for demo, turn, list, show, eval, archive, edit, and summarize. Benchmark eval
+  commands support `--verbose` for per-case prompts, queries, retrieved IDs, scores, and reasons.
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
@@ -234,6 +237,7 @@ Recent P1 progress:
 - Added benchmark dry-run diagnostics and pass-rate summaries for OOC and retrieval eval CLI runs.
 - Added aggregate retrieval benchmark report diagnostics in CLI run/show output.
 - Added parsed conversation summary layer inspection in CLI show/summarize output.
+- Added verbose per-case diagnostics for OOC and retrieval benchmark CLI runs.
 - Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:
@@ -247,7 +251,7 @@ P1:
 - Continue curating benchmark cases from observed failures; current OOC suites now include
   `mvp_default`, `expanded_boundaries`, and `boundary_regression`.
 - Continue hardening downstream consumption of layered summaries after CLI layer inspection.
-- Improve CLI diagnostics with verbose tracing, clearer errors, and richer batch benchmark output.
+- Improve CLI diagnostics with clearer errors and richer batch benchmark output.
 
 P2:
 
