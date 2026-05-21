@@ -121,6 +121,7 @@ Run the MVP OOC and canon-pollution benchmark against an existing character:
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_... --case-suite boundary_regression
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_... --dry-run
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark --character-id char_... --verbose
+.\.venv\Scripts\pjelly.exe show eval-run eval_... --failed-only
 ```
 
 Run and inspect source retrieval quality benchmarks:
@@ -246,7 +247,7 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `125 passed`.
+- Full test suite currently passes: `126 passed`.
 
 ## Next development tasks
 
@@ -275,6 +276,7 @@ Recent P1 progress:
   `show retrieval-eval-run --failed-only --export-cases-file`.
 - Added append mode for retrieval benchmark case export with duplicate-id protection.
 - Added retrieval cases-file dry-run summary diagnostics for curated JSON validation.
+- Added failed-case filtering for stored OOC benchmark run inspection.
 - Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:
