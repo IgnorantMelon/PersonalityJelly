@@ -34,6 +34,7 @@ from personality_jelly.evaluation import (
     load_retrieval_benchmark_cases_file,
     run_ooc_benchmark,
     run_retrieval_benchmark,
+    summarize_retrieval_benchmark_cases,
     summarize_retrieval_benchmark,
 )
 from personality_jelly.ingestion import SourceIngestionResult, ingest_text_file
@@ -1945,6 +1946,7 @@ def _dry_run_retrieval_benchmark(
         try:
             character = CharacterRepository(session).require(args.character_id)
             cases = _load_explicit_retrieval_benchmark_cases(args)
+            cases_source = "cases_file" if cases is not None else "generated"
             if cases is None:
                 cases = build_default_retrieval_benchmark_cases(
                     session,
@@ -1977,8 +1979,12 @@ def _dry_run_retrieval_benchmark(
     print("will_create_run=false")
     print("will_call_provider=false")
     print("will_call_embedding_provider=false")
+    print(f"cases_source={cases_source}")
+    if args.cases_file is not None:
+        print(f"cases_file={args.cases_file}")
     if args.export_cases_file is not None:
         print(f"exported_cases_file={args.export_cases_file}")
+    _print_retrieval_benchmark_cases_summary(cases)
     for index, benchmark_case in enumerate(cases, start=1):
         print(f"case.{index}.id={benchmark_case.id}")
         print(f"case.{index}.expected_count={len(benchmark_case.expected_chunk_ids)}")
@@ -1987,6 +1993,18 @@ def _dry_run_retrieval_benchmark(
         if args.verbose:
             print(f"case.{index}.query={benchmark_case.query}")
     return 0
+
+
+def _print_retrieval_benchmark_cases_summary(
+    cases: tuple[RetrievalBenchmarkCase, ...],
+) -> None:
+    summary = summarize_retrieval_benchmark_cases(cases)
+    print(f"cases_summary.total_cases={summary.total_cases}")
+    print(f"cases_summary.evidence_case_count={summary.evidence_case_count}")
+    print(f"cases_summary.empty_case_count={summary.empty_case_count}")
+    print(f"cases_summary.expected_chunk_ref_count={summary.expected_chunk_ref_count}")
+    print(f"cases_summary.min_limit={summary.min_limit}")
+    print(f"cases_summary.max_limit={summary.max_limit}")
 
 
 def _load_explicit_retrieval_benchmark_cases(

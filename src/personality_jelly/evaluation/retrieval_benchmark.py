@@ -126,6 +126,39 @@ class RetrievalBenchmarkReport:
     missing_expected_chunk_count: int
 
 
+@dataclass(frozen=True)
+class RetrievalBenchmarkCasesSummary:
+    total_cases: int
+    evidence_case_count: int
+    empty_case_count: int
+    expected_chunk_ref_count: int
+    min_limit: int
+    max_limit: int
+
+
+def summarize_retrieval_benchmark_cases(
+    cases: tuple[RetrievalBenchmarkCase, ...],
+) -> RetrievalBenchmarkCasesSummary:
+    if not cases:
+        raise ValueError("cases must not be empty")
+    evidence_cases = [
+        benchmark_case
+        for benchmark_case in cases
+        if benchmark_case.expected_chunk_ids
+    ]
+    return RetrievalBenchmarkCasesSummary(
+        total_cases=len(cases),
+        evidence_case_count=len(evidence_cases),
+        empty_case_count=len(cases) - len(evidence_cases),
+        expected_chunk_ref_count=sum(
+            len(benchmark_case.expected_chunk_ids)
+            for benchmark_case in cases
+        ),
+        min_limit=min(benchmark_case.limit for benchmark_case in cases),
+        max_limit=max(benchmark_case.limit for benchmark_case in cases),
+    )
+
+
 def load_retrieval_benchmark_cases_file(
     path: Path | str,
 ) -> tuple[RetrievalBenchmarkCase, ...]:
