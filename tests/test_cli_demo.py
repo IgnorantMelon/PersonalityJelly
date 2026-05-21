@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from personality_jelly.cli.main import main
@@ -1019,6 +1020,89 @@ def test_cli_dry_runs_retrieval_benchmark_without_persisting_run(
     assert "case.1.id=claim_1" in dry_run_output
     assert "case.1.expected_count=1" in dry_run_output
     assert "case.1.expected_chunk_ids=chunk_" in dry_run_output
+    assert runs == []
+
+
+def test_cli_dry_runs_retrieval_benchmark_with_cases_file(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+
+    cases_file = tmp_path / "retrieval-cases.json"
+    cases_file.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": "manual_observation",
+                        "query": "How does Lin Shuang make decisions?",
+                        "expected_chunk_ids": ["chunk_manual"],
+                        "limit": 1,
+                    },
+                    {
+                        "id": "manual_empty",
+                        "query": "Out-of-scope probe.",
+                        "expected_chunk_ids": [],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    dry_run_exit_code = main(
+        [
+            "eval",
+            "retrieval-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "retrieval_manual_cases",
+            "--cases-file",
+            str(cases_file),
+            "--dry-run",
+            "--verbose",
+        ]
+    )
+    dry_run_output = capsys.readouterr().out
+
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        runs = RetrievalEvaluationRunRepository(session).list_recent()
+
+    assert demo_exit_code == 0
+    assert dry_run_exit_code == 0
+    assert "run_id=dry-run" in dry_run_output
+    assert "test_suite=retrieval_manual_cases" in dry_run_output
+    assert "total=2" in dry_run_output
+    assert "will_create_run=false" in dry_run_output
+    assert "case.1.id=manual_observation" in dry_run_output
+    assert "case.1.expected_count=1" in dry_run_output
+    assert "case.1.limit=1" in dry_run_output
+    assert "case.1.expected_chunk_ids=chunk_manual" in dry_run_output
+    assert "case.1.query=How does Lin Shuang make decisions?" in dry_run_output
+    assert "case.2.id=manual_empty" in dry_run_output
+    assert "case.2.expected_count=0" in dry_run_output
+    assert "case.2.limit=4" in dry_run_output
+    assert "case.2.query=Out-of-scope probe." in dry_run_output
     assert runs == []
 
 

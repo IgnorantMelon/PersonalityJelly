@@ -1,7 +1,17 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy.orm import Session
 
 from personality_jelly.core import EntityKind, generate_id
@@ -38,6 +48,55 @@ class RetrievalBenchmarkCase:
     limit: int = 4
 
 
+class _RetrievalBenchmarkCaseSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    query: str
+    expected_chunk_ids: list[str] = Field(default_factory=list)
+    limit: int = Field(default=4, gt=0)
+
+    @field_validator("id", "query", mode="before")
+    @classmethod
+    def _normalize_required_text(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be blank")
+        return stripped
+
+    @field_validator("expected_chunk_ids")
+    @classmethod
+    def _normalize_expected_chunk_ids(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for chunk_id in value:
+            stripped = chunk_id.strip()
+            if not stripped:
+                raise ValueError("expected_chunk_ids must not contain blank values")
+            normalized.append(stripped)
+        return normalized
+
+
+class _RetrievalBenchmarkCasesFile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cases: list[_RetrievalBenchmarkCaseSpec] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _reject_duplicate_case_ids(self) -> _RetrievalBenchmarkCasesFile:
+        seen: set[str] = set()
+        duplicate_ids: list[str] = []
+        for benchmark_case in self.cases:
+            if benchmark_case.id in seen:
+                duplicate_ids.append(benchmark_case.id)
+            seen.add(benchmark_case.id)
+        if duplicate_ids:
+            unique_duplicates = ", ".join(dict.fromkeys(duplicate_ids))
+            raise ValueError(f"duplicate retrieval benchmark case ids: {unique_duplicates}")
+        return self
+
+
 @dataclass(frozen=True)
 class RetrievalBenchmarkRunResult:
     run: RetrievalEvaluationRun
@@ -65,6 +124,41 @@ class RetrievalBenchmarkReport:
     retrieved_empty_when_expected_empty_count: int
     retrieved_nonempty_when_expected_empty_count: int
     missing_expected_chunk_count: int
+
+
+def load_retrieval_benchmark_cases_file(
+    path: Path | str,
+) -> tuple[RetrievalBenchmarkCase, ...]:
+    case_file = Path(path)
+    try:
+        payload = json.loads(case_file.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ValueError(f"Retrieval benchmark cases file not found: {case_file}") from exc
+    except OSError as exc:
+        message = f"Unable to read retrieval benchmark cases file {case_file}: {exc}"
+        raise ValueError(message) from exc
+    except json.JSONDecodeError as exc:
+        message = (
+            f"Invalid retrieval benchmark cases JSON in {case_file}: "
+            f"{exc.msg} at line {exc.lineno} column {exc.colno}"
+        )
+        raise ValueError(message) from exc
+
+    try:
+        cases_file = _RetrievalBenchmarkCasesFile.model_validate(payload)
+    except ValidationError as exc:
+        message = _format_cases_file_validation_error(exc)
+        raise ValueError(f"Invalid retrieval benchmark cases file {case_file}: {message}") from exc
+
+    return tuple(
+        RetrievalBenchmarkCase(
+            id=benchmark_case.id,
+            query=benchmark_case.query,
+            expected_chunk_ids=tuple(benchmark_case.expected_chunk_ids),
+            limit=benchmark_case.limit,
+        )
+        for benchmark_case in cases_file.cases
+    )
 
 
 def build_default_retrieval_benchmark_cases(
@@ -346,3 +440,11 @@ def _average(values: list[float]) -> float:
     if not values:
         return 0.0
     return sum(values) / len(values)
+
+
+def _format_cases_file_validation_error(error: ValidationError) -> str:
+    messages: list[str] = []
+    for item in error.errors():
+        location = ".".join(str(part) for part in item["loc"]) or "cases"
+        messages.append(f"{location}: {item['msg']}")
+    return "; ".join(messages)

@@ -129,12 +129,33 @@ Run and inspect source retrieval quality benchmarks:
 .\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --provider env
 .\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --dry-run
 .\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --verbose
+.\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --cases-file .\retrieval-cases.json --dry-run
 .\.venv\Scripts\pjelly.exe list retrieval-eval-runs --character-id char_...
 .\.venv\Scripts\pjelly.exe show retrieval-eval-run retrievaleval_...
 ```
 
 Retrieval benchmark output includes aggregate `report.*` diagnostics for evidence cases,
 empty-result probes, recall, ranking, and missing expected evidence chunks.
+Use `--cases-file` to run manually curated retrieval probes instead of generated verified-claim
+cases. The JSON shape is:
+
+```json
+{
+  "cases": [
+    {
+      "id": "manual_observation",
+      "query": "How does Lin Shuang make decisions?",
+      "expected_chunk_ids": ["chunk_..."],
+      "limit": 4
+    },
+    {
+      "id": "manual_empty",
+      "query": "Out-of-scope retrieval probe.",
+      "expected_chunk_ids": []
+    }
+  ]
+}
+```
 
 Inspect or apply database schema migrations:
 
@@ -215,7 +236,7 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `113 passed`.
+- Full test suite currently passes: `117 passed`.
 
 ## Next development tasks
 
@@ -238,6 +259,7 @@ Recent P1 progress:
 - Added aggregate retrieval benchmark report diagnostics in CLI run/show output.
 - Added parsed conversation summary layer inspection in CLI show/summarize output.
 - Added verbose per-case diagnostics for OOC and retrieval benchmark CLI runs.
+- Added manual retrieval benchmark case files through `eval retrieval-benchmark --cases-file`.
 - Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:
@@ -247,7 +269,8 @@ P0:
 P1:
 
 - Extend semantic tracing to future retrieval evaluators.
-- Expand retrieval-quality benchmark cases beyond the default evidence-derived suite.
+- Continue expanding retrieval-quality benchmark cases with manually curated cases files and
+  observed retrieval failures.
 - Continue curating benchmark cases from observed failures; current OOC suites now include
   `mvp_default`, `expanded_boundaries`, and `boundary_regression`.
 - Continue hardening downstream consumption of layered summaries after CLI layer inspection.
