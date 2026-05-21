@@ -232,6 +232,8 @@ Implemented:
   recorded review reason.
 - Structured benchmark case evaluation through `BenchmarkCaseEvaluation`; benchmark pass/fail is
   not mechanically derived from critic actions.
+- OOC benchmark run/show output derives aggregate reporting by interaction mode; dry-run output
+  reports the selected case suite's interaction-mode distribution before any provider calls.
 - OOC benchmark case suites include the stable `mvp_default` set, `expanded_boundaries`, and
   `boundary_regression` for OOC, canon pollution, memory pollution, mode confusion, reality
   adaptation, and high-risk prompt-boundary probes.
@@ -247,7 +249,7 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `126 passed`.
+- Full test suite currently passes: `127 passed`.
 
 ## Next development tasks
 
@@ -277,6 +279,8 @@ Recent P1 progress:
 - Added append mode for retrieval benchmark case export with duplicate-id protection.
 - Added retrieval cases-file dry-run summary diagnostics for curated JSON validation.
 - Added failed-case filtering for stored OOC benchmark run inspection.
+- Added OOC benchmark aggregate interaction-mode diagnostics for run/show output and dry-run case
+  distribution checks.
 - Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:

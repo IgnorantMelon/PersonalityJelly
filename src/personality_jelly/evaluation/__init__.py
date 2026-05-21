@@ -5,6 +5,8 @@ from personality_jelly.evaluation.benchmark import (
     BOUNDARY_REGRESSION_BENCHMARK_CASES,
     BOUNDARY_REGRESSION_BENCHMARK_CASE_SUITE,
     BenchmarkCase,
+    BenchmarkModeReport,
+    BenchmarkReport,
     BenchmarkRunResult,
     DEFAULT_BENCHMARK_CASE_SUITE,
     DEFAULT_OOC_BENCHMARK_CASES,
@@ -12,6 +14,7 @@ from personality_jelly.evaluation.benchmark import (
     EXPANDED_BOUNDARY_BENCHMARK_CASES,
     get_benchmark_cases,
     run_ooc_benchmark,
+    summarize_ooc_benchmark,
 )
 from personality_jelly.evaluation.retrieval_benchmark import (
     DEFAULT_RETRIEVAL_TEST_SUITE,
@@ -30,6 +33,8 @@ from personality_jelly.evaluation.retrieval_benchmark import (
 
 __all__ = [
     "BenchmarkCase",
+    "BenchmarkModeReport",
+    "BenchmarkReport",
     "BenchmarkRunResult",
     "BENCHMARK_CASE_SUITES",
     "BOUNDARY_REGRESSION_BENCHMARK_CASES",
@@ -50,6 +55,7 @@ __all__ = [
     "load_retrieval_benchmark_cases_file",
     "run_ooc_benchmark",
     "run_retrieval_benchmark",
+    "summarize_ooc_benchmark",
     "summarize_retrieval_benchmark_cases",
     "summarize_retrieval_benchmark",
 ]

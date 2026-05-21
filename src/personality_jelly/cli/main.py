@@ -34,6 +34,7 @@ from personality_jelly.evaluation import (
     load_retrieval_benchmark_cases_file,
     run_ooc_benchmark,
     run_retrieval_benchmark,
+    summarize_ooc_benchmark,
     summarize_retrieval_benchmark_cases,
     summarize_retrieval_benchmark,
 )
@@ -1405,6 +1406,7 @@ def _run_show_eval_run(args: argparse.Namespace) -> int:
         print(f"failed={run.failed_cases}")
         print(f"stored_case_count={len(case_results)}")
         print(f"case_count={len(shown_case_results)}")
+        _print_ooc_benchmark_report(summarize_ooc_benchmark(shown_case_results))
         for index, case_result in enumerate(shown_case_results, start=1):
             print(f"case.{index}.id={case_result.case_id}")
             print(f"case.{index}.status={case_result.status}")
@@ -1717,6 +1719,7 @@ def _run_ooc_benchmark(args: argparse.Namespace) -> int:
         passed_cases=result.run.passed_cases,
         failed_cases=result.run.failed_cases,
     )
+    _print_ooc_benchmark_report(summarize_ooc_benchmark(result.case_results))
     for index, case_result in enumerate(result.case_results, start=1):
         print(f"case.{index}.id={case_result.case_id}")
         print(f"case.{index}.status={case_result.status}")
@@ -1768,6 +1771,7 @@ def _dry_run_ooc_benchmark(
     print(f"provider={args.provider}")
     print("will_create_run=false")
     print("will_call_provider=false")
+    _print_ooc_benchmark_cases_summary(cases)
     for index, benchmark_case in enumerate(cases, start=1):
         print(f"case.{index}.id={benchmark_case.id}")
         print(f"case.{index}.category={benchmark_case.category}")
@@ -1823,6 +1827,37 @@ def _print_ooc_benchmark_run_summary(
     print(f"failed={failed_cases}")
     print(f"pass_rate={_format_ratio(passed_cases, total_cases)}")
     print(f"failed_case_count={failed_cases}")
+
+
+def _print_ooc_benchmark_report(report) -> None:
+    print(f"report.total_cases={report.total_cases}")
+    print(f"report.passed_cases={report.passed_cases}")
+    print(f"report.failed_cases={report.failed_cases}")
+    print(f"report.pass_rate={_format_decimal(report.pass_rate)}")
+    print(f"report.mode_count={len(report.mode_reports)}")
+    for index, mode_report in enumerate(report.mode_reports, start=1):
+        print(f"report.mode.{index}.interaction_mode={mode_report.interaction_mode}")
+        print(f"report.mode.{index}.total_cases={mode_report.total_cases}")
+        print(f"report.mode.{index}.passed_cases={mode_report.passed_cases}")
+        print(f"report.mode.{index}.failed_cases={mode_report.failed_cases}")
+        print(f"report.mode.{index}.pass_rate={_format_decimal(mode_report.pass_rate)}")
+
+
+def _print_ooc_benchmark_cases_summary(cases: tuple[BenchmarkCase, ...]) -> None:
+    print(f"cases_summary.total_cases={len(cases)}")
+    interaction_modes = sorted(
+        {benchmark_case.interaction_mode for benchmark_case in cases},
+        key=lambda mode: mode.value,
+    )
+    print(f"cases_summary.mode_count={len(interaction_modes)}")
+    for index, interaction_mode in enumerate(interaction_modes, start=1):
+        mode_cases = [
+            benchmark_case
+            for benchmark_case in cases
+            if benchmark_case.interaction_mode == interaction_mode
+        ]
+        print(f"cases_summary.mode.{index}.interaction_mode={interaction_mode}")
+        print(f"cases_summary.mode.{index}.total_cases={len(mode_cases)}")
 
 
 def _print_retrieval_benchmark_report(report) -> None:
