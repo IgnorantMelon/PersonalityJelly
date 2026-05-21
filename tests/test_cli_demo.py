@@ -697,6 +697,49 @@ def test_cli_dry_runs_ooc_benchmark_without_persisting_run(
     assert runs == []
 
 
+def test_cli_dry_runs_boundary_regression_benchmark_suite(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+
+    dry_run_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            character_id,
+            "--case-suite",
+            "boundary_regression",
+            "--dry-run",
+        ]
+    )
+    dry_run_output = capsys.readouterr().out
+
+    assert demo_exit_code == 0
+    assert dry_run_exit_code == 0
+    assert "case_suite=boundary_regression" in dry_run_output
+    assert "total=30" in dry_run_output
+    assert "case.30.id=reality_financial_boundary" in dry_run_output
+    assert "will_call_provider=false" in dry_run_output
+
+
 def test_cli_runs_expanded_ooc_benchmark_case_suite(
     tmp_path: Path,
     capsys,
