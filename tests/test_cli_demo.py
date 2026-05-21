@@ -6,9 +6,11 @@ from personality_jelly.llm import ChatMessage, EmbeddingConfig, ModelConfig
 from personality_jelly.storage import (
     ConversationRepository,
     ContextPackageRepository,
+    EvaluationRunRepository,
     MemoryRepository,
     MessageRepository,
     LLMRawOutputRepository,
+    RetrievalEvaluationRunRepository,
     create_all,
     create_database_engine,
     create_session_factory,
@@ -634,8 +636,65 @@ def test_cli_runs_ooc_benchmark(tmp_path: Path, capsys, monkeypatch) -> None:
     assert "total=10" in eval_output
     assert "passed=10" in eval_output
     assert "failed=0" in eval_output
+    assert "pass_rate=1.000" in eval_output
+    assert "failed_case_count=0" in eval_output
     assert "case.10.id=joke_pollution" in eval_output
     assert "case.10.status=passed" in eval_output
+
+
+def test_cli_dry_runs_ooc_benchmark_without_persisting_run(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+    persona_version_id = _output_value(demo_output, "persona_version_id")
+
+    dry_run_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            character_id,
+            "--case-suite",
+            "expanded_boundaries",
+            "--dry-run",
+        ]
+    )
+    dry_run_output = capsys.readouterr().out
+
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        runs = EvaluationRunRepository(session).list_recent()
+
+    assert demo_exit_code == 0
+    assert dry_run_exit_code == 0
+    assert "run_id=dry-run" in dry_run_output
+    assert "status=dry_run" in dry_run_output
+    assert "case_suite=expanded_boundaries" in dry_run_output
+    assert f"character_id={character_id}" in dry_run_output
+    assert f"persona_version_id={persona_version_id}" in dry_run_output
+    assert "total=20" in dry_run_output
+    assert "will_create_run=false" in dry_run_output
+    assert "will_call_provider=false" in dry_run_output
+    assert "case.20.id=reality_modern_payment" in dry_run_output
+    assert runs == []
 
 
 def test_cli_runs_expanded_ooc_benchmark_case_suite(
@@ -801,6 +860,8 @@ def test_cli_runs_lists_and_shows_retrieval_benchmark(
     assert "test_suite=retrieval_cli_suite" in eval_output
     assert f"character_id={character_id}" in eval_output
     assert "embedding_model=stub-embedding" in eval_output
+    assert "pass_rate=0.000" in eval_output
+    assert "failed_case_count=1" in eval_output
     assert list_exit_code == 0
     assert f"retrieval_eval_run.1.id={run_id}" in list_output
     assert "retrieval_eval_run.1.test_suite=retrieval_cli_suite" in list_output
@@ -810,6 +871,63 @@ def test_cli_runs_lists_and_shows_retrieval_benchmark(
     assert "case.1.id=claim_1" in show_output
     assert "case.1.expected_chunk_ids=chunk_" in show_output
     assert "case.1.retrieved_chunk_ids=" in show_output
+
+
+def test_cli_dry_runs_retrieval_benchmark_without_persisting_run(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+
+    dry_run_exit_code = main(
+        [
+            "eval",
+            "retrieval-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "retrieval_dry_run",
+            "--no-empty-case",
+            "--dry-run",
+        ]
+    )
+    dry_run_output = capsys.readouterr().out
+
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        runs = RetrievalEvaluationRunRepository(session).list_recent()
+
+    assert demo_exit_code == 0
+    assert dry_run_exit_code == 0
+    assert "run_id=dry-run" in dry_run_output
+    assert "status=dry_run" in dry_run_output
+    assert "test_suite=retrieval_dry_run" in dry_run_output
+    assert f"character_id={character_id}" in dry_run_output
+    assert "embedding_model=stub-embedding" in dry_run_output
+    assert "total=1" in dry_run_output
+    assert "will_create_run=false" in dry_run_output
+    assert "will_call_embedding_provider=false" in dry_run_output
+    assert "case.1.id=claim_1" in dry_run_output
+    assert "case.1.expected_count=1" in dry_run_output
+    assert "case.1.expected_chunk_ids=chunk_" in dry_run_output
+    assert runs == []
 
 
 def test_cli_lists_and_shows_llm_traces(tmp_path: Path, capsys, monkeypatch) -> None:
