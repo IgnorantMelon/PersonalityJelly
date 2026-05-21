@@ -54,6 +54,7 @@ Inspect sanitized runtime configuration:
 
 ```powershell
 .\.venv\Scripts\pjelly.exe config show
+.\.venv\Scripts\pjelly.exe config check
 ```
 
 Run the end-to-end CLI with the configured provider:
@@ -199,7 +200,7 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `105 passed`.
+- Full test suite currently passes: `107 passed`.
 
 ## Next development tasks
 
@@ -216,6 +217,7 @@ Recent P1 progress:
 - Added an expanded OOC benchmark case suite selectable with `--case-suite expanded_boundaries`.
 - Added layered conversation summary output to keep short-term state, user memory, relationship
   notes, and reflective notes separate.
+- Added `pjelly config check` diagnostics for local provider construction without network calls.
 - Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:
@@ -229,8 +231,7 @@ P1:
 - Continue curating benchmark cases from observed OOC, canon pollution, memory pollution, mode
   confusion, and reality-adaptation failures.
 - Continue hardening conversation summary review and downstream consumption of layered summaries.
-- Improve CLI diagnostics with dry-run, verbose tracing, richer provider checks, and clearer batch
-  benchmark output.
+- Improve CLI diagnostics with dry-run, verbose tracing, and clearer batch benchmark output.
 
 P2:
 
