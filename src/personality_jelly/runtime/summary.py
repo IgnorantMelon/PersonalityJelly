@@ -56,7 +56,29 @@ def summarize_conversation(
     draft = TypeAdapter(ConversationSummaryDraft).validate_python(raw)
     updated = conversation_repository.update_summary(
         conversation.id,
-        summary=draft.summary,
+        summary=_format_layered_summary(draft),
         updated_at=utc_now(),
     )
     return ConversationSummaryResult(conversation=updated)
+
+
+def _format_layered_summary(draft: ConversationSummaryDraft) -> str:
+    return "\n".join(
+        [
+            "# Short-term Scene State",
+            draft.short_term_scene_state,
+            "",
+            "# User Memory Candidates",
+            _format_items(draft.user_memory_candidates),
+            "",
+            "# Relationship Memory Notes",
+            _format_items(draft.relationship_memory_notes),
+            "",
+            "# Reflective Notes",
+            _format_items(draft.reflective_notes),
+        ]
+    )
+
+
+def _format_items(items: list[str]) -> str:
+    return "\n".join(f"- {item}" for item in items) if items else "- none"

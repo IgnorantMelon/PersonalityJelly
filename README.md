@@ -165,6 +165,8 @@ Implemented:
 - Persona compilation from verified canon claims.
 - Runtime conversation flow with context-package assembly, roleplay generation, critic evaluation,
   optional retry, failure-case capture, memory curation, memory guard, and conversation summary.
+- Conversation summaries use structured layers for short-term scene state, user memory candidates,
+  relationship notes, and reflective notes before being formatted into stored context text.
 - Structured interaction-mode classification through `InteractionModeClassification`; no local
   marker-based semantic mode inference remains.
 - Semantic source retrieval in `retrieval/semantic.py`; configured embeddings rank chunks by vector
@@ -197,7 +199,7 @@ Implemented:
 - Cloud smoke checks passed with DeepSeek `deepseek-v4-flash` using
   `llm.json_response_format = "json_object"` and ModelArts MaaS `bge-m3` embeddings. The observed
   embedding vector dimension is 1024.
-- Full test suite currently passes: `104 passed`.
+- Full test suite currently passes: `105 passed`.
 
 ## Next development tasks
 
@@ -212,6 +214,8 @@ Recent P1 progress:
   support strict `json_schema`.
 - Added CLI trace inspection for structured LLM raw outputs, including error-only filtering.
 - Added an expanded OOC benchmark case suite selectable with `--case-suite expanded_boundaries`.
+- Added layered conversation summary output to keep short-term state, user memory, relationship
+  notes, and reflective notes separate.
 - Added `.env` and local SQLite database ignores to reduce accidental secret/runtime-data commits.
 
 P0:
@@ -224,8 +228,7 @@ P1:
 - Expand retrieval-quality benchmark cases and reporting beyond the default evidence-derived suite.
 - Continue curating benchmark cases from observed OOC, canon pollution, memory pollution, mode
   confusion, and reality-adaptation failures.
-- Improve conversation summary strategy so short-term scene state, user memory, relationship
-  memory, and reflective memory cannot contaminate each other.
+- Continue hardening conversation summary review and downstream consumption of layered summaries.
 - Improve CLI diagnostics with dry-run, verbose tracing, richer provider checks, and clearer batch
   benchmark output.
 
