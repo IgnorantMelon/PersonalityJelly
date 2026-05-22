@@ -161,15 +161,19 @@ def _format_conversation_summary(summary: str | None) -> str:
     return "\n".join(
         [
             "## short_term_scene_state",
+            "boundary: temporary runtime context only; not canon, persona, or long-term memory.",
             layers.short_term_scene_state or "none",
             "",
             "## user_memory_candidates",
+            "boundary: unverified candidates only; not accepted user or relationship memories.",
             _format_items(layers.user_memory_candidates),
             "",
             "## relationship_memory_notes",
+            "boundary: relationship continuity notes only; do not rewrite canon or persona.",
             _format_items(layers.relationship_memory_notes),
             "",
             "## reflective_notes",
+            "boundary: operational notes only; not source evidence, canon claims, or persona fields.",
             _format_items(layers.reflective_notes),
         ]
     )
