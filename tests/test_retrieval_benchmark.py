@@ -7,6 +7,7 @@ from personality_jelly.domain import (
     ClaimStatus,
     ClaimType,
     EvidenceRef,
+    SourceChunk,
     SourceWork,
 )
 from personality_jelly.evaluation import (
@@ -48,6 +49,19 @@ class RetrievalEmbeddingProvider:
 
     def embed_texts(self, texts: list[str], embedding_config: EmbeddingConfig) -> list[list[float]]:
         return [_vector_for_text(text) for text in texts]
+
+
+class QualityRegressionEmbeddingProvider:
+    name = "quality-regression-embedding-fake"
+
+    def generate_text(self, messages: list[ChatMessage], model_config: ModelConfig) -> str:
+        raise NotImplementedError
+
+    def generate_json(self, messages, schema, model_config):
+        raise NotImplementedError
+
+    def embed_texts(self, texts: list[str], embedding_config: EmbeddingConfig) -> list[list[float]]:
+        return [_quality_regression_vector_for_text(text) for text in texts]
 
 
 def test_summarize_retrieval_benchmark_cases_reports_case_shape() -> None:
@@ -132,6 +146,133 @@ def test_committed_retrieval_benchmark_asset_loads_through_loader() -> None:
             limit=3,
         ),
     )
+
+
+def test_committed_retrieval_quality_regression_cases_cover_diagnostics() -> None:
+    cases = load_retrieval_benchmark_cases_file(
+        BENCHMARK_ASSETS_DIR / "retrieval" / "retrieval-quality-regression.json"
+    )
+    summary = summarize_retrieval_benchmark_cases(cases)
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        SourceWorkRepository(session).add(
+            SourceWork(id="sw_quality", title="Retrieval Quality", source_type="markdown")
+        )
+        SourceChunkRepository(session).add_many(
+            [
+                SourceChunk(
+                    id="quality_chunk_observation",
+                    source_work_id="sw_quality",
+                    paragraph_index=0,
+                    text="Lin Shuang watches the window before making a decision.",
+                ),
+                SourceChunk(
+                    id="quality_chunk_rain",
+                    source_work_id="sw_quality",
+                    paragraph_index=1,
+                    text="Lin Shuang studies rain shadows before acting.",
+                ),
+                SourceChunk(
+                    id="quality_chunk_bell",
+                    source_work_id="sw_quality",
+                    paragraph_index=2,
+                    text="The bell rings over an empty street.",
+                ),
+            ]
+        )
+        CharacterRepository(session).add(
+            Character(
+                id="char_quality",
+                source_work_id="sw_quality",
+                canonical_name="Lin Shuang",
+            )
+        )
+
+        result = run_retrieval_benchmark(
+            session,
+            character_id="char_quality",
+            provider=QualityRegressionEmbeddingProvider(),
+            embedding_config=EmbeddingConfig(model="quality-regression-embedding"),
+            test_suite="retrieval_quality_regression",
+            cases=cases,
+        )
+
+    results_by_case_id = {
+        case_result.case_id: case_result
+        for case_result in result.case_results
+    }
+    report = summarize_retrieval_benchmark(result.case_results)
+
+    assert summary.total_cases == 5
+    assert summary.evidence_case_count == 4
+    assert summary.empty_case_count == 1
+    assert summary.expected_chunk_ref_count == 5
+    assert summary.min_limit == 1
+    assert summary.max_limit == 3
+    assert result.run.total_cases == 5
+    assert result.run.passed_cases == 3
+    assert result.run.failed_cases == 2
+
+    single = results_by_case_id["quality_single_expected_observation"]
+    assert single.status == "passed"
+    assert single.recall == 1.0
+    assert single.first_relevant_rank == 1
+    assert single.retrieved_chunk_ids == ["quality_chunk_observation"]
+
+    multi = results_by_case_id["quality_multi_expected_observation_rain"]
+    assert multi.status == "passed"
+    assert multi.recall == 1.0
+    assert multi.first_relevant_rank == 1
+    assert multi.retrieved_chunk_ids == [
+        "quality_chunk_observation",
+        "quality_chunk_rain",
+    ]
+
+    empty = results_by_case_id["quality_empty_out_of_scope"]
+    assert empty.status == "passed"
+    assert empty.retrieved_chunk_ids == []
+    assert empty.recall == 1.0
+    assert empty.ranking_score == 1.0
+    assert "No source chunks were expected" in empty.reasons[0]
+
+    missing = results_by_case_id["quality_missing_expected_chunk"]
+    assert missing.status == "failed"
+    assert missing.recall == 0.0
+    assert missing.first_relevant_rank is None
+    assert missing.retrieved_chunk_ids == ["quality_chunk_bell"]
+    assert "missing_expected_chunk_ids=quality_chunk_missing" in missing.reasons
+    assert "top_retrieved_chunk_id=quality_chunk_bell" in missing.reasons
+    assert "top-ranked chunk was not an expected evidence chunk" in missing.reasons
+
+    top_wrong = results_by_case_id["quality_top_wrong_ranking"]
+    assert top_wrong.status == "failed"
+    assert top_wrong.recall == 1.0
+    assert top_wrong.first_relevant_rank == 2
+    assert top_wrong.ranking_score == 0.5
+    assert top_wrong.retrieved_chunk_ids == [
+        "quality_chunk_observation",
+        "quality_chunk_rain",
+    ]
+    assert "missing_expected_chunk_ids=none" in top_wrong.reasons
+    assert "top_retrieved_chunk_id=quality_chunk_observation" in top_wrong.reasons
+    assert "top_retrieved_chunk_expected=false" in top_wrong.reasons
+
+    assert report.total_cases == 5
+    assert report.evidence_case_count == 4
+    assert report.empty_case_count == 1
+    assert report.pass_rate == 0.6
+    assert report.evidence_pass_rate == 0.5
+    assert report.empty_pass_rate == 1.0
+    assert report.average_recall == 0.75
+    assert report.average_ranking_score == 0.625
+    assert report.first_relevant_at_one_count == 2
+    assert report.no_relevant_result_count == 1
+    assert report.retrieved_empty_when_expected_empty_count == 1
+    assert report.retrieved_nonempty_when_expected_empty_count == 0
+    assert report.missing_expected_chunk_count == 1
 
 
 def test_load_retrieval_benchmark_cases_file_rejects_duplicate_case_ids(
@@ -619,3 +760,26 @@ def _vector_for_text(text: str) -> list[float]:
     if text == "Lin Shuang studies rain shadows before acting.":
         return [0.8, 0.2]
     return [0.0, 1.0]
+
+
+def _quality_regression_vector_for_text(text: str) -> list[float]:
+    ranking_probe = (
+        "Which detail should rank the rain-shadow evidence below the window evidence?"
+    )
+    if text.endswith("How does Lin Shuang decide before acting?"):
+        return [1.0, 0.0, 0.0]
+    if text.endswith("Which details show how Lin Shuang observes before acting?"):
+        return [1.0, 1.0, 0.0]
+    if text.endswith("Out-of-scope retrieval probe with no expected source evidence."):
+        return [0.0, 0.0, 0.0]
+    if text.endswith("Which scene mentions missing archive evidence?"):
+        return [0.0, 0.0, 1.0]
+    if text.endswith(ranking_probe):
+        return [1.0, 0.2, 0.0]
+    if text == "Lin Shuang watches the window before making a decision.":
+        return [1.0, 0.0, 0.0]
+    if text == "Lin Shuang studies rain shadows before acting.":
+        return [0.0, 1.0, 0.0]
+    if text == "The bell rings over an empty street.":
+        return [0.0, 0.0, 1.0]
+    return [0.0, 0.0, 0.0]
