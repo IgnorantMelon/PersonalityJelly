@@ -1,5 +1,13 @@
 from personality_jelly.characters import create_character
-from personality_jelly.domain import InteractionMode, Memory, MemoryScope, MemoryStatus
+from personality_jelly.domain import (
+    InteractionMode,
+    Memory,
+    MemoryScope,
+    MemoryStatus,
+    PersonaVersion,
+    SourceWork,
+)
+from personality_jelly.domain.models import utc_now
 from personality_jelly.extraction import run_reader_extraction, verify_candidate_claims
 from personality_jelly.ingestion import ingest_text_file
 from personality_jelly.llm import ChatMessage, EmbeddingConfig, ModelConfig
@@ -7,8 +15,11 @@ from personality_jelly.persona import compile_persona_version
 from personality_jelly.runtime import build_context_package, create_conversation, create_user
 from personality_jelly.storage import (
     CharacterRepository,
+    ConversationRepository,
     LLMRawOutputRepository,
     MemoryRepository,
+    PersonaVersionRepository,
+    SourceWorkRepository,
     create_all,
     create_database_engine,
     create_session_factory,
@@ -250,4 +261,100 @@ def test_build_context_package_infers_interaction_mode(tmp_path) -> None:
     assert traces[0].schema_name == "InteractionModeClassification"
     assert traces[0].model_name == "fake-mode"
     assert traces[0].parsed_output["mode"] == "roleplay_scene"
+
+
+def test_build_context_package_renders_layered_conversation_summary_as_context_only() -> None:
+    summary = "\n".join(
+        [
+            "# Short-term Scene State",
+            "The user is planning a quiet drafting scene.",
+            "",
+            "# User Memory Candidates",
+            "- User prefers late-night writing.",
+            "",
+            "# Relationship Memory Notes",
+            "- User trusts Lin Shuang with early drafts.",
+            "",
+            "# Reflective Notes",
+            "- Keep co-created fiction separate from canon.",
+        ]
+    )
+
+    prompt, memory_ids, memories = _build_context_for_summary(summary)
+
+    assert "# Conversation Summary" in prompt
+    assert "## short_term_scene_state\nThe user is planning a quiet drafting scene." in prompt
+    assert "## user_memory_candidates\n- User prefers late-night writing." in prompt
+    assert "## relationship_memory_notes\n- User trusts Lin Shuang with early drafts." in prompt
+    assert "## reflective_notes\n- Keep co-created fiction separate from canon." in prompt
+    assert memory_ids == []
+    assert memories == []
+
+
+def test_build_context_package_renders_legacy_summary_as_short_term_scene_state() -> None:
+    prompt, _, _ = _build_context_for_summary("Legacy unlayered summary.")
+
+    assert "## short_term_scene_state\nLegacy unlayered summary." in prompt
+    assert "## user_memory_candidates\n- none" in prompt
+    assert "## relationship_memory_notes\n- none" in prompt
+    assert "## reflective_notes\n- none" in prompt
+
+
+def test_build_context_package_renders_empty_summary_layers_with_none_state() -> None:
+    prompt, _, _ = _build_context_for_summary(None)
+
+    assert "## short_term_scene_state\nnone" in prompt
+    assert "## user_memory_candidates\n- none" in prompt
+    assert "## relationship_memory_notes\n- none" in prompt
+    assert "## reflective_notes\n- none" in prompt
+
+
+def _build_context_for_summary(summary: str | None) -> tuple[str, list[str], list[Memory]]:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        SourceWorkRepository(session).add(
+            SourceWork(id="sw_001", title="Sample Work", source_type="markdown")
+        )
+        create_character(
+            session,
+            source_work_id="sw_001",
+            canonical_name="Lin Shuang",
+            character_id="char_001",
+        )
+        PersonaVersionRepository(session).add(
+            PersonaVersion(
+                id="pv_001",
+                source_work_id="sw_001",
+                character_id="char_001",
+                version_number=1,
+                core_self="Lin Shuang is observant and careful.",
+            )
+        )
+        user = create_user(session, display_name="Test User", user_id="user_001").user
+        conversation = create_conversation(
+            session,
+            user_id=user.id,
+            character_id="char_001",
+            persona_version_id="pv_001",
+            conversation_id="conv_001",
+        ).conversation
+        if summary is not None:
+            ConversationRepository(session).update_summary(
+                conversation.id,
+                summary=summary,
+                updated_at=utc_now(),
+            )
+
+        context = build_context_package(
+            session,
+            conversation_id=conversation.id,
+            user_message="I want to continue the scene.",
+        ).context_package
+        memories = MemoryRepository(session).list_for_user_character(user.id, "char_001")
+        session.commit()
+
+    return context.assembled_prompt, context.memory_ids, memories
 

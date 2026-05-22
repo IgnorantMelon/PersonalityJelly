@@ -15,6 +15,7 @@ from personality_jelly.llm import EmbeddingConfig, LLMProvider, ModelConfig
 from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder
 from personality_jelly.retrieval import retrieve_source_chunks
 from personality_jelly.runtime.mode import resolve_interaction_mode
+from personality_jelly.runtime.summary import parse_layered_summary
 from personality_jelly.storage import (
     CanonClaimRepository,
     CharacterRepository,
@@ -147,12 +148,31 @@ def _assemble_prompt(
         _format_items(retrieved_chunks),
         "",
         "# Conversation Summary",
-        conversation_summary or "none",
+        _format_conversation_summary(conversation_summary),
         "",
         "# Current User Message",
         user_message,
     ]
     return "\n".join(sections)
+
+
+def _format_conversation_summary(summary: str | None) -> str:
+    layers = parse_layered_summary(summary)
+    return "\n".join(
+        [
+            "## short_term_scene_state",
+            layers.short_term_scene_state or "none",
+            "",
+            "## user_memory_candidates",
+            _format_items(layers.user_memory_candidates),
+            "",
+            "## relationship_memory_notes",
+            _format_items(layers.relationship_memory_notes),
+            "",
+            "## reflective_notes",
+            _format_items(layers.reflective_notes),
+        ]
+    )
 
 
 def _format_items(items: list[str]) -> str:
