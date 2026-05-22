@@ -1,6 +1,6 @@
 # Task 01 Prompt: LLM Trace Coverage
 
-You are one agent in a multi-agent development run for Personality Jelly. You are not alone in the codebase. Do not revert, rewrite, or reformat work from other agents. Keep your edits tightly scoped to this task, and leave unrelated files alone.
+You are one agent in a multi-agent development run for Personality Jelly. Follow the coding-agent baseline in `VIBE_CODING_GUIDE.md`.
 
 ## Branch
 
@@ -18,12 +18,9 @@ If the branch already exists, inspect it and continue only if it is clearly your
 
 Read these before editing:
 
-- `README.md`
 - `VIBE_CODING_GUIDE.md`
 - `src/personality_jelly/llm/tracing.py`
 - existing traced workflows in `runtime/mode.py`, `memory/guard.py`, and `evaluation/benchmark.py`
-
-Follow the current P1 hardening direction. Do not add FastAPI, platform features, graph/vector databases, LangGraph, or new dependencies.
 
 ## Goal
 
@@ -53,7 +50,6 @@ Do not change the semantic behavior of these workflows.
   - `extraction.verifier.verify_claim`
   - `persona.compile_version`
 - Keep schema names equal to the Pydantic schema class names.
-- Do not introduce keyword, regex, or fixed-vocabulary semantic judgments.
 - Fake providers in tests must branch by schema title when one fake provider handles multiple structured tasks.
 
 ## Expected Write Scope

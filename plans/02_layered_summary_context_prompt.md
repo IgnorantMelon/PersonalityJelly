@@ -1,6 +1,6 @@
 # Task 02 Prompt: Layered Summary Context Consumption
 
-You are one agent in a multi-agent development run for Personality Jelly. You are not alone in the codebase. Do not revert, rewrite, or reformat work from other agents. Keep your edits tightly scoped to this task, and leave unrelated files alone.
+You are one agent in a multi-agent development run for Personality Jelly. Follow the coding-agent baseline in `VIBE_CODING_GUIDE.md`.
 
 ## Branch
 
@@ -18,14 +18,11 @@ If the branch already exists, inspect it and continue only if it is clearly your
 
 Read these before editing:
 
-- `README.md`
 - `VIBE_CODING_GUIDE.md`
 - `src/personality_jelly/runtime/summary.py`
 - `src/personality_jelly/runtime/context.py`
 - `tests/test_conversation_summary.py`
 - `tests/test_runtime_context.py`
-
-Follow the current P1 hardening direction. Do not add FastAPI, platform features, graph/vector databases, LangGraph, or new dependencies.
 
 ## Goal
 
@@ -46,7 +43,6 @@ This should improve prompt clarity while preserving current storage format and b
 - For legacy unlayered summaries, treat the legacy text as `short_term_scene_state` and keep other sections empty.
 - Do not automatically promote summary user memory candidates into persisted `Memory` rows.
 - Do not change the stored `Conversation.summary` schema or database schema.
-- Do not introduce keyword, regex, or fixed-vocabulary semantic judgments.
 
 ## Expected Write Scope
 

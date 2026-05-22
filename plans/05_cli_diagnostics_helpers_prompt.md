@@ -1,6 +1,6 @@
 # Task 05 Prompt: CLI Diagnostics Helper Refactor
 
-You are one agent in a multi-agent development run for Personality Jelly. You are not alone in the codebase. Do not revert, rewrite, or reformat work from other agents. Keep your edits tightly scoped to this task, and leave unrelated files alone.
+You are one agent in a multi-agent development run for Personality Jelly. Follow the coding-agent baseline in `VIBE_CODING_GUIDE.md`.
 
 ## Branch
 
@@ -20,13 +20,10 @@ If the branch already exists, inspect it and continue only if it is clearly your
 
 Read these before editing:
 
-- `README.md`
 - `VIBE_CODING_GUIDE.md`
 - `src/personality_jelly/cli/main.py`
 - `tests/test_cli_demo.py`
 - current benchmark modules in `src/personality_jelly/evaluation/`
-
-Follow the current P1 hardening direction. Do not add FastAPI, platform features, graph/vector databases, LangGraph, or new dependencies.
 
 ## Goal
 
@@ -42,8 +39,6 @@ This is a refactor task. It should not change product behavior.
 - Existing fields must not be renamed, removed, reordered in risky ways, or reformatted.
 - New helper names should describe output shape, not business policy.
 - Do not move reusable service behavior into CLI. CLI remains orchestration and human-readable diagnostics only.
-- Do not introduce keyword, regex, or fixed-vocabulary semantic judgments.
-- Do not add dependencies.
 
 ## Expected Write Scope
 

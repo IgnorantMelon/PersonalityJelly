@@ -1,11 +1,47 @@
 # Personality Jelly Vibe Coding Guide
 
-Last updated: 2026-05-21.
+Last updated: 2026-05-22.
 
 This is the practical guide for future coding sessions. It condenses only the project direction,
 engineering rules, and architecture choices that are currently adopted and still valid. If older
 files under `docs/`, `plans/`, `solutions/`, or `references/` conflict with this guide, treat those
 older notes as historical context.
+
+## Documentation Boundary
+
+Keep documentation roles separate:
+
+- `README.md` is the public project overview. It should contain the project goal, current status,
+  quick start, and a brief development plan.
+- `VIBE_CODING_GUIDE.md` is the source of truth for coding agents and future implementation
+  sessions. Put agent instructions, workflow rules, adopted architecture constraints, semantic
+  judgment rules, testing expectations, non-goals, and current engineering priorities here.
+- `plans/` may contain task-specific prompts for multi-agent development runs, but those prompts
+  should point back to this guide for shared project rules instead of duplicating them.
+- Historical notes under `docs/`, `solutions/`, or `references/` are background material, not active
+  instructions, when they conflict with this guide.
+
+Do not move agent workflow rules or implementation guidance into `README.md`.
+
+## Coding Agent Baseline
+
+All coding agents and task prompts must follow this baseline:
+
+- Read this guide before task-specific plans or code edits.
+- Treat `README.md` as public project overview only, not as an active implementation rulebook.
+- Assume other agents or the user may have changed the worktree. Do not revert, rewrite, reformat,
+  or move unrelated work.
+- Keep edits tightly scoped to the assigned task and avoid broad cleanup.
+- Start from clean `dev`, create a scoped task branch, commit only the task's changes there, then
+  merge back to `dev` with `--no-ff` when the task is accepted.
+- If a task branch already exists, inspect it and continue only if it is clearly the intended task
+  branch.
+- Follow the current P1 hardening direction unless a task explicitly changes phase: do not add
+  FastAPI, platform features, graph/vector databases, LangGraph, new dependencies, or web UI work.
+- Do not introduce keyword, regex, fixed-vocabulary, or string-containment semantic judgments.
+- Add or update tests for behavior changes, run focused tests first, and run the full suite when
+  shared behavior is touched.
+- Final reports should include files changed, tests run and results, and any task-specific caveats.
 
 ## Current Goal
 

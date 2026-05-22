@@ -1,6 +1,6 @@
 # Task 04 Prompt: OOC Benchmark Cases File
 
-You are one agent in a multi-agent development run for Personality Jelly. You are not alone in the codebase. Do not revert, rewrite, or reformat work from other agents. Keep your edits tightly scoped to this task, and leave unrelated files alone.
+You are one agent in a multi-agent development run for Personality Jelly. Follow the coding-agent baseline in `VIBE_CODING_GUIDE.md`.
 
 ## Branch
 
@@ -18,15 +18,12 @@ If the branch already exists, inspect it and continue only if it is clearly your
 
 Read these before editing:
 
-- `README.md`
 - `VIBE_CODING_GUIDE.md`
 - `src/personality_jelly/evaluation/benchmark.py`
 - OOC benchmark CLI sections in `src/personality_jelly/cli/main.py`
 - `tests/test_evaluation_benchmark.py`
 - OOC benchmark coverage in `tests/test_cli_demo.py`
 - retrieval cases-file implementation in `src/personality_jelly/evaluation/retrieval_benchmark.py`
-
-Follow the current P1 hardening direction. Do not add FastAPI, platform features, graph/vector databases, LangGraph, or new dependencies.
 
 ## Goal
 
@@ -82,7 +79,6 @@ Validation rules:
 - Failed-only export should export only displayed failed cases.
 - Exported cases should preserve original prompt, interaction mode, and category.
 - Do not change OOC pass/fail semantics. Pass/fail still comes from `BenchmarkCaseEvaluation`.
-- Do not introduce keyword, regex, or fixed-vocabulary semantic judgments.
 - Avoid database schema changes.
 
 ## Expected Write Scope

@@ -1,6 +1,6 @@
 # Task 03 Prompt: Retrieval Benchmark Diagnostics
 
-You are one agent in a multi-agent development run for Personality Jelly. You are not alone in the codebase. Do not revert, rewrite, or reformat work from other agents. Keep your edits tightly scoped to this task, and leave unrelated files alone.
+You are one agent in a multi-agent development run for Personality Jelly. Follow the coding-agent baseline in `VIBE_CODING_GUIDE.md`.
 
 ## Branch
 
@@ -18,14 +18,11 @@ If the branch already exists, inspect it and continue only if it is clearly your
 
 Read these before editing:
 
-- `README.md`
 - `VIBE_CODING_GUIDE.md`
 - `src/personality_jelly/evaluation/retrieval_benchmark.py`
 - retrieval benchmark CLI sections in `src/personality_jelly/cli/main.py`
 - `tests/test_retrieval_benchmark.py`
 - retrieval benchmark coverage in `tests/test_cli_demo.py`
-
-Follow the current P1 hardening direction. Do not add FastAPI, platform features, graph/vector databases, LangGraph, or new dependencies.
 
 ## Goal
 
@@ -44,7 +41,6 @@ Improve retrieval benchmark diagnostics so failures are easier to inspect and co
   - whether the top-ranked chunk was expected.
 - Add stable CLI `key=value` fields in retrieval benchmark verbose/show output.
 - Preserve all existing CLI output fields. Only append new fields.
-- Do not judge retrieval quality with word matching, keyword matching, regex, or fixed vocabularies.
 - Do not change database schema unless there is no other way. Prefer deriving new CLI fields from existing stored result data.
 
 ## Expected Write Scope
