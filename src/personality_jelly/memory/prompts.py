@@ -14,6 +14,7 @@ Rules:
 def build_curator_user_prompt(
     *,
     context_package: ContextPackage,
+    summary_short_term_scene_state: str,
     user_message: Message,
     assistant_message: Message,
     critic_report: CriticReport | None,
@@ -39,7 +40,10 @@ def build_curator_user_prompt(
             f"interaction_mode: {context_package.interaction_mode}",
             "",
             "context_summary:",
-            context_package.assembled_prompt,
+            _format_curator_context(
+                context_package,
+                summary_short_term_scene_state=summary_short_term_scene_state,
+            ),
             "",
             "user_message:",
             user_message.content,
@@ -51,4 +55,40 @@ def build_curator_user_prompt(
             critic_text,
         ]
     )
+
+
+def _format_curator_context(
+    context_package: ContextPackage,
+    *,
+    summary_short_term_scene_state: str,
+) -> str:
+    return "\n".join(
+        [
+            _without_conversation_summary(context_package.assembled_prompt),
+            "",
+            "# Conversation Summary For Memory Curation",
+            "## short_term_scene_state",
+            summary_short_term_scene_state or "none",
+            "",
+            "## excluded_summary_layers",
+            "- user_memory_candidates: omitted; not verified accepted memories.",
+            "- relationship_memory_notes: omitted; not accepted relationship memories and cannot "
+            "rewrite canon or persona.",
+            "- reflective_notes: omitted; not source evidence, canon claims, or persona fields.",
+        ]
+    )
+
+
+def _without_conversation_summary(prompt: str) -> str:
+    lines: list[str] = []
+    skipping = False
+    for line in prompt.splitlines():
+        if line == "# Conversation Summary":
+            skipping = True
+            continue
+        if skipping and line.startswith("# "):
+            skipping = False
+        if not skipping:
+            lines.append(line)
+    return "\n".join(lines).strip()
 

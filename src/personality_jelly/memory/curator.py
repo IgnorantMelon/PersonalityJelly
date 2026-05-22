@@ -12,6 +12,7 @@ from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder, record_str
 from personality_jelly.memory.guard import guard_memory_candidates
 from personality_jelly.memory.prompts import CURATOR_SYSTEM_PROMPT, build_curator_user_prompt
 from personality_jelly.memory.schemas import MemoryCuration
+from personality_jelly.runtime.summary import parse_layered_summary
 from personality_jelly.storage import (
     ConversationRepository,
     ContextPackageRepository,
@@ -49,6 +50,7 @@ def curate_memories_for_message(
 
     context_package = ContextPackageRepository(session).require(assistant_message.context_package_id)
     conversation = ConversationRepository(session).require(assistant_message.conversation_id)
+    summary_layers = parse_layered_summary(conversation.summary)
     user_message = _previous_user_message(
         message_repository.list_by_conversation(assistant_message.conversation_id),
         assistant_message.id,
@@ -70,6 +72,7 @@ def curate_memories_for_message(
                 role=MessageRole.USER,
                 content=build_curator_user_prompt(
                     context_package=context_package,
+                    summary_short_term_scene_state=summary_layers.short_term_scene_state,
                     user_message=user_message,
                     assistant_message=assistant_message,
                     critic_report=critic_report,
