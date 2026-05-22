@@ -1,3 +1,5 @@
+import json
+
 from personality_jelly.characters import create_character
 from personality_jelly.domain import (
     ClaimStatus,
@@ -10,7 +12,11 @@ from personality_jelly.evaluation import (
     BOUNDARY_REGRESSION_BENCHMARK_CASES,
     DEFAULT_OOC_BENCHMARK_CASES,
     EXPANDED_BOUNDARY_BENCHMARK_CASES,
+    BenchmarkCase,
+    build_ooc_benchmark_cases_from_results,
+    export_ooc_benchmark_cases_file,
     get_benchmark_cases,
+    load_ooc_benchmark_cases_file,
     run_ooc_benchmark,
     summarize_ooc_benchmark,
 )
@@ -27,6 +33,228 @@ from personality_jelly.storage import (
     create_database_engine,
     create_session_factory,
 )
+
+
+def test_load_ooc_benchmark_cases_file_normalizes_valid_cases(tmp_path) -> None:
+    cases_file = tmp_path / "ooc-cases.json"
+    cases_file.write_text(
+        """
+        {
+          "cases": [
+            {
+              "id": " manual_ooc_probe ",
+              "prompt": " User-facing prompt text. ",
+              "interaction_mode": " reality_chat ",
+              "category": " ooc "
+            },
+            {
+              "id": "manual_meta_probe",
+              "prompt": "Review the boundary.",
+              "interaction_mode": "meta_discussion",
+              "category": "mode_confusion"
+            }
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    cases = load_ooc_benchmark_cases_file(cases_file)
+
+    assert cases == (
+        BenchmarkCase(
+            id="manual_ooc_probe",
+            prompt="User-facing prompt text.",
+            interaction_mode=InteractionMode.REALITY_CHAT,
+            category="ooc",
+        ),
+        BenchmarkCase(
+            id="manual_meta_probe",
+            prompt="Review the boundary.",
+            interaction_mode=InteractionMode.META_DISCUSSION,
+            category="mode_confusion",
+        ),
+    )
+
+
+def test_load_ooc_benchmark_cases_file_rejects_invalid_cases(tmp_path) -> None:
+    invalid_payloads = [
+        (
+            "empty_cases",
+            {"cases": []},
+            "cases: List should have at least 1 item",
+        ),
+        (
+            "duplicate_ids",
+            {
+                "cases": [
+                    {
+                        "id": "dup",
+                        "prompt": "Prompt one.",
+                        "interaction_mode": "reality_chat",
+                        "category": "ooc",
+                    },
+                    {
+                        "id": "dup",
+                        "prompt": "Prompt two.",
+                        "interaction_mode": "reality_chat",
+                        "category": "ooc",
+                    },
+                ]
+            },
+            "duplicate OOC benchmark case ids: dup",
+        ),
+        (
+            "bad_interaction_mode",
+            {
+                "cases": [
+                    {
+                        "id": "bad_mode",
+                        "prompt": "Prompt.",
+                        "interaction_mode": "bad_mode",
+                        "category": "ooc",
+                    }
+                ]
+            },
+            "interaction_mode",
+        ),
+        (
+            "extra_field",
+            {
+                "cases": [
+                    {
+                        "id": "extra",
+                        "prompt": "Prompt.",
+                        "interaction_mode": "reality_chat",
+                        "category": "ooc",
+                        "notes": "Not allowed.",
+                    }
+                ]
+            },
+            "notes: Extra inputs are not permitted",
+        ),
+        (
+            "blank_required",
+            {
+                "cases": [
+                    {
+                        "id": "blank_prompt",
+                        "prompt": " ",
+                        "interaction_mode": "reality_chat",
+                        "category": "ooc",
+                    }
+                ]
+            },
+            "must not be blank",
+        ),
+    ]
+
+    for name, payload, expected_message in invalid_payloads:
+        cases_file = tmp_path / f"{name}.json"
+        cases_file.write_text(json.dumps(payload), encoding="utf-8")
+
+        try:
+            load_ooc_benchmark_cases_file(cases_file)
+        except ValueError as exc:
+            assert "Invalid OOC benchmark cases file" in str(exc)
+            assert expected_message in str(exc)
+        else:
+            raise AssertionError(f"Expected invalid cases file {name} to fail")
+
+
+def test_export_ooc_benchmark_cases_file_roundtrips_and_rejects_duplicates(tmp_path) -> None:
+    cases_file = tmp_path / "exports" / "ooc-cases.json"
+
+    exported = export_ooc_benchmark_cases_file(
+        cases_file,
+        (
+            BenchmarkCase(
+                id="manual_ooc_probe",
+                prompt="User-facing prompt text.",
+                interaction_mode=InteractionMode.REALITY_CHAT,
+                category="ooc",
+            ),
+        ),
+    )
+    loaded = load_ooc_benchmark_cases_file(exported)
+
+    assert loaded[0].id == "manual_ooc_probe"
+    assert loaded[0].prompt == "User-facing prompt text."
+    assert loaded[0].interaction_mode == InteractionMode.REALITY_CHAT
+    assert loaded[0].category == "ooc"
+
+    try:
+        export_ooc_benchmark_cases_file(
+            cases_file,
+            (
+                BenchmarkCase(
+                    id="manual_ooc_probe",
+                    prompt="Replacement prompt.",
+                    interaction_mode=InteractionMode.META_DISCUSSION,
+                    category="mode_confusion",
+                ),
+            ),
+            append=True,
+        )
+    except ValueError as exc:
+        assert "manual_ooc_probe" in str(exc)
+        assert "--overwrite-cases-file" in str(exc)
+    else:
+        raise AssertionError("Expected duplicate append to fail")
+
+    export_ooc_benchmark_cases_file(
+        cases_file,
+        (
+            BenchmarkCase(
+                id="manual_ooc_probe",
+                prompt="Replacement prompt.",
+                interaction_mode=InteractionMode.META_DISCUSSION,
+                category="mode_confusion",
+            ),
+        ),
+        append=True,
+        overwrite=True,
+    )
+    replaced = load_ooc_benchmark_cases_file(cases_file)
+    assert replaced[0].prompt == "Replacement prompt."
+    assert replaced[0].category == "mode_confusion"
+
+
+def test_build_ooc_benchmark_cases_from_results_preserves_case_fields() -> None:
+    cases = build_ooc_benchmark_cases_from_results(
+        [
+            EvaluationCaseResult(
+                id="evalcase_1",
+                run_id="eval_1",
+                case_id="manual_failed",
+                prompt="Failed prompt.",
+                interaction_mode=InteractionMode.META_DISCUSSION,
+                assistant_message_id="msg_1",
+                status=EvaluationCaseStatus.FAILED,
+                category="mode_confusion",
+            ),
+            EvaluationCaseResult(
+                id="evalcase_2",
+                run_id="eval_1",
+                case_id="manual_passed",
+                prompt="Passed prompt.",
+                interaction_mode=InteractionMode.REALITY_CHAT,
+                assistant_message_id="msg_2",
+                status=EvaluationCaseStatus.PASSED,
+                category="ooc",
+            ),
+        ],
+        failed_only=True,
+    )
+
+    assert cases == (
+        BenchmarkCase(
+            id="manual_failed",
+            prompt="Failed prompt.",
+            interaction_mode=InteractionMode.META_DISCUSSION,
+            category="mode_confusion",
+        ),
+    )
 
 
 class ReaderFakeProvider:

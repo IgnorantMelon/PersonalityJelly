@@ -221,6 +221,7 @@ class EvaluationCaseResult(DomainModel):
     critic_report_id: str | None = None
     status: EvaluationCaseStatus
     reasons: list[str] = Field(default_factory=list)
+    category: str = "ooc"
     created_at: datetime = Field(default_factory=utc_now)
 
 

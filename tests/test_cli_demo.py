@@ -770,6 +770,183 @@ def test_cli_dry_runs_boundary_regression_benchmark_suite(
     assert "will_call_provider=false" in dry_run_output
 
 
+def test_cli_dry_runs_ooc_benchmark_with_cases_file_without_persisting_run(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+
+    cases_file = tmp_path / "ooc-cases.json"
+    cases_file.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": "manual_ooc_probe",
+                        "prompt": "User-facing prompt text.",
+                        "interaction_mode": "reality_chat",
+                        "category": "ooc",
+                    },
+                    {
+                        "id": "manual_meta_probe",
+                        "prompt": "Review the boundary.",
+                        "interaction_mode": "meta_discussion",
+                        "category": "mode_confusion",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    dry_run_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "manual_ooc_suite",
+            "--cases-file",
+            str(cases_file),
+            "--dry-run",
+            "--verbose",
+        ]
+    )
+    dry_run_output = capsys.readouterr().out
+
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        runs = EvaluationRunRepository(session).list_recent()
+
+    assert demo_exit_code == 0
+    assert dry_run_exit_code == 0
+    assert "run_id=dry-run" in dry_run_output
+    assert "test_suite=manual_ooc_suite" in dry_run_output
+    assert "case_suite=mvp_default" in dry_run_output
+    assert "cases_source=cases_file" in dry_run_output
+    assert f"cases_file={cases_file}" in dry_run_output
+    assert "total=2" in dry_run_output
+    assert "will_create_run=false" in dry_run_output
+    assert "will_call_provider=false" in dry_run_output
+    assert "cases_summary.total_cases=2" in dry_run_output
+    assert "cases_summary.mode_count=2" in dry_run_output
+    assert "cases_summary.mode.1.interaction_mode=meta_discussion" in dry_run_output
+    assert "cases_summary.mode.1.total_cases=1" in dry_run_output
+    assert "cases_summary.mode.2.interaction_mode=reality_chat" in dry_run_output
+    assert "case.1.id=manual_ooc_probe" in dry_run_output
+    assert "case.1.category=ooc" in dry_run_output
+    assert "case.1.prompt=User-facing prompt text." in dry_run_output
+    assert "case.2.id=manual_meta_probe" in dry_run_output
+    assert "case.2.interaction_mode=meta_discussion" in dry_run_output
+    assert runs == []
+
+
+def test_cli_runs_ooc_benchmark_with_cases_file(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+
+    cases_file = tmp_path / "manual-ooc-cases.json"
+    cases_file.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": "manual_reality_case",
+                        "prompt": "Stay in character while chatting with me.",
+                        "interaction_mode": "reality_chat",
+                        "category": "ooc",
+                    },
+                    {
+                        "id": "manual_roleplay_case",
+                        "prompt": "Enter a short scene without rewriting canon.",
+                        "interaction_mode": "roleplay_scene",
+                        "category": "mode_confusion",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    eval_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "manual_ooc_suite",
+            "--case-suite",
+            "boundary_regression",
+            "--cases-file",
+            str(cases_file),
+            "--verbose",
+        ]
+    )
+    eval_output = capsys.readouterr().out
+    run_id = _output_value(eval_output, "run_id")
+
+    show_exit_code = main(["show", "eval-run", run_id])
+    show_output = capsys.readouterr().out
+
+    assert demo_exit_code == 0
+    assert eval_exit_code == 0
+    assert "test_suite=manual_ooc_suite" in eval_output
+    assert "case_suite=boundary_regression" in eval_output
+    assert "cases_source=cases_file" in eval_output
+    assert f"cases_file={cases_file}" in eval_output
+    assert "total=2" in eval_output
+    assert "passed=2" in eval_output
+    assert "report.total_cases=2" in eval_output
+    assert "case.1.id=manual_reality_case" in eval_output
+    assert "case.1.category=ooc" in eval_output
+    assert "case.1.prompt=Stay in character while chatting with me." in eval_output
+    assert "case.2.id=manual_roleplay_case" in eval_output
+    assert "case.2.category=mode_confusion" in eval_output
+    assert "case.2.interaction_mode=roleplay_scene" in eval_output
+    assert show_exit_code == 0
+    assert "case_count=2" in show_output
+    assert "case.1.category=ooc" in show_output
+    assert "case.2.category=mode_confusion" in show_output
+    assert "case.2.prompt=Enter a short scene without rewriting canon." in show_output
+
+
 def test_cli_runs_expanded_ooc_benchmark_case_suite(
     tmp_path: Path,
     capsys,
@@ -937,6 +1114,7 @@ def test_cli_show_eval_run_can_filter_failed_cases(
                 assistant_message_id=assistant_message.id,
                 status="passed",
                 reasons=["semantic evaluator accepted the response"],
+                category="ooc",
             )
         )
         EvaluationCaseResultRepository(session).add(
@@ -949,15 +1127,28 @@ def test_cli_show_eval_run_can_filter_failed_cases(
                 assistant_message_id=assistant_message.id,
                 status="failed",
                 reasons=["semantic evaluator rejected the response"],
+                category="canon_pollution",
             )
         )
         session.commit()
 
-    show_exit_code = main(["show", "eval-run", "eval_mixed", "--failed-only"])
+    failed_cases_file = tmp_path / "failed-ooc-cases.json"
+    show_exit_code = main(
+        [
+            "show",
+            "eval-run",
+            "eval_mixed",
+            "--failed-only",
+            "--export-cases-file",
+            str(failed_cases_file),
+        ]
+    )
     show_output = capsys.readouterr().out
+    failed_cases_payload = json.loads(failed_cases_file.read_text(encoding="utf-8"))
 
     assert demo_exit_code == 0
     assert show_exit_code == 0
+    assert f"exported_cases_file={failed_cases_file}" in show_output
     assert "stored_case_count=2" in show_output
     assert "case_count=1" in show_output
     assert "report.total_cases=1" in show_output
@@ -968,8 +1159,19 @@ def test_cli_show_eval_run_can_filter_failed_cases(
     assert "report.mode.1.pass_rate=0.000" in show_output
     assert "case.1.id=failed_case" in show_output
     assert "case.1.status=failed" in show_output
+    assert "case.1.category=canon_pollution" in show_output
     assert "semantic evaluator rejected the response" in show_output
     assert "case.1.id=passed_case" not in show_output
+    assert failed_cases_payload == {
+        "cases": [
+            {
+                "id": "failed_case",
+                "prompt": "Failed prompt.",
+                "interaction_mode": "reality_chat",
+                "category": "canon_pollution",
+            }
+        ]
+    }
 
 
 def test_cli_runs_lists_and_shows_retrieval_benchmark(
