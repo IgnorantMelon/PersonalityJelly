@@ -1435,26 +1435,19 @@ def _run_show_eval_run(args: argparse.Namespace) -> int:
         print(f"test_suite={run.test_suite}")
         print(f"character_id={run.character_id}")
         print(f"persona_version_id={run.persona_version_id}")
-        print(f"total={run.total_cases}")
-        print(f"passed={run.passed_cases}")
-        print(f"failed={run.failed_cases}")
-        print(f"stored_case_count={len(case_results)}")
-        print(f"case_count={len(shown_case_results)}")
-        if exported_cases_file is not None:
-            print(f"exported_cases_file={exported_cases_file}")
+        _print_total_pass_fail_counts(
+            total_cases=run.total_cases,
+            passed_cases=run.passed_cases,
+            failed_cases=run.failed_cases,
+        )
+        _print_stored_case_count_summary(
+            stored_case_count=len(case_results),
+            shown_case_count=len(shown_case_results),
+            exported_cases_file=exported_cases_file,
+        )
         _print_ooc_benchmark_report(summarize_ooc_benchmark(shown_case_results))
         for index, case_result in enumerate(shown_case_results, start=1):
-            print(f"case.{index}.id={case_result.case_id}")
-            print(f"case.{index}.status={case_result.status}")
-            print(f"case.{index}.category={case_result.category}")
-            print(f"case.{index}.interaction_mode={case_result.interaction_mode}")
-            print(f"case.{index}.assistant_message_id={case_result.assistant_message_id}")
-            print(f"case.{index}.critic_report_id={case_result.critic_report_id or 'none'}")
-            print(f"case.{index}.prompt={case_result.prompt}")
-            print(f"case.{index}.reasons<<END")
-            for reason in case_result.reasons:
-                print(f"- {reason}")
-            print("END")
+            _print_stored_ooc_case_result(index, case_result)
     return 0
 
 
@@ -1557,30 +1550,21 @@ def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
         print(f"source_work_id={run.source_work_id}")
         print(f"character_id={run.character_id}")
         print(f"embedding_model={run.embedding_model or 'none'}")
-        print(f"total={run.total_cases}")
-        print(f"passed={run.passed_cases}")
-        print(f"failed={run.failed_cases}")
-        print(f"stored_case_count={len(case_results)}")
-        print(f"case_count={len(shown_case_results)}")
-        if exported_cases_file is not None:
-            print(f"exported_cases_file={exported_cases_file}")
+        _print_total_pass_fail_counts(
+            total_cases=run.total_cases,
+            passed_cases=run.passed_cases,
+            failed_cases=run.failed_cases,
+        )
+        _print_stored_case_count_summary(
+            stored_case_count=len(case_results),
+            shown_case_count=len(shown_case_results),
+            exported_cases_file=exported_cases_file,
+        )
         _print_retrieval_benchmark_report(
             summarize_retrieval_benchmark(shown_case_results)
         )
         for index, case_result in enumerate(shown_case_results, start=1):
-            print(f"case.{index}.id={case_result.case_id}")
-            print(f"case.{index}.status={case_result.status}")
-            print(f"case.{index}.recall={case_result.recall}")
-            print(f"case.{index}.first_relevant_rank={case_result.first_relevant_rank or 'none'}")
-            print(f"case.{index}.ranking_score={case_result.ranking_score}")
-            print(f"case.{index}.expected_chunk_ids={','.join(case_result.expected_chunk_ids)}")
-            print(f"case.{index}.retrieved_chunk_ids={','.join(case_result.retrieved_chunk_ids)}")
-            print(f"case.{index}.query={case_result.query}")
-            print(f"case.{index}.reasons<<END")
-            for reason in case_result.reasons:
-                print(f"- {reason}")
-            print("END")
-            _print_retrieval_case_diagnostics(index, case_result)
+            _print_stored_retrieval_case_result(index, case_result)
     return 0
 
 
@@ -1782,18 +1766,7 @@ def _run_ooc_benchmark(args: argparse.Namespace) -> int:
     )
     _print_ooc_benchmark_report(summarize_ooc_benchmark(result.case_results))
     for index, case_result in enumerate(result.case_results, start=1):
-        print(f"case.{index}.id={case_result.case_id}")
-        print(f"case.{index}.status={case_result.status}")
-        print(f"case.{index}.category={case_result.category}")
-        print(f"case.{index}.critic_report_id={case_result.critic_report_id or 'none'}")
-        if args.verbose:
-            print(f"case.{index}.interaction_mode={case_result.interaction_mode}")
-            print(f"case.{index}.assistant_message_id={case_result.assistant_message_id}")
-            print(f"case.{index}.prompt={case_result.prompt}")
-            print(f"case.{index}.reasons<<END")
-            for reason in case_result.reasons:
-                print(f"- {reason}")
-            print("END")
+        _print_ooc_case_result(index, case_result, verbose=args.verbose)
     return 0
 
 
@@ -1837,11 +1810,7 @@ def _dry_run_ooc_benchmark(
     print("will_call_provider=false")
     _print_ooc_benchmark_cases_summary(cases)
     for index, benchmark_case in enumerate(cases, start=1):
-        print(f"case.{index}.id={benchmark_case.id}")
-        print(f"case.{index}.category={benchmark_case.category}")
-        print(f"case.{index}.interaction_mode={benchmark_case.interaction_mode}")
-        if args.verbose:
-            print(f"case.{index}.prompt={benchmark_case.prompt}")
+        _print_ooc_benchmark_case(index, benchmark_case, verbose=args.verbose)
     return 0
 
 
@@ -1901,11 +1870,11 @@ def _print_ooc_benchmark_run_summary(
         print(f"cases_file={cases_file}")
     print(f"character_id={character_id}")
     print(f"persona_version_id={persona_version_id}")
-    print(f"total={total_cases}")
-    print(f"passed={passed_cases}")
-    print(f"failed={failed_cases}")
-    print(f"pass_rate={_format_ratio(passed_cases, total_cases)}")
-    print(f"failed_case_count={failed_cases}")
+    _print_benchmark_run_count_summary(
+        total_cases=total_cases,
+        passed_cases=passed_cases,
+        failed_cases=failed_cases,
+    )
 
 
 def _print_ooc_benchmark_report(report) -> None:
@@ -1962,6 +1931,159 @@ def _print_retrieval_benchmark_report(report) -> None:
         f"{report.retrieved_nonempty_when_expected_empty_count}"
     )
     print(f"report.missing_expected_chunk_count={report.missing_expected_chunk_count}")
+
+
+def _print_total_pass_fail_counts(
+    *,
+    total_cases: int,
+    passed_cases: int,
+    failed_cases: int,
+) -> None:
+    print(f"total={total_cases}")
+    print(f"passed={passed_cases}")
+    print(f"failed={failed_cases}")
+
+
+def _print_benchmark_run_count_summary(
+    *,
+    total_cases: int,
+    passed_cases: int,
+    failed_cases: int,
+) -> None:
+    _print_total_pass_fail_counts(
+        total_cases=total_cases,
+        passed_cases=passed_cases,
+        failed_cases=failed_cases,
+    )
+    print(f"pass_rate={_format_ratio(passed_cases, total_cases)}")
+    print(f"failed_case_count={failed_cases}")
+
+
+def _print_stored_case_count_summary(
+    *,
+    stored_case_count: int,
+    shown_case_count: int,
+    exported_cases_file: Path | None,
+) -> None:
+    print(f"stored_case_count={stored_case_count}")
+    print(f"case_count={shown_case_count}")
+    if exported_cases_file is not None:
+        print(f"exported_cases_file={exported_cases_file}")
+
+
+def _print_reasons_block(prefix: str, reasons: list[str]) -> None:
+    print(f"{prefix}.reasons<<END")
+    for reason in reasons:
+        print(f"- {reason}")
+    print("END")
+
+
+def _print_ooc_benchmark_case(
+    index: int,
+    benchmark_case: BenchmarkCase,
+    *,
+    verbose: bool,
+) -> None:
+    print(f"case.{index}.id={benchmark_case.id}")
+    print(f"case.{index}.category={benchmark_case.category}")
+    print(f"case.{index}.interaction_mode={benchmark_case.interaction_mode}")
+    if verbose:
+        print(f"case.{index}.prompt={benchmark_case.prompt}")
+
+
+def _print_ooc_case_result(
+    index: int,
+    case_result: EvaluationCaseResult,
+    *,
+    verbose: bool,
+) -> None:
+    prefix = f"case.{index}"
+    print(f"{prefix}.id={case_result.case_id}")
+    print(f"{prefix}.status={case_result.status}")
+    print(f"{prefix}.category={case_result.category}")
+    print(f"{prefix}.critic_report_id={case_result.critic_report_id or 'none'}")
+    if verbose:
+        print(f"{prefix}.interaction_mode={case_result.interaction_mode}")
+        print(f"{prefix}.assistant_message_id={case_result.assistant_message_id}")
+        print(f"{prefix}.prompt={case_result.prompt}")
+        _print_reasons_block(prefix, case_result.reasons)
+
+
+def _print_stored_ooc_case_result(
+    index: int,
+    case_result: EvaluationCaseResult,
+) -> None:
+    prefix = f"case.{index}"
+    print(f"{prefix}.id={case_result.case_id}")
+    print(f"{prefix}.status={case_result.status}")
+    print(f"{prefix}.category={case_result.category}")
+    print(f"{prefix}.interaction_mode={case_result.interaction_mode}")
+    print(f"{prefix}.assistant_message_id={case_result.assistant_message_id}")
+    print(f"{prefix}.critic_report_id={case_result.critic_report_id or 'none'}")
+    print(f"{prefix}.prompt={case_result.prompt}")
+    _print_reasons_block(prefix, case_result.reasons)
+
+
+def _print_retrieval_benchmark_case(
+    index: int,
+    benchmark_case: RetrievalBenchmarkCase,
+    *,
+    verbose: bool,
+) -> None:
+    print(f"case.{index}.id={benchmark_case.id}")
+    print(f"case.{index}.expected_count={len(benchmark_case.expected_chunk_ids)}")
+    print(f"case.{index}.limit={benchmark_case.limit}")
+    print(f"case.{index}.expected_chunk_ids={','.join(benchmark_case.expected_chunk_ids)}")
+    if verbose:
+        print(f"case.{index}.query={benchmark_case.query}")
+
+
+def _print_retrieval_case_result(
+    index: int,
+    case_result: RetrievalEvaluationCaseResult,
+    *,
+    verbose: bool,
+) -> None:
+    prefix = f"case.{index}"
+    print(f"{prefix}.id={case_result.case_id}")
+    print(f"{prefix}.status={case_result.status}")
+    print(f"{prefix}.recall={case_result.recall}")
+    print(f"{prefix}.first_relevant_rank={case_result.first_relevant_rank or 'none'}")
+    if verbose:
+        _print_retrieval_case_result_details(index, case_result, include_scores=True)
+        _print_retrieval_case_diagnostics(index, case_result)
+
+
+def _print_stored_retrieval_case_result(
+    index: int,
+    case_result: RetrievalEvaluationCaseResult,
+) -> None:
+    prefix = f"case.{index}"
+    print(f"{prefix}.id={case_result.case_id}")
+    print(f"{prefix}.status={case_result.status}")
+    print(f"{prefix}.recall={case_result.recall}")
+    print(f"{prefix}.first_relevant_rank={case_result.first_relevant_rank or 'none'}")
+    _print_retrieval_case_result_details(index, case_result, include_scores=False)
+    _print_retrieval_case_diagnostics(index, case_result)
+
+
+def _print_retrieval_case_result_details(
+    index: int,
+    case_result: RetrievalEvaluationCaseResult,
+    *,
+    include_scores: bool,
+) -> None:
+    prefix = f"case.{index}"
+    print(f"{prefix}.ranking_score={case_result.ranking_score}")
+    print(f"{prefix}.expected_chunk_ids={','.join(case_result.expected_chunk_ids)}")
+    print(f"{prefix}.retrieved_chunk_ids={','.join(case_result.retrieved_chunk_ids)}")
+    if include_scores:
+        print(
+            f"{prefix}.retrieved_scores="
+            f"{_format_optional_decimal_list(case_result.retrieved_scores)}"
+        )
+    print(f"{prefix}.query={case_result.query}")
+    _print_reasons_block(prefix, case_result.reasons)
 
 
 def _print_summary_layers(summary: str | None) -> None:
@@ -2046,24 +2168,7 @@ def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
         summarize_retrieval_benchmark(result.case_results)
     )
     for index, case_result in enumerate(result.case_results, start=1):
-        print(f"case.{index}.id={case_result.case_id}")
-        print(f"case.{index}.status={case_result.status}")
-        print(f"case.{index}.recall={case_result.recall}")
-        print(f"case.{index}.first_relevant_rank={case_result.first_relevant_rank or 'none'}")
-        if args.verbose:
-            print(f"case.{index}.ranking_score={case_result.ranking_score}")
-            print(f"case.{index}.expected_chunk_ids={','.join(case_result.expected_chunk_ids)}")
-            print(f"case.{index}.retrieved_chunk_ids={','.join(case_result.retrieved_chunk_ids)}")
-            print(
-                "case."
-                f"{index}.retrieved_scores={_format_optional_decimal_list(case_result.retrieved_scores)}"
-            )
-            print(f"case.{index}.query={case_result.query}")
-            print(f"case.{index}.reasons<<END")
-            for reason in case_result.reasons:
-                print(f"- {reason}")
-            print("END")
-            _print_retrieval_case_diagnostics(index, case_result)
+        _print_retrieval_case_result(index, case_result, verbose=args.verbose)
     return 0
 
 
@@ -2147,12 +2252,7 @@ def _dry_run_retrieval_benchmark(
         print(f"exported_cases_file={args.export_cases_file}")
     _print_retrieval_benchmark_cases_summary(cases)
     for index, benchmark_case in enumerate(cases, start=1):
-        print(f"case.{index}.id={benchmark_case.id}")
-        print(f"case.{index}.expected_count={len(benchmark_case.expected_chunk_ids)}")
-        print(f"case.{index}.limit={benchmark_case.limit}")
-        print(f"case.{index}.expected_chunk_ids={','.join(benchmark_case.expected_chunk_ids)}")
-        if args.verbose:
-            print(f"case.{index}.query={benchmark_case.query}")
+        _print_retrieval_benchmark_case(index, benchmark_case, verbose=args.verbose)
     return 0
 
 
@@ -2210,11 +2310,11 @@ def _print_retrieval_benchmark_run_summary(
     print(f"source_work_id={source_work_id}")
     print(f"character_id={character_id}")
     print(f"embedding_model={embedding_model or 'none'}")
-    print(f"total={total_cases}")
-    print(f"passed={passed_cases}")
-    print(f"failed={failed_cases}")
-    print(f"pass_rate={_format_ratio(passed_cases, total_cases)}")
-    print(f"failed_case_count={failed_cases}")
+    _print_benchmark_run_count_summary(
+        total_cases=total_cases,
+        passed_cases=passed_cases,
+        failed_cases=failed_cases,
+    )
 
 
 def _run_config(args: argparse.Namespace) -> int:
