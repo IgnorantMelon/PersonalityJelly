@@ -16,6 +16,7 @@ from personality_jelly.domain import (
     EvaluationCaseResult,
     EvaluationCaseStatus,
     InteractionMode,
+    Message,
     MemoryScope,
     MemoryStatus,
     PersonaVersion,
@@ -1446,8 +1447,13 @@ def _run_show_eval_run(args: argparse.Namespace) -> int:
             exported_cases_file=exported_cases_file,
         )
         _print_ooc_benchmark_report(summarize_ooc_benchmark(shown_case_results))
+        assistant_messages_by_id = _load_assistant_messages_by_id(session, shown_case_results)
         for index, case_result in enumerate(shown_case_results, start=1):
-            _print_stored_ooc_case_result(index, case_result)
+            _print_stored_ooc_case_result(
+                index,
+                case_result,
+                assistant_messages_by_id.get(case_result.assistant_message_id),
+            )
     return 0
 
 
@@ -1462,6 +1468,22 @@ def _filter_eval_case_results(
         for case_result in case_results
         if case_result.status == EvaluationCaseStatus.FAILED
     ]
+
+
+def _load_assistant_messages_by_id(
+    session,
+    case_results: list[EvaluationCaseResult],
+) -> dict[str, Message]:
+    messages = MessageRepository(session)
+    messages_by_id: dict[str, Message] = {}
+    for case_result in case_results:
+        assistant_message_id = case_result.assistant_message_id
+        if assistant_message_id in messages_by_id:
+            continue
+        message = messages.get(assistant_message_id)
+        if message is not None:
+            messages_by_id[assistant_message_id] = message
+    return messages_by_id
 
 
 def _export_ooc_eval_run_cases_if_requested(
@@ -2012,6 +2034,7 @@ def _print_ooc_case_result(
 def _print_stored_ooc_case_result(
     index: int,
     case_result: EvaluationCaseResult,
+    assistant_message: Message | None,
 ) -> None:
     prefix = f"case.{index}"
     print(f"{prefix}.id={case_result.case_id}")
@@ -2019,6 +2042,14 @@ def _print_stored_ooc_case_result(
     print(f"{prefix}.category={case_result.category}")
     print(f"{prefix}.interaction_mode={case_result.interaction_mode}")
     print(f"{prefix}.assistant_message_id={case_result.assistant_message_id}")
+    conversation_id = assistant_message.conversation_id if assistant_message else "none"
+    context_package_id = (
+        assistant_message.context_package_id
+        if assistant_message and assistant_message.context_package_id
+        else "none"
+    )
+    print(f"{prefix}.conversation_id={conversation_id}")
+    print(f"{prefix}.context_package_id={context_package_id}")
     print(f"{prefix}.critic_report_id={case_result.critic_report_id or 'none'}")
     print(f"{prefix}.prompt={case_result.prompt}")
     _print_reasons_block(prefix, case_result.reasons)

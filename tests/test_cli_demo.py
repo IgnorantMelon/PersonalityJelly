@@ -1060,6 +1060,8 @@ def test_cli_lists_and_shows_eval_runs(tmp_path: Path, capsys, monkeypatch) -> N
     assert "report.mode.2.interaction_mode=roleplay_scene" in show_output
     assert "report.mode.2.total_cases=1" in show_output
     assert "case.1.id=identity" in show_output
+    assert "case.1.conversation_id=conv_" in show_output
+    assert "case.1.context_package_id=ctx_" in show_output
     assert "case.1.reasons<<END" in show_output
     assert "case.10.id=joke_pollution" in show_output
 
@@ -1160,6 +1162,8 @@ def test_cli_show_eval_run_can_filter_failed_cases(
     assert "case.1.id=failed_case" in show_output
     assert "case.1.status=failed" in show_output
     assert "case.1.category=canon_pollution" in show_output
+    assert f"case.1.conversation_id={conversation_id}" in show_output
+    assert f"case.1.context_package_id={assistant_message.context_package_id}" in show_output
     assert "semantic evaluator rejected the response" in show_output
     assert "case.1.id=passed_case" not in show_output
     assert failed_cases_payload == {
