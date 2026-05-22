@@ -136,6 +136,15 @@ class RetrievalBenchmarkCasesSummary:
     max_limit: int
 
 
+@dataclass(frozen=True)
+class RetrievalCaseDiagnostics:
+    expected_count: int
+    retrieved_count: int
+    top_retrieved_chunk_id: str | None
+    missing_expected_chunk_ids: tuple[str, ...]
+    top_retrieved_chunk_expected: bool
+
+
 def summarize_retrieval_benchmark_cases(
     cases: tuple[RetrievalBenchmarkCase, ...],
 ) -> RetrievalBenchmarkCasesSummary:
@@ -484,6 +493,10 @@ def _evaluate_retrieval_case(
     retrieved_scores: list[float | None],
 ) -> RetrievalEvaluationCaseResult:
     expected = set(benchmark_case.expected_chunk_ids)
+    diagnostics = build_retrieval_case_diagnostics(
+        expected_chunk_ids=benchmark_case.expected_chunk_ids,
+        retrieved_chunk_ids=retrieved_chunk_ids,
+    )
     if not expected:
         passed = not retrieved_chunk_ids
         return RetrievalEvaluationCaseResult(
@@ -505,7 +518,8 @@ def _evaluate_retrieval_case(
             reasons=[
                 "No source chunks were expected and retrieval returned none."
                 if passed
-                else "Expected no source chunks, but retrieval returned chunks."
+                else "Expected no source chunks, but retrieval returned chunks.",
+                *_format_retrieval_case_diagnostic_reasons(diagnostics),
             ],
         )
 
@@ -525,15 +539,9 @@ def _evaluate_retrieval_case(
         f"recall={recall:.3f}",
         f"first_relevant_rank={first_relevant_rank or 'none'}",
         f"ranking_score={ranking_score:.3f}",
+        *_format_retrieval_case_diagnostic_reasons(diagnostics),
     ]
     if not passed:
-        missing = [
-            chunk_id
-            for chunk_id in benchmark_case.expected_chunk_ids
-            if chunk_id not in matched
-        ]
-        if missing:
-            reasons.append(f"missing_expected_chunk_ids={','.join(missing)}")
         if first_relevant_rank != 1:
             reasons.append("top-ranked chunk was not an expected evidence chunk")
 
@@ -551,6 +559,46 @@ def _evaluate_retrieval_case(
         ranking_score=ranking_score,
         reasons=reasons,
     )
+
+
+def build_retrieval_case_diagnostics(
+    *,
+    expected_chunk_ids: tuple[str, ...] | list[str],
+    retrieved_chunk_ids: list[str],
+) -> RetrievalCaseDiagnostics:
+    expected = set(expected_chunk_ids)
+    matched = set(expected_chunk_ids) & set(retrieved_chunk_ids)
+    top_retrieved_chunk_id = retrieved_chunk_ids[0] if retrieved_chunk_ids else None
+    return RetrievalCaseDiagnostics(
+        expected_count=len(expected_chunk_ids),
+        retrieved_count=len(retrieved_chunk_ids),
+        top_retrieved_chunk_id=top_retrieved_chunk_id,
+        missing_expected_chunk_ids=tuple(
+            chunk_id
+            for chunk_id in expected_chunk_ids
+            if chunk_id not in matched
+        ),
+        top_retrieved_chunk_expected=(
+            top_retrieved_chunk_id in expected
+            if top_retrieved_chunk_id is not None
+            else False
+        ),
+    )
+
+
+def _format_retrieval_case_diagnostic_reasons(
+    diagnostics: RetrievalCaseDiagnostics,
+) -> list[str]:
+    return [
+        f"expected_count={diagnostics.expected_count}",
+        f"retrieved_count={diagnostics.retrieved_count}",
+        "top_retrieved_chunk_id="
+        f"{diagnostics.top_retrieved_chunk_id or 'none'}",
+        "missing_expected_chunk_ids="
+        f"{','.join(diagnostics.missing_expected_chunk_ids) or 'none'}",
+        "top_retrieved_chunk_expected="
+        f"{str(diagnostics.top_retrieved_chunk_expected).lower()}",
+    ]
 
 
 def _count_passed(case_results: list[RetrievalEvaluationCaseResult]) -> int:

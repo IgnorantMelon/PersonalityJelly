@@ -1060,6 +1060,11 @@ def test_cli_runs_lists_and_shows_retrieval_benchmark(
     assert "case.1.id=claim_1" in show_output
     assert "case.1.expected_chunk_ids=chunk_" in show_output
     assert "case.1.retrieved_chunk_ids=" in show_output
+    assert "case.1.expected_count=1" in show_output
+    assert "case.1.retrieved_count=0" in show_output
+    assert "case.1.top_retrieved_chunk_id=none" in show_output
+    assert "case.1.missing_expected_chunk_ids=chunk_" in show_output
+    assert "case.1.top_retrieved_chunk_expected=false" in show_output
     assert failed_cases_payload["cases"][0]["id"] == "claim_1"
     assert failed_cases_payload["cases"][0]["query"]
     assert failed_cases_payload["cases"][0]["expected_chunk_ids"][0].startswith("chunk_")
@@ -1085,6 +1090,11 @@ def test_cli_runs_lists_and_shows_retrieval_benchmark(
     assert "case.1.expected_chunk_ids=chunk_" in verbose_output
     assert "case.1.retrieved_scores=" in verbose_output
     assert "case.1.query=" in verbose_output
+    assert "case.1.expected_count=1" in verbose_output
+    assert "case.1.retrieved_count=0" in verbose_output
+    assert "case.1.top_retrieved_chunk_id=none" in verbose_output
+    assert "case.1.missing_expected_chunk_ids=chunk_" in verbose_output
+    assert "case.1.top_retrieved_chunk_expected=false" in verbose_output
     assert "case.1.reasons<<END" in verbose_output
 
 
@@ -1296,6 +1306,11 @@ def test_cli_show_retrieval_eval_run_can_filter_failed_cases(
     assert "case_count=1" in show_output
     assert "report.total_cases=1" in show_output
     assert "case.1.id=failing_manual" in show_output
+    assert "case.1.expected_count=1" in show_output
+    assert "case.1.retrieved_count=0" in show_output
+    assert "case.1.top_retrieved_chunk_id=none" in show_output
+    assert "case.1.missing_expected_chunk_ids=chunk_missing" in show_output
+    assert "case.1.top_retrieved_chunk_expected=false" in show_output
     assert "passing_manual" not in show_output
 
 
