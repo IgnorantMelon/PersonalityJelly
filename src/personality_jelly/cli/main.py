@@ -2159,6 +2159,8 @@ def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
         try:
             explicit_cases = _load_explicit_retrieval_benchmark_cases(args)
             cases = explicit_cases
+            cases_source = "cases_file" if explicit_cases is not None else "generated"
+            exported_cases_file = None
             if cases is None and args.export_cases_file is not None:
                 character = CharacterRepository(session).require(args.character_id)
                 cases = build_default_retrieval_benchmark_cases(
@@ -2168,7 +2170,10 @@ def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
                     include_empty_case=not args.no_empty_case,
                 )
             if cases is not None:
-                _export_retrieval_benchmark_cases_if_requested(args, cases)
+                exported_cases_file = _export_retrieval_benchmark_cases_if_requested(
+                    args,
+                    cases,
+                )
             result = run_retrieval_benchmark(
                 session,
                 character_id=args.character_id,
@@ -2195,6 +2200,11 @@ def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
         passed_cases=result.run.passed_cases,
         failed_cases=result.run.failed_cases,
     )
+    print(f"cases_source={cases_source}")
+    if args.cases_file is not None:
+        print(f"cases_file={args.cases_file}")
+    if exported_cases_file is not None:
+        print(f"exported_cases_file={exported_cases_file}")
     _print_retrieval_benchmark_report(
         summarize_retrieval_benchmark(result.case_results)
     )
@@ -2241,9 +2251,9 @@ def _dry_run_retrieval_benchmark(
 
     with session_factory() as session:
         try:
-            character = CharacterRepository(session).require(args.character_id)
             cases = _load_explicit_retrieval_benchmark_cases(args)
             cases_source = "cases_file" if cases is not None else "generated"
+            character = CharacterRepository(session).require(args.character_id)
             if cases is None:
                 cases = build_default_retrieval_benchmark_cases(
                     session,
@@ -2310,10 +2320,10 @@ def _load_explicit_retrieval_benchmark_cases(
 def _export_retrieval_benchmark_cases_if_requested(
     args: argparse.Namespace,
     cases: tuple[RetrievalBenchmarkCase, ...],
-) -> None:
+) -> Path | None:
     if args.export_cases_file is None:
-        return
-    export_retrieval_benchmark_cases_file(
+        return None
+    return export_retrieval_benchmark_cases_file(
         args.export_cases_file,
         cases,
         append=args.append_cases_file,
