@@ -34,6 +34,9 @@ from personality_jelly.storage import (
 )
 
 
+BENCHMARK_ASSETS_DIR = Path(__file__).resolve().parents[1] / "benchmarks"
+
+
 class RetrievalEmbeddingProvider:
     name = "retrieval-embedding-fake"
 
@@ -112,6 +115,21 @@ def test_load_retrieval_benchmark_cases_file_normalizes_explicit_cases(
             query="Out-of-scope probe.",
             expected_chunk_ids=(),
             limit=4,
+        ),
+    )
+
+
+def test_committed_retrieval_benchmark_asset_loads_through_loader() -> None:
+    cases = load_retrieval_benchmark_cases_file(
+        BENCHMARK_ASSETS_DIR / "retrieval" / "evidence-smoke.json"
+    )
+
+    assert cases == (
+        RetrievalBenchmarkCase(
+            id="evidence_smoke_observation_query",
+            query="How does Lin Shuang decide before acting?",
+            expected_chunk_ids=("sample_chunk_observation",),
+            limit=3,
         ),
     )
 
