@@ -23,7 +23,8 @@ It can run in parallel with:
 - Task 06 Benchmark Case Assets
 - Task 07 Layered Summary Downstream Audit
 
-Task 11 should wait for this task to merge because both may touch `src/personality_jelly/cli/main.py`.
+Task 11 should wait for this task to be accepted and integrated into `dev` because both may touch
+`src/personality_jelly/cli/main.py`.
 
 ## Read First
 
@@ -81,9 +82,15 @@ Then run full suite if repository or shared behavior changes:
 
 ## Completion
 
-Commit only this task's changes on `feature/trace-cli-navigation`. In your final report, include:
+Commit only this task's changes on `feature/trace-cli-navigation`.
+
+Do not merge this branch back into `dev`. Push only the task branch to `origin` and report the
+branch name and commit hash. A coordinator or maintainer will handle review and integration into
+`dev`.
+
+In your final report, include:
 
 - new or improved navigation fields;
 - confirmation that existing CLI fields were preserved;
 - tests run and results;
-- explicit note that Task 11 can start after this merges.
+- explicit note that Task 11 can start after this branch is accepted and integrated.

@@ -87,10 +87,16 @@ Run full suite if shared evaluation code changes:
 
 ## Completion
 
-Commit only this task's changes on `feature/benchmark-case-assets`. In your final report, include:
+Commit only this task's changes on `feature/benchmark-case-assets`.
+
+Do not merge this branch back into `dev`. Push only the task branch to `origin` and report the
+branch name and commit hash. A coordinator or maintainer will handle review and integration into
+`dev`.
+
+In your final report, include:
 
 - asset directories and files added;
 - naming conventions chosen;
 - confirmation that benchmark semantics did not change;
 - tests run and results;
-- explicit note that Tasks 08 and 09 are unblocked after this merges.
+- explicit note that Tasks 08 and 09 are unblocked after this branch is accepted and integrated.

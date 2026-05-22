@@ -4,8 +4,9 @@ You are one agent in a multi-agent development run for Personality Jelly. Follow
 
 ## Branch
 
-This task should start after Task 10 Trace CLI Navigation is merged. Prefer starting after Tasks 08
-and 09 are merged so validation diagnostics cover the final curated cases-file workflows.
+This task should start after Task 10 Trace CLI Navigation is accepted and integrated into `dev`.
+Prefer starting after Tasks 08 and 09 are accepted and integrated so validation diagnostics cover
+the final curated cases-file workflows.
 
 Start from the latest `dev` and create:
 
@@ -95,7 +96,13 @@ Then run full suite because this touches shared CLI/evaluation behavior:
 
 ## Completion
 
-Commit only this task's changes on `feature/cli-validation-diagnostics`. In your final report, include:
+Commit only this task's changes on `feature/cli-validation-diagnostics`.
+
+Do not merge this branch back into `dev`. Push only the task branch to `origin` and report the
+branch name and commit hash. A coordinator or maintainer will handle review and integration into
+`dev`.
+
+In your final report, include:
 
 - diagnostics improved;
 - examples of preserved output compatibility;

@@ -20,10 +20,10 @@ platform, graph/vector database, or new dependency work from this plan.
 | 06 Benchmark Case Assets | `feature/benchmark-case-assets` | Yes | none | Wave A | Low |
 | 07 Layered Summary Downstream Audit | `feature/layered-summary-downstream-audit` | Yes | none | Wave A | Medium with runtime/context work |
 | 10 Trace CLI Navigation | `feature/trace-cli-navigation` | Yes | Tasks 01-05 already merged | Wave A | Medium-high in `cli/main.py` |
-| 08 Retrieval Quality Regression | `feature/retrieval-quality-regression` | No | 06 merged | Wave B | Medium in retrieval benchmark tests |
-| 09 OOC Regression Case Curation | `feature/ooc-regression-case-curation` | No | 06 merged | Wave B | Medium in OOC benchmark tests |
-| 11 CLI Validation Diagnostics | `feature/cli-validation-diagnostics` | No | 10 merged; preferably 08 and 09 merged | Wave C | High in `cli/main.py` |
-| 12 P1 Closeout Verification | `chore/p1-closeout-verification` | No | 06-11 merged | Wave D | Low |
+| 08 Retrieval Quality Regression | `feature/retrieval-quality-regression` | No | 06 accepted and integrated | Wave B | Medium in retrieval benchmark tests |
+| 09 OOC Regression Case Curation | `feature/ooc-regression-case-curation` | No | 06 accepted and integrated | Wave B | Medium in OOC benchmark tests |
+| 11 CLI Validation Diagnostics | `feature/cli-validation-diagnostics` | No | 10 accepted and integrated; preferably 08 and 09 accepted and integrated | Wave C | High in `cli/main.py` |
+| 12 P1 Closeout Verification | `chore/p1-closeout-verification` | No | 06-11 accepted and integrated | Wave D | Low |
 
 ## Recommended Parallel Execution
 
@@ -35,7 +35,7 @@ Tasks 06, 07, and 10 can run in parallel from the current `dev`.
 - 07 audits runtime/context/memory use of layered summaries.
 - 10 improves trace navigation in CLI and should avoid broader CLI diagnostics changes reserved for Task 11.
 
-Merge order within Wave A should be:
+Coordinator integration order within Wave A should be:
 
 1. 06, because it unblocks regression curation.
 2. 07, because it may update runtime tests but should not affect benchmark assets.
@@ -43,7 +43,7 @@ Merge order within Wave A should be:
 
 ### Wave B: Start After 06
 
-Tasks 08 and 09 can run in parallel after 06 is merged.
+Tasks 08 and 09 can run in parallel after 06 is accepted and integrated into `dev`.
 
 - 08 owns retrieval regression case curation and retrieval benchmark assertions.
 - 09 owns OOC regression case curation and OOC benchmark assertions.
@@ -53,18 +53,21 @@ If either task needs shared CLI output changes, stop and coordinate before editi
 
 ### Wave C: Start After 10, Preferably After 08 and 09
 
-Task 11 should wait for Task 10 to reduce `cli/main.py` conflicts. It can start before 08/09 if
-needed, but the better sequence is after 08 and 09 so validation/error messages can cover the final
-cases-file workflows.
+Task 11 should wait for Task 10 to be accepted and integrated into `dev` to reduce `cli/main.py`
+conflicts. It can start before 08/09 if needed, but the better sequence is after 08 and 09 are
+accepted and integrated so validation/error messages can cover the final cases-file workflows.
 
 ### Wave D: Final Verification
 
-Task 12 starts only after 06-11 are merged. It should not introduce new product behavior except
-small documentation/status fixes discovered during verification.
+Task 12 starts only after 06-11 are accepted and integrated into `dev`. It should not introduce new
+product behavior except small documentation/status fixes discovered during verification.
 
 ## Coordination Rules
 
 - Each task starts from clean `dev` and creates its own branch.
+- Development agents must not merge their task branch back into `dev` at completion. They should
+  commit their task changes, push the task branch to `origin`, and report the branch and commit.
+  A coordinator or maintainer handles review and integration into `dev`.
 - Do not keep long-lived parallel branches touching `src/personality_jelly/cli/main.py` open at the
   same time unless the write scopes are explicitly disjoint.
 - Benchmark assets are source-controlled regression data, not generated output dumps. Keep them
@@ -73,8 +76,8 @@ small documentation/status fixes discovered during verification.
   verified source evidence, or explicit test fixtures.
 - Preserve stable CLI `key=value` fields. New diagnostics should append fields instead of renaming
   or removing existing fields.
-- After every merge to `dev`, run at least the affected focused tests. Run full `pytest` after tasks
-  that touch shared runtime, benchmark, or CLI behavior.
+- After every coordinator integration to `dev`, run at least the affected focused tests. Run full
+  `pytest` after tasks that touch shared runtime, benchmark, or CLI behavior.
 
 ## Completion Definition
 

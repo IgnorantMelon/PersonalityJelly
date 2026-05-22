@@ -89,7 +89,13 @@ Then run full suite if runtime behavior changes:
 
 ## Completion
 
-Commit only this task's changes on `feature/layered-summary-downstream-audit`. In your final report, include:
+Commit only this task's changes on `feature/layered-summary-downstream-audit`.
+
+Do not merge this branch back into `dev`. Push only the task branch to `origin` and report the
+branch name and commit hash. A coordinator or maintainer will handle review and integration into
+`dev`.
+
+In your final report, include:
 
 - downstream consumers audited;
 - tests added or strengthened;

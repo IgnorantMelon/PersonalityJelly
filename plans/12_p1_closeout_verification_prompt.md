@@ -4,7 +4,7 @@ You are one agent in a multi-agent development run for Personality Jelly. Follow
 
 ## Branch
 
-This task should start only after Tasks 06-11 are merged.
+This task should start only after Tasks 06-11 are accepted and integrated into `dev`.
 
 Start from the latest `dev` and create:
 
@@ -27,7 +27,7 @@ This task is Wave D and must wait for:
 - Task 10 Trace CLI Navigation
 - Task 11 CLI Validation Diagnostics
 
-Do not start while any Wave B or Wave C branch is still unmerged.
+Do not start while any Wave B or Wave C branch is still unaccepted or unintegrated.
 
 ## Read First
 
@@ -35,7 +35,7 @@ Read these before editing:
 
 - `VIBE_CODING_GUIDE.md`
 - `plans/P1_CLOSEOUT_ORCHESTRATION.md`
-- final reports or merge commits for Tasks 06-11
+- final reports and integration commits for Tasks 06-11
 - `README.md`
 - benchmark asset README
 - current CLI tests and benchmark tests
@@ -90,7 +90,13 @@ Also run useful CLI smoke checks, for example:
 
 ## Completion
 
-Commit only this task's changes on `chore/p1-closeout-verification`. In your final report, include:
+Commit only this task's changes on `chore/p1-closeout-verification`.
+
+Do not merge this branch back into `dev`. Push only the task branch to `origin` and report the
+branch name and commit hash. A coordinator or maintainer will handle review and integration into
+`dev`.
+
+In your final report, include:
 
 - P1 closeout checklist result;
 - docs updated;

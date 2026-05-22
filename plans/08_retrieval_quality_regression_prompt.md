@@ -4,7 +4,8 @@ You are one agent in a multi-agent development run for Personality Jelly. Follow
 
 ## Branch
 
-This task should start only after Task 06 Benchmark Case Assets is merged.
+This task should start only after Task 06 Benchmark Case Assets is accepted and integrated into
+`dev`.
 
 Start from the latest `dev` and create:
 
@@ -90,7 +91,13 @@ Then run full suite if retrieval behavior or CLI behavior changes:
 
 ## Completion
 
-Commit only this task's changes on `feature/retrieval-quality-regression`. In your final report, include:
+Commit only this task's changes on `feature/retrieval-quality-regression`.
+
+Do not merge this branch back into `dev`. Push only the task branch to `origin` and report the
+branch name and commit hash. A coordinator or maintainer will handle review and integration into
+`dev`.
+
+In your final report, include:
 
 - curated retrieval cases added;
 - regression scenarios covered;
