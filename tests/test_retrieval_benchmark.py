@@ -453,6 +453,11 @@ def test_run_retrieval_benchmark_persists_ranking_and_empty_result_metrics() -> 
     assert case_results[1].case_id == "empty_result"
     assert case_results[1].status == "failed"
     assert "Expected no source chunks" in case_results[1].reasons[0]
+    assert "expected_count=0" in case_results[1].reasons
+    assert "retrieved_count=2" in case_results[1].reasons
+    assert f"top_retrieved_chunk_id={chunks[0].id}" in case_results[1].reasons
+    assert "missing_expected_chunk_ids=none" in case_results[1].reasons
+    assert "top_retrieved_chunk_expected=false" in case_results[1].reasons
 
     report = summarize_retrieval_benchmark(case_results)
     assert report.total_cases == 2
@@ -564,6 +569,16 @@ def test_summarize_retrieval_benchmark_reports_missing_expected_chunks() -> None
 
     assert result.run.total_cases == 2
     assert result.run.passed_cases == 0
+    evidence_result = result.case_results[0]
+    assert "expected_count=2" in evidence_result.reasons
+    assert "retrieved_count=1" in evidence_result.reasons
+    assert f"top_retrieved_chunk_id={chunks[0].id}" in evidence_result.reasons
+    assert (
+        "missing_expected_chunk_ids=chunk_missing_a,chunk_missing_b"
+        in evidence_result.reasons
+    )
+    assert "top_retrieved_chunk_expected=false" in evidence_result.reasons
+    assert "top-ranked chunk was not an expected evidence chunk" in evidence_result.reasons
     assert report.total_cases == 2
     assert report.evidence_case_count == 1
     assert report.empty_case_count == 1

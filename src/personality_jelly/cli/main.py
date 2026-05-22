@@ -27,6 +27,7 @@ from personality_jelly.evaluation import (
     BENCHMARK_CASE_SUITES,
     BenchmarkCase,
     RetrievalBenchmarkCase,
+    build_retrieval_case_diagnostics,
     build_default_retrieval_benchmark_cases,
     build_retrieval_benchmark_cases_from_results,
     export_retrieval_benchmark_cases_file,
@@ -1525,6 +1526,7 @@ def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
             for reason in case_result.reasons:
                 print(f"- {reason}")
             print("END")
+            _print_retrieval_case_diagnostics(index, case_result)
     return 0
 
 
@@ -1984,7 +1986,34 @@ def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
             for reason in case_result.reasons:
                 print(f"- {reason}")
             print("END")
+            _print_retrieval_case_diagnostics(index, case_result)
     return 0
+
+
+def _print_retrieval_case_diagnostics(
+    index: int,
+    case_result: RetrievalEvaluationCaseResult,
+) -> None:
+    diagnostics = build_retrieval_case_diagnostics(
+        expected_chunk_ids=case_result.expected_chunk_ids,
+        retrieved_chunk_ids=case_result.retrieved_chunk_ids,
+    )
+    print(f"case.{index}.expected_count={diagnostics.expected_count}")
+    print(f"case.{index}.retrieved_count={diagnostics.retrieved_count}")
+    print(
+        "case."
+        f"{index}.top_retrieved_chunk_id={diagnostics.top_retrieved_chunk_id or 'none'}"
+    )
+    print(
+        "case."
+        f"{index}.missing_expected_chunk_ids="
+        f"{','.join(diagnostics.missing_expected_chunk_ids) or 'none'}"
+    )
+    print(
+        "case."
+        f"{index}.top_retrieved_chunk_expected="
+        f"{str(diagnostics.top_retrieved_chunk_expected).lower()}"
+    )
 
 
 def _dry_run_retrieval_benchmark(
