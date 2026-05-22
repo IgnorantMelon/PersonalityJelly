@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
 from personality_jelly.core import EntityKind, generate_id
@@ -10,12 +10,17 @@ from personality_jelly.critic.prompts import CRITIC_SYSTEM_PROMPT, build_critic_
 from personality_jelly.critic.schemas import CriticEvaluation
 from personality_jelly.domain import CriticReport, MessageRole
 from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
+from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder, record_structured_output
 from personality_jelly.storage import (
     ContextPackageRepository,
     CriticReportRepository,
+    LLMRawOutputRepository,
     MessageRepository,
     PersonaVersionRepository,
 )
+
+
+CRITIC_EVALUATION_OPERATION = "critic.evaluate_message"
 
 
 @dataclass(frozen=True)
@@ -44,6 +49,7 @@ def evaluate_message(
         assistant_message.id,
     )
 
+    schema = CriticEvaluation.model_json_schema()
     raw = provider.generate_json(
         messages=[
             ChatMessage(role=MessageRole.SYSTEM, content=CRITIC_SYSTEM_PROMPT),
@@ -57,10 +63,34 @@ def evaluate_message(
                 ),
             ),
         ],
-        schema=CriticEvaluation.model_json_schema(),
+        schema=schema,
         model_config=model_config,
     )
-    evaluation = TypeAdapter(CriticEvaluation).validate_python(raw)
+    trace_recorder = RepositoryLLMTraceRecorder(LLMRawOutputRepository(session))
+    try:
+        evaluation = TypeAdapter(CriticEvaluation).validate_python(raw)
+    except ValidationError as exc:
+        record_structured_output(
+            recorder=trace_recorder,
+            operation=CRITIC_EVALUATION_OPERATION,
+            schema_name=CriticEvaluation.__name__,
+            provider=provider,
+            model_config=model_config,
+            response_schema=schema,
+            raw_output=raw,
+            validation_error=exc,
+        )
+        raise
+    record_structured_output(
+        recorder=trace_recorder,
+        operation=CRITIC_EVALUATION_OPERATION,
+        schema_name=CriticEvaluation.__name__,
+        provider=provider,
+        model_config=model_config,
+        response_schema=schema,
+        raw_output=raw,
+        parsed_output=evaluation,
+    )
     critic_report = CriticReport(
         id=generate_id(EntityKind.CRITIC_REPORT),
         message_id=assistant_message.id,

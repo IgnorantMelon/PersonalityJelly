@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from personality_jelly.core import EntityKind, generate_id
 from personality_jelly.domain import (
@@ -16,6 +16,10 @@ from personality_jelly.domain import (
 from personality_jelly.extraction.prompts import READER_SYSTEM_PROMPT, build_reader_user_prompt
 from personality_jelly.extraction.schemas import ReaderClaim, ReaderExtraction
 from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
+from personality_jelly.llm.tracing import LLMTraceRecorder, record_structured_output
+
+
+READER_EXTRACTION_OPERATION = "extraction.reader.extract_candidate_claims"
 
 
 @dataclass(frozen=True)
@@ -31,6 +35,7 @@ def extract_candidate_claims(
     source_work_id: str,
     character: Character,
     chunks: list[SourceChunk],
+    trace_recorder: LLMTraceRecorder | None = None,
 ) -> ReaderExtractionResult:
     if not chunks:
         return ReaderExtractionResult(claims=[], evidence_refs=[])
@@ -46,12 +51,36 @@ def extract_candidate_claims(
             ),
         ),
     ]
+    schema = ReaderExtraction.model_json_schema()
     raw = provider.generate_json(
         messages=messages,
-        schema=ReaderExtraction.model_json_schema(),
+        schema=schema,
         model_config=model_config,
     )
-    extraction = TypeAdapter(ReaderExtraction).validate_python(raw)
+    try:
+        extraction = TypeAdapter(ReaderExtraction).validate_python(raw)
+    except ValidationError as exc:
+        record_structured_output(
+            recorder=trace_recorder,
+            operation=READER_EXTRACTION_OPERATION,
+            schema_name=ReaderExtraction.__name__,
+            provider=provider,
+            model_config=model_config,
+            response_schema=schema,
+            raw_output=raw,
+            validation_error=exc,
+        )
+        raise
+    record_structured_output(
+        recorder=trace_recorder,
+        operation=READER_EXTRACTION_OPERATION,
+        schema_name=ReaderExtraction.__name__,
+        provider=provider,
+        model_config=model_config,
+        response_schema=schema,
+        raw_output=raw,
+        parsed_output=extraction,
+    )
 
     chunk_ids = {chunk.id for chunk in chunks}
     claims: list[CanonClaim] = []

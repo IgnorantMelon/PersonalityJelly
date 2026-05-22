@@ -1422,6 +1422,18 @@ def test_cli_lists_and_shows_llm_traces(tmp_path: Path, capsys, monkeypatch) -> 
                 validation_errors=['{"loc":["reasoning"],"msg":"Field required"}'],
             )
         )
+        LLMRawOutputRepository(session).add(
+            LLMRawOutput(
+                id="llm_trace_003",
+                operation="persona.compile_version",
+                schema_name="PersonaCompilation",
+                provider_name="stub",
+                model_name="stub",
+                response_schema={"title": "PersonaCompilation"},
+                raw_output='{"core_self":"Careful observer"}',
+                parsed_output={"core_self": "Careful observer"},
+            )
+        )
         session.commit()
 
     list_exit_code = main(
@@ -1439,6 +1451,19 @@ def test_cli_lists_and_shows_llm_traces(tmp_path: Path, capsys, monkeypatch) -> 
 
     show_exit_code = main(["show", "llm-trace", "llm_trace_002"])
     show_output = capsys.readouterr().out
+
+    new_operation_list_exit_code = main(
+        [
+            "list",
+            "llm-traces",
+            "--operation",
+            "persona.compile_version",
+        ]
+    )
+    new_operation_list_output = capsys.readouterr().out
+
+    new_operation_show_exit_code = main(["show", "llm-trace", "llm_trace_003"])
+    new_operation_show_output = capsys.readouterr().out
 
     assert list_exit_code == 0
     assert "llm_trace_count=1" in list_output
@@ -1460,6 +1485,14 @@ def test_cli_lists_and_shows_llm_traces(tmp_path: Path, capsys, monkeypatch) -> 
     assert "null" in show_output
     assert "validation_errors<<END" in show_output
     assert "Field required" in show_output
+    assert new_operation_list_exit_code == 0
+    assert "llm_trace_count=1" in new_operation_list_output
+    assert "llm_trace.1.id=llm_trace_003" in new_operation_list_output
+    assert "llm_trace.1.operation=persona.compile_version" in new_operation_list_output
+    assert new_operation_show_exit_code == 0
+    assert "llm_trace_id=llm_trace_003" in new_operation_show_output
+    assert "operation=persona.compile_version" in new_operation_show_output
+    assert '"title": "PersonaCompilation"' in new_operation_show_output
 
 
 def test_cli_show_llm_trace_reports_missing_trace(tmp_path: Path, capsys) -> None:
