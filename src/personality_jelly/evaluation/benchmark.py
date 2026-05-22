@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy.orm import Session
 
 from personality_jelly.core import EntityKind, generate_id
@@ -71,6 +81,54 @@ class BenchmarkCase:
     prompt: str
     interaction_mode: InteractionMode
     category: str = "general"
+
+
+class _OOCBenchmarkCaseSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    prompt: str
+    interaction_mode: InteractionMode
+    category: str
+
+    @field_validator("id", "prompt", "category", mode="before")
+    @classmethod
+    def _normalize_required_text(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be blank")
+        return stripped
+
+    @field_validator("interaction_mode", mode="before")
+    @classmethod
+    def _normalize_interaction_mode(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("must not be blank")
+        return stripped
+
+
+class _OOCBenchmarkCasesFile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cases: list[_OOCBenchmarkCaseSpec] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _reject_duplicate_case_ids(self) -> _OOCBenchmarkCasesFile:
+        seen: set[str] = set()
+        duplicate_ids: list[str] = []
+        for benchmark_case in self.cases:
+            if benchmark_case.id in seen:
+                duplicate_ids.append(benchmark_case.id)
+            seen.add(benchmark_case.id)
+        if duplicate_ids:
+            unique_duplicates = ", ".join(dict.fromkeys(duplicate_ids))
+            raise ValueError(f"duplicate OOC benchmark case ids: {unique_duplicates}")
+        return self
 
 
 @dataclass(frozen=True)
@@ -285,6 +343,133 @@ def get_benchmark_cases(case_suite: str) -> tuple[BenchmarkCase, ...]:
         ) from exc
 
 
+def load_ooc_benchmark_cases_file(path: Path | str) -> tuple[BenchmarkCase, ...]:
+    case_file = Path(path)
+    try:
+        payload = json.loads(case_file.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ValueError(f"OOC benchmark cases file not found: {case_file}") from exc
+    except OSError as exc:
+        message = f"Unable to read OOC benchmark cases file {case_file}: {exc}"
+        raise ValueError(message) from exc
+    except json.JSONDecodeError as exc:
+        message = (
+            f"Invalid OOC benchmark cases JSON in {case_file}: "
+            f"{exc.msg} at line {exc.lineno} column {exc.colno}"
+        )
+        raise ValueError(message) from exc
+
+    try:
+        cases_file = _OOCBenchmarkCasesFile.model_validate(payload)
+    except ValidationError as exc:
+        message = _format_cases_file_validation_error(exc)
+        raise ValueError(f"Invalid OOC benchmark cases file {case_file}: {message}") from exc
+
+    return tuple(
+        BenchmarkCase(
+            id=benchmark_case.id,
+            prompt=benchmark_case.prompt,
+            interaction_mode=benchmark_case.interaction_mode,
+            category=benchmark_case.category,
+        )
+        for benchmark_case in cases_file.cases
+    )
+
+
+def export_ooc_benchmark_cases_file(
+    path: Path | str,
+    cases: tuple[BenchmarkCase, ...],
+    *,
+    append: bool = False,
+    overwrite: bool = False,
+) -> Path:
+    case_file = Path(path)
+    if append:
+        cases = _merge_ooc_benchmark_cases(
+            load_ooc_benchmark_cases_file(case_file) if case_file.exists() else (),
+            cases,
+            overwrite=overwrite,
+        )
+    elif case_file.exists() and not overwrite:
+        raise ValueError(
+            f"OOC benchmark cases file already exists: {case_file}. "
+            "Use --append-cases-file to add cases or --overwrite-cases-file to replace it."
+        )
+
+    payload = {
+        "cases": [
+            {
+                "id": benchmark_case.id,
+                "prompt": benchmark_case.prompt,
+                "interaction_mode": _interaction_mode_value(benchmark_case.interaction_mode),
+                "category": benchmark_case.category,
+            }
+            for benchmark_case in cases
+        ]
+    }
+    try:
+        cases_file = _OOCBenchmarkCasesFile.model_validate(payload)
+    except ValidationError as exc:
+        message = _format_cases_file_validation_error(exc)
+        raise ValueError(f"Cannot export OOC benchmark cases: {message}") from exc
+
+    try:
+        case_file.parent.mkdir(parents=True, exist_ok=True)
+        case_file.write_text(
+            json.dumps(cases_file.model_dump(), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        message = f"Unable to write OOC benchmark cases file {case_file}: {exc}"
+        raise ValueError(message) from exc
+    return case_file
+
+
+def build_ooc_benchmark_cases_from_results(
+    case_results: list[EvaluationCaseResult],
+    *,
+    failed_only: bool = False,
+) -> tuple[BenchmarkCase, ...]:
+    cases: list[BenchmarkCase] = []
+    for case_result in case_results:
+        if failed_only and case_result.status != EvaluationCaseStatus.FAILED:
+            continue
+        cases.append(
+            BenchmarkCase(
+                id=case_result.case_id,
+                prompt=case_result.prompt,
+                interaction_mode=InteractionMode(case_result.interaction_mode),
+                category=case_result.category,
+            )
+        )
+    if not cases:
+        raise ValueError("No OOC benchmark case results matched the export filters")
+    return tuple(cases)
+
+
+def _merge_ooc_benchmark_cases(
+    existing_cases: tuple[BenchmarkCase, ...],
+    new_cases: tuple[BenchmarkCase, ...],
+    *,
+    overwrite: bool,
+) -> tuple[BenchmarkCase, ...]:
+    merged_by_id = {benchmark_case.id: benchmark_case for benchmark_case in existing_cases}
+    duplicate_ids = [
+        benchmark_case.id
+        for benchmark_case in new_cases
+        if benchmark_case.id in merged_by_id
+    ]
+    if duplicate_ids and not overwrite:
+        unique_duplicates = ", ".join(dict.fromkeys(duplicate_ids))
+        raise ValueError(
+            "OOC benchmark cases file already contains case ids: "
+            f"{unique_duplicates}. Use --overwrite-cases-file to replace duplicates."
+        )
+    for benchmark_case in new_cases:
+        merged_by_id[benchmark_case.id] = benchmark_case
+    return tuple(merged_by_id.values())
+
+
 def run_ooc_benchmark(
     session: Session,
     *,
@@ -373,6 +558,7 @@ def run_ooc_benchmark(
             critic_report_id=turn.critic_report.id if turn.critic_report is not None else None,
             status=status,
             reasons=reasons,
+            category=benchmark_case.category,
         )
         case_repository.add(case_result)
         case_results.append(case_result)
@@ -529,7 +715,19 @@ def _interaction_mode_sort_key(interaction_mode: InteractionMode | str) -> str:
     return str(getattr(interaction_mode, "value", interaction_mode))
 
 
+def _interaction_mode_value(interaction_mode: InteractionMode | str) -> str:
+    return str(getattr(interaction_mode, "value", interaction_mode))
+
+
 def _ratio(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
     return numerator / denominator
+
+
+def _format_cases_file_validation_error(error: ValidationError) -> str:
+    messages: list[str] = []
+    for item in error.errors():
+        location = ".".join(str(part) for part in item["loc"]) or "cases"
+        messages.append(f"{location}: {item['msg']}")
+    return "; ".join(messages)

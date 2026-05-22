@@ -27,6 +27,9 @@ from personality_jelly.domain import (
 from personality_jelly.storage import orm
 
 
+_EVALUATION_CASE_CATEGORY_META_PREFIX = "__pjelly_case_category__:"
+
+
 DomainT = TypeVar(
     "DomainT",
     SourceWork,
@@ -193,13 +196,31 @@ def evaluation_run_from_orm(row: orm.EvaluationRunORM) -> EvaluationRun:
 def evaluation_case_result_to_orm(
     model: EvaluationCaseResult,
 ) -> orm.EvaluationCaseResultORM:
-    return orm.EvaluationCaseResultORM(**model.model_dump())
+    payload = model.model_dump()
+    category = payload.pop("category")
+    reasons = list(payload["reasons"])
+    reasons.append(f"{_EVALUATION_CASE_CATEGORY_META_PREFIX}{category}")
+    payload["reasons"] = reasons
+    return orm.EvaluationCaseResultORM(**payload)
 
 
 def evaluation_case_result_from_orm(
     row: orm.EvaluationCaseResultORM,
 ) -> EvaluationCaseResult:
-    return EvaluationCaseResult.model_validate(_column_dict(row))
+    payload = _column_dict(row)
+    reasons: list[str] = []
+    category = "ooc"
+    for reason in payload["reasons"]:
+        if (
+            isinstance(reason, str)
+            and reason.startswith(_EVALUATION_CASE_CATEGORY_META_PREFIX)
+        ):
+            category = reason.removeprefix(_EVALUATION_CASE_CATEGORY_META_PREFIX)
+            continue
+        reasons.append(reason)
+    payload["reasons"] = reasons
+    payload["category"] = category
+    return EvaluationCaseResult.model_validate(payload)
 
 
 def retrieval_evaluation_run_to_orm(

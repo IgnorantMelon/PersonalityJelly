@@ -13,6 +13,7 @@ from personality_jelly.domain import (
     ClaimStatus,
     ClaimType,
     Conversation,
+    EvaluationCaseResult,
     EvaluationCaseStatus,
     InteractionMode,
     MemoryScope,
@@ -27,11 +28,14 @@ from personality_jelly.evaluation import (
     BENCHMARK_CASE_SUITES,
     BenchmarkCase,
     RetrievalBenchmarkCase,
-    build_retrieval_case_diagnostics,
+    build_ooc_benchmark_cases_from_results,
     build_default_retrieval_benchmark_cases,
+    build_retrieval_case_diagnostics,
     build_retrieval_benchmark_cases_from_results,
+    export_ooc_benchmark_cases_file,
     export_retrieval_benchmark_cases_file,
     get_benchmark_cases,
+    load_ooc_benchmark_cases_file,
     load_retrieval_benchmark_cases_file,
     run_ooc_benchmark,
     run_retrieval_benchmark,
@@ -529,6 +533,22 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Only show failed benchmark cases.",
     )
+    show_eval_run.add_argument(
+        "--export-cases-file",
+        type=Path,
+        default=None,
+        help="Write this run's OOC benchmark cases to a JSON cases file.",
+    )
+    show_eval_run.add_argument(
+        "--overwrite-cases-file",
+        action="store_true",
+        help="Allow --export-cases-file to replace an existing file.",
+    )
+    show_eval_run.add_argument(
+        "--append-cases-file",
+        action="store_true",
+        help="Append exported cases to an existing --export-cases-file by case id.",
+    )
     show_llm_trace = show_subparsers.add_parser(
         "llm-trace",
         help="Show a structured LLM trace record.",
@@ -599,6 +619,12 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=sorted(BENCHMARK_CASE_SUITES),
         default="mvp_default",
         help="Benchmark case library to run.",
+    )
+    ooc_benchmark.add_argument(
+        "--cases-file",
+        type=Path,
+        default=None,
+        help="JSON file with explicit OOC benchmark cases.",
     )
     ooc_benchmark.add_argument(
         "--database-url",
@@ -1395,6 +1421,13 @@ def _run_show_eval_run(args: argparse.Namespace) -> int:
             raise CliError(str(exc)) from exc
         case_results = EvaluationCaseResultRepository(session).list_by_run(run.id)
         shown_case_results = _filter_eval_case_results(args, case_results)
+        try:
+            exported_cases_file = _export_ooc_eval_run_cases_if_requested(
+                args,
+                shown_case_results,
+            )
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
 
         print(f"database_url={database_url}")
         print(f"run_id={run.id}")
@@ -1407,10 +1440,13 @@ def _run_show_eval_run(args: argparse.Namespace) -> int:
         print(f"failed={run.failed_cases}")
         print(f"stored_case_count={len(case_results)}")
         print(f"case_count={len(shown_case_results)}")
+        if exported_cases_file is not None:
+            print(f"exported_cases_file={exported_cases_file}")
         _print_ooc_benchmark_report(summarize_ooc_benchmark(shown_case_results))
         for index, case_result in enumerate(shown_case_results, start=1):
             print(f"case.{index}.id={case_result.case_id}")
             print(f"case.{index}.status={case_result.status}")
+            print(f"case.{index}.category={case_result.category}")
             print(f"case.{index}.interaction_mode={case_result.interaction_mode}")
             print(f"case.{index}.assistant_message_id={case_result.assistant_message_id}")
             print(f"case.{index}.critic_report_id={case_result.critic_report_id or 'none'}")
@@ -1433,6 +1469,24 @@ def _filter_eval_case_results(
         for case_result in case_results
         if case_result.status == EvaluationCaseStatus.FAILED
     ]
+
+
+def _export_ooc_eval_run_cases_if_requested(
+    args: argparse.Namespace,
+    case_results: list[EvaluationCaseResult],
+) -> Path | None:
+    if args.export_cases_file is None:
+        return None
+    cases = build_ooc_benchmark_cases_from_results(
+        case_results,
+        failed_only=False,
+    )
+    return export_ooc_benchmark_cases_file(
+        args.export_cases_file,
+        cases,
+        append=args.append_cases_file,
+        overwrite=args.overwrite_cases_file,
+    )
 
 
 def _run_show_llm_trace(args: argparse.Namespace) -> int:
@@ -1685,7 +1739,10 @@ def _run_summarize_conversation(args: argparse.Namespace) -> int:
 def _run_ooc_benchmark(args: argparse.Namespace) -> int:
     settings = Settings()
     database_url = _resolve_database_url(args, settings)
-    cases = get_benchmark_cases(args.case_suite)
+    try:
+        cases = _load_ooc_benchmark_cases(args)
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
     if args.dry_run:
         return _dry_run_ooc_benchmark(args, database_url=database_url, cases=cases)
 
@@ -1715,6 +1772,8 @@ def _run_ooc_benchmark(args: argparse.Namespace) -> int:
         status=result.run.status,
         test_suite=result.run.test_suite,
         case_suite=args.case_suite,
+        cases_source=_ooc_cases_source(args),
+        cases_file=args.cases_file,
         character_id=result.run.character_id,
         persona_version_id=result.run.persona_version_id,
         total_cases=result.run.total_cases,
@@ -1725,6 +1784,7 @@ def _run_ooc_benchmark(args: argparse.Namespace) -> int:
     for index, case_result in enumerate(result.case_results, start=1):
         print(f"case.{index}.id={case_result.case_id}")
         print(f"case.{index}.status={case_result.status}")
+        print(f"case.{index}.category={case_result.category}")
         print(f"case.{index}.critic_report_id={case_result.critic_report_id or 'none'}")
         if args.verbose:
             print(f"case.{index}.interaction_mode={case_result.interaction_mode}")
@@ -1764,6 +1824,8 @@ def _dry_run_ooc_benchmark(
         status="dry_run",
         test_suite=args.test_suite,
         case_suite=args.case_suite,
+        cases_source=_ooc_cases_source(args),
+        cases_file=args.cases_file,
         character_id=character.id,
         persona_version_id=persona.id,
         total_cases=len(cases),
@@ -1781,6 +1843,16 @@ def _dry_run_ooc_benchmark(
         if args.verbose:
             print(f"case.{index}.prompt={benchmark_case.prompt}")
     return 0
+
+
+def _load_ooc_benchmark_cases(args: argparse.Namespace) -> tuple[BenchmarkCase, ...]:
+    if args.cases_file is not None:
+        return load_ooc_benchmark_cases_file(args.cases_file)
+    return get_benchmark_cases(args.case_suite)
+
+
+def _ooc_cases_source(args: argparse.Namespace) -> str:
+    return "cases_file" if args.cases_file is not None else "built_in_suite"
 
 
 def _resolve_benchmark_persona(
@@ -1811,6 +1883,8 @@ def _print_ooc_benchmark_run_summary(
     status: str,
     test_suite: str,
     case_suite: str,
+    cases_source: str,
+    cases_file: Path | None,
     character_id: str,
     persona_version_id: str,
     total_cases: int,
@@ -1822,6 +1896,9 @@ def _print_ooc_benchmark_run_summary(
     print(f"status={status}")
     print(f"test_suite={test_suite}")
     print(f"case_suite={case_suite}")
+    print(f"cases_source={cases_source}")
+    if cases_file is not None:
+        print(f"cases_file={cases_file}")
     print(f"character_id={character_id}")
     print(f"persona_version_id={persona_version_id}")
     print(f"total={total_cases}")
