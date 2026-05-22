@@ -20,15 +20,15 @@ Personality Jelly 是一个 CLI 优先的小说角色大脑 MVP。项目目标�
 
 ## 当前状态
 
-当前实现是一个本地 MVP，主要能力包括：
+当前实现是一个本地 MVP，P1 加固已完成验证，主要能力包括：
 
 - Python `>=3.12,<3.14`、`uv`、Pydantic v2、SQLAlchemy 2 和 SQLite；
 - 可替换的 LLM 与 embedding provider 抽象；
 - TXT/Markdown 原文导入与稳定 chunk 切分；
 - 角色创建、Reader 抽取、Verifier 校验、证据引用和 persona 编译；
 - 对话运行流程，包括 context assembly、roleplay generation、critic review、memory curation、memory guard 和 layered summary；
-- OOC 与 retrieval benchmark，支持持久化运行记录、dry-run 诊断、cases file 和 failed-case 检查；
-- CLI 检查 conversation、context package、critic report、character、claim、memory、LLM trace、配置和数据库迁移。
+- OOC 与 retrieval benchmark，支持内置套件、源控 cases file、持久化运行记录、dry-run 诊断、failed-case 检查和回归资产；
+- CLI 检查 conversation、context package、critic report、character、claim、memory、LLM trace、配置和数据库迁移，并提供 benchmark cases-file/export 诊断。
 
 ## 快速开始
 
@@ -90,10 +90,10 @@ timeout_seconds = 60
 
 ## 开发计划
 
-当前阶段：方案三 MVP 加固。
+当前阶段：方案三 MVP P1 closeout 已完成，下一步进入 P2 planning。
 
-- P1：继续强化 semantic tracing、benchmark cases、layered summary 消费、retrieval diagnostics 和 CLI diagnostics。
-- P2：准备 FastAPI service boundary、多作品/多角色数据边界、user/workspace/audit 概念，以及更显式的 agent workflow 可观测性。
+- P1：已完成 semantic tracing、benchmark cases、layered summary 消费、retrieval diagnostics 和 CLI diagnostics 加固。
+- P2：优先规划 FastAPI service boundary，并准备多作品/多角色数据边界、user/workspace/audit 概念，以及更显式的 agent workflow 可观测性。
 - 后续：在 canon 与 memory 边界稳定后，再评估 LangGraph、GraphRAG/LightRAG、第三方记忆系统、外部向量库和平台 UI。
 
 ## 开发指南

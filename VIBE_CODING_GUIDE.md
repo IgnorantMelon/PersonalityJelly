@@ -103,20 +103,26 @@ The project currently has:
   recording, and persona compilation from verified claims.
 - Runtime conversation flow with context package assembly, semantic interaction-mode
   classification, roleplay generation, critic evaluation, optional retry, failure-case capture,
-  memory curation, memory guard, and layered conversation summary.
+  memory curation, memory guard, and layered conversation summary. Layered summaries are rendered
+  downstream with explicit boundaries so short-term scene state, unverified memory candidates,
+  relationship notes, and reflective notes remain separate.
 - Semantic source retrieval in `retrieval/semantic.py`; configured embeddings rank chunks by
   vector similarity, persisted source chunk embeddings avoid repeated chunk embedding calls, and
   fallback retrieval only uses character name/alias entity anchoring.
 - OpenAI-compatible structured output in both strict `json_schema` mode and `json_object`
   compatibility mode, always followed by Pydantic validation.
-- Structured semantic tracing for interaction-mode classification, memory guard, and benchmark
-  evaluator calls.
+- Structured semantic tracing for interaction-mode classification, memory guard, benchmark
+  evaluator calls, and CLI investigation through list/show trace commands.
 - CLI inspection for conversations, context packages, critic reports, characters, claims, memories,
-  failure cases, LLM traces, OOC eval runs, retrieval eval runs, config, and database migrations.
+  failure cases, LLM traces, OOC eval runs, retrieval eval runs, config, and database migrations,
+  with validation diagnostics for benchmark cases-file and export workflows.
 - OOC benchmark suites: `mvp_default`, `expanded_boundaries`, and `boundary_regression`.
 - Retrieval benchmark run/show/dry-run, explicit JSON cases files, case export, append mode,
   failed-only filtering, and aggregate `report.*` / `cases_summary.*` diagnostics.
-- Full test suite status at this snapshot: `140 passed, 3 warnings`.
+- Source-controlled curated benchmark assets under `benchmarks/ooc/` and `benchmarks/retrieval/`
+  cover OOC observed-boundary cases and retrieval quality regressions.
+- P1 closeout verification status: focused benchmark, layered summary, trace CLI, config/db CLI
+  checks passed; full test suite status at this snapshot: `155 passed, 3 warnings`.
 
 ## Data Boundaries
 
@@ -333,16 +339,15 @@ P0:
 
 P1:
 
-- Extend semantic tracing to future retrieval evaluators.
-- Continue curating retrieval benchmark cases with explicit cases files and observed failures.
-- Continue curating OOC benchmark cases from observed failures.
-- Harden downstream use of layered summaries after CLI layer inspection.
-- Improve CLI diagnostics with clearer errors and richer batch benchmark output.
+- No open P1 hardening items at this snapshot.
+- Future OOC or retrieval regressions should still be captured first as explicit cases files before
+  behavior changes.
+- Continue preserving stable CLI `key=value` diagnostics when adding P2 surfaces.
 
 P2:
 
-- Implement the FastAPI boundary from `docs/06_api_contracts.md`, reusing the same service layer as
-  the CLI.
+- First planning topic: implement the FastAPI boundary from `docs/06_api_contracts.md`, reusing the
+  same service layer as the CLI.
 - Prepare multi-work and multi-character boundaries: same-name characters, alias conflicts,
   cross-work canon, and persona-version selection.
 - Add user/workspace/audit concepts for platformization.
