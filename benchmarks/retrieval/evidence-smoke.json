@@ -1,0 +1,13 @@
+{
+  "cases": [
+    {
+      "id": "evidence_smoke_observation_query",
+      "query": "How does Lin Shuang decide before acting?",
+      "expected_chunk_ids": [
+        "sample_chunk_observation"
+      ],
+      "limit": 3
+    }
+  ]
+}
+
