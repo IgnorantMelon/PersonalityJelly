@@ -115,7 +115,7 @@ The project currently has:
 - OOC benchmark suites: `mvp_default`, `expanded_boundaries`, and `boundary_regression`.
 - Retrieval benchmark run/show/dry-run, explicit JSON cases files, case export, append mode,
   failed-only filtering, and aggregate `report.*` / `cases_summary.*` diagnostics.
-- Full test suite status at this snapshot: `127 passed, 3 warnings`.
+- Full test suite status at this snapshot: `140 passed, 3 warnings`.
 
 ## Data Boundaries
 
