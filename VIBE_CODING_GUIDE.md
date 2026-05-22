@@ -32,8 +32,9 @@ All coding agents and task prompts must follow this baseline:
 - Assume other agents or the user may have changed the worktree. Do not revert, rewrite, reformat,
   or move unrelated work.
 - Keep edits tightly scoped to the assigned task and avoid broad cleanup.
-- Start from clean `dev`, create a scoped task branch, commit only the task's changes there, then
-  merge back to `dev` with `--no-ff` when the task is accepted.
+- Start from clean `dev`, create a scoped task branch, and commit only the task's changes there.
+  Multi-agent task prompts may require pushing the task branch for coordinator review instead of
+  merging back to `dev` directly.
 - If a task branch already exists, inspect it and continue only if it is clearly the intended task
   branch.
 - Follow the current P1 hardening direction unless a task explicitly changes phase: do not add
@@ -284,12 +285,13 @@ Use this workflow for every code or docs change:
 6. Do not revert unrelated user or branch changes.
 7. Add or update tests when behavior changes.
 8. Run focused tests first when practical.
-9. Run full `pytest` before merging changes that touch shared behavior.
+9. Run full `pytest` before submitting changes that touch shared behavior.
 10. Commit on the task branch.
-11. Switch back to `dev`.
-12. Merge with `git merge --no-ff <branch>`.
-13. Run relevant tests again on `dev`.
-14. Leave the worktree clean.
+11. Follow the task-specific completion instruction:
+    - for solo/local tasks, switch back to `dev`, merge with `git merge --no-ff <branch>`, run
+      relevant tests again on `dev`, and leave the worktree clean;
+    - for multi-agent task prompts that request coordinator review, do not merge into `dev`;
+      push only the task branch to `origin` and report the branch and commit hash.
 
 Useful commands:
 
