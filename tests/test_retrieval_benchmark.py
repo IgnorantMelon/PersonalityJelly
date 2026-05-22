@@ -321,6 +321,43 @@ def test_load_retrieval_benchmark_cases_file_rejects_empty_cases(
         raise AssertionError("Expected empty retrieval benchmark cases to be rejected")
 
 
+def test_load_retrieval_benchmark_cases_file_reports_case_context(
+    tmp_path: Path,
+) -> None:
+    cases_file = tmp_path / "retrieval-cases.json"
+    cases_file.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": "bad_limit",
+                        "query": "Query text.",
+                        "expected_chunk_ids": ["chunk_a"],
+                        "limit": 0,
+                    },
+                    {
+                        "id": "blank_chunk",
+                        "query": "Another query.",
+                        "expected_chunk_ids": [" "],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        load_retrieval_benchmark_cases_file(cases_file)
+    except ValueError as error:
+        message = str(error)
+        assert "cases[0].limit (case_id=bad_limit)" in message
+        assert "greater than 0" in message
+        assert "cases[1].expected_chunk_ids (case_id=blank_chunk)" in message
+        assert "expected_chunk_ids must not contain blank values" in message
+    else:
+        raise AssertionError("Expected invalid retrieval benchmark cases to be rejected")
+
+
 def test_export_retrieval_benchmark_cases_file_round_trips_cases(
     tmp_path: Path,
 ) -> None:

@@ -163,7 +163,7 @@ def test_load_ooc_benchmark_cases_file_rejects_invalid_cases(tmp_path) -> None:
                     }
                 ]
             },
-            "interaction_mode",
+            "cases[0].interaction_mode (case_id=bad_mode)",
         ),
         (
             "extra_field",
@@ -178,7 +178,7 @@ def test_load_ooc_benchmark_cases_file_rejects_invalid_cases(tmp_path) -> None:
                     }
                 ]
             },
-            "notes: Extra inputs are not permitted",
+            "cases[0].notes (case_id=extra): Extra inputs are not permitted",
         ),
         (
             "blank_required",
@@ -192,7 +192,7 @@ def test_load_ooc_benchmark_cases_file_rejects_invalid_cases(tmp_path) -> None:
                     }
                 ]
             },
-            "must not be blank",
+            "cases[0].prompt (case_id=blank_prompt): Value error, must not be blank",
         ),
     ]
 

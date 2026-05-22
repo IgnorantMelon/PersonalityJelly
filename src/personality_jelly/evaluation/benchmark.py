@@ -362,7 +362,7 @@ def load_ooc_benchmark_cases_file(path: Path | str) -> tuple[BenchmarkCase, ...]
     try:
         cases_file = _OOCBenchmarkCasesFile.model_validate(payload)
     except ValidationError as exc:
-        message = _format_cases_file_validation_error(exc)
+        message = _format_cases_file_validation_error(exc, payload)
         raise ValueError(f"Invalid OOC benchmark cases file {case_file}: {message}") from exc
 
     return tuple(
@@ -410,7 +410,7 @@ def export_ooc_benchmark_cases_file(
     try:
         cases_file = _OOCBenchmarkCasesFile.model_validate(payload)
     except ValidationError as exc:
-        message = _format_cases_file_validation_error(exc)
+        message = _format_cases_file_validation_error(exc, payload)
         raise ValueError(f"Cannot export OOC benchmark cases: {message}") from exc
 
     try:
@@ -725,9 +725,47 @@ def _ratio(numerator: int, denominator: int) -> float:
     return numerator / denominator
 
 
-def _format_cases_file_validation_error(error: ValidationError) -> str:
+def _format_cases_file_validation_error(
+    error: ValidationError,
+    payload: object | None = None,
+) -> str:
     messages: list[str] = []
     for item in error.errors():
-        location = ".".join(str(part) for part in item["loc"]) or "cases"
-        messages.append(f"{location}: {item['msg']}")
+        location = _format_validation_location(item["loc"])
+        context = _format_validation_case_context(item["loc"], payload)
+        messages.append(f"{location}{context}: {item['msg']}")
     return "; ".join(messages)
+
+
+def _format_validation_location(location_parts) -> str:
+    if not location_parts:
+        return "cases"
+    location = ""
+    for part in location_parts:
+        if isinstance(part, int):
+            location += f"[{part}]"
+        elif not location:
+            location = str(part)
+        else:
+            location += f".{part}"
+    return location
+
+
+def _format_validation_case_context(location_parts, payload: object | None) -> str:
+    if len(location_parts) < 2 or location_parts[0] != "cases":
+        return ""
+    case_index = location_parts[1]
+    if not isinstance(case_index, int):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    cases = payload.get("cases")
+    if not isinstance(cases, list) or case_index >= len(cases):
+        return ""
+    case_payload = cases[case_index]
+    if not isinstance(case_payload, dict):
+        return ""
+    case_id = case_payload.get("id")
+    if not isinstance(case_id, str) or not case_id.strip():
+        return ""
+    return f" (case_id={case_id.strip()})"

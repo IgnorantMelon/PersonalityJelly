@@ -862,6 +862,125 @@ def test_cli_dry_runs_ooc_benchmark_with_cases_file_without_persisting_run(
     assert runs == []
 
 
+def test_cli_reports_ooc_cases_file_validation_errors(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    missing_file = tmp_path / "missing-ooc-cases.json"
+    missing_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            "char_missing",
+            "--cases-file",
+            str(missing_file),
+            "--dry-run",
+        ]
+    )
+    missing_capture = capsys.readouterr()
+
+    malformed_file = tmp_path / "malformed-ooc-cases.json"
+    malformed_file.write_text('{"cases": [', encoding="utf-8")
+    malformed_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            "char_missing",
+            "--cases-file",
+            str(malformed_file),
+            "--dry-run",
+        ]
+    )
+    malformed_capture = capsys.readouterr()
+
+    invalid_file = tmp_path / "invalid-ooc-cases.json"
+    invalid_file.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": "bad_mode",
+                        "prompt": "Prompt.",
+                        "interaction_mode": "bad_mode",
+                        "category": "ooc",
+                    },
+                    {
+                        "id": "blank_prompt",
+                        "prompt": " ",
+                        "interaction_mode": "reality_chat",
+                        "category": "ooc",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    invalid_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            "char_missing",
+            "--cases-file",
+            str(invalid_file),
+            "--dry-run",
+        ]
+    )
+    invalid_capture = capsys.readouterr()
+
+    duplicate_file = tmp_path / "duplicate-ooc-cases.json"
+    duplicate_file.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": "duplicate_case",
+                        "prompt": "Prompt one.",
+                        "interaction_mode": "reality_chat",
+                        "category": "ooc",
+                    },
+                    {
+                        "id": "duplicate_case",
+                        "prompt": "Prompt two.",
+                        "interaction_mode": "meta_discussion",
+                        "category": "mode_confusion",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    duplicate_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            "char_missing",
+            "--cases-file",
+            str(duplicate_file),
+            "--dry-run",
+        ]
+    )
+    duplicate_capture = capsys.readouterr()
+
+    assert missing_exit_code == 2
+    assert f"OOC benchmark cases file not found: {missing_file}" in missing_capture.err
+    assert malformed_exit_code == 2
+    assert f"Invalid OOC benchmark cases JSON in {malformed_file}" in malformed_capture.err
+    assert "line 1 column" in malformed_capture.err
+    assert invalid_exit_code == 2
+    assert "cases[0].interaction_mode (case_id=bad_mode)" in invalid_capture.err
+    assert "cases[1].prompt (case_id=blank_prompt)" in invalid_capture.err
+    assert duplicate_exit_code == 2
+    assert "duplicate OOC benchmark case ids: duplicate_case" in duplicate_capture.err
+
+
 def test_cli_dry_runs_committed_ooc_regression_cases_file(
     tmp_path: Path,
     capsys,
@@ -1017,6 +1136,62 @@ def test_cli_runs_ooc_benchmark_with_cases_file(
     assert "case.1.category=ooc" in show_output
     assert "case.2.category=mode_confusion" in show_output
     assert "case.2.prompt=Enter a short scene without rewriting canon." in show_output
+
+
+def test_cli_reports_ooc_export_path_exists(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+
+    eval_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "export_conflict_suite",
+        ]
+    )
+    eval_output = capsys.readouterr().out
+    run_id = _output_value(eval_output, "run_id")
+    existing_cases_file = tmp_path / "existing-ooc-cases.json"
+    existing_cases_file.write_text('{"cases":[]}', encoding="utf-8")
+
+    show_exit_code = main(
+        [
+            "show",
+            "eval-run",
+            run_id,
+            "--export-cases-file",
+            str(existing_cases_file),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert demo_exit_code == 0
+    assert eval_exit_code == 0
+    assert show_exit_code == 2
+    assert f"OOC benchmark cases file already exists: {existing_cases_file}" in captured.err
+    assert "--append-cases-file" in captured.err
+    assert "--overwrite-cases-file" in captured.err
 
 
 def test_cli_runs_committed_ooc_regression_cases_file(
@@ -1382,6 +1557,7 @@ def test_cli_runs_lists_and_shows_retrieval_benchmark(
     assert "test_suite=retrieval_cli_suite" in eval_output
     assert f"character_id={character_id}" in eval_output
     assert "embedding_model=stub-embedding" in eval_output
+    assert "cases_source=generated" in eval_output
     assert "pass_rate=0.000" in eval_output
     assert "failed_case_count=1" in eval_output
     assert "report.evidence_case_count=1" in eval_output
@@ -1573,6 +1749,55 @@ def test_cli_dry_run_can_export_generated_retrieval_benchmark_cases(
     assert runs == []
 
 
+def test_cli_retrieval_benchmark_reports_exported_cases_file(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+    export_file = tmp_path / "exports" / "generated-retrieval-cases.json"
+
+    eval_exit_code = main(
+        [
+            "eval",
+            "retrieval-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "retrieval_export_cases_run",
+            "--no-empty-case",
+            "--export-cases-file",
+            str(export_file),
+        ]
+    )
+    eval_output = capsys.readouterr().out
+    exported_payload = json.loads(export_file.read_text(encoding="utf-8"))
+
+    assert demo_exit_code == 0
+    assert eval_exit_code == 0
+    assert "run_id=retrievaleval_" in eval_output
+    assert "test_suite=retrieval_export_cases_run" in eval_output
+    assert "cases_source=generated" in eval_output
+    assert f"exported_cases_file={export_file}" in eval_output
+    assert exported_payload["cases"][0]["id"] == "claim_1"
+    assert exported_payload["cases"][0]["expected_chunk_ids"][0].startswith("chunk_")
+
+
 def test_cli_show_retrieval_eval_run_can_filter_failed_cases(
     tmp_path: Path,
     capsys,
@@ -1641,6 +1866,8 @@ def test_cli_show_retrieval_eval_run_can_filter_failed_cases(
     assert "total=2" in eval_output
     assert "passed=1" in eval_output
     assert "failed=1" in eval_output
+    assert "cases_source=cases_file" in eval_output
+    assert f"cases_file={cases_file}" in eval_output
     assert show_exit_code == 0
     assert "stored_case_count=2" in show_output
     assert "case_count=1" in show_output
@@ -1743,6 +1970,103 @@ def test_cli_dry_runs_retrieval_benchmark_with_cases_file(
     assert "case.2.limit=4" in dry_run_output
     assert "case.2.query=Out-of-scope probe." in dry_run_output
     assert runs == []
+
+
+def test_cli_reports_retrieval_cases_file_validation_errors(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+    cases_file = tmp_path / "invalid-retrieval-cases.json"
+    cases_file.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "id": "bad_limit",
+                        "query": "Query text.",
+                        "expected_chunk_ids": ["chunk_a"],
+                        "limit": 0,
+                    },
+                    {
+                        "id": "blank_chunk",
+                        "query": "Another query.",
+                        "expected_chunk_ids": [" "],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "eval",
+            "retrieval-benchmark",
+            "--character-id",
+            "char_missing",
+            "--cases-file",
+            str(cases_file),
+            "--dry-run",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "Invalid retrieval benchmark cases file" in captured.err
+    assert "cases[0].limit (case_id=bad_limit)" in captured.err
+    assert "greater than 0" in captured.err
+    assert "cases[1].expected_chunk_ids (case_id=blank_chunk)" in captured.err
+    assert "expected_chunk_ids must not contain blank values" in captured.err
+
+
+def test_cli_reports_retrieval_export_path_exists(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+
+    existing_cases_file = tmp_path / "existing-retrieval-cases.json"
+    existing_cases_file.write_text('{"cases":[]}', encoding="utf-8")
+    exit_code = main(
+        [
+            "eval",
+            "retrieval-benchmark",
+            "--character-id",
+            character_id,
+            "--export-cases-file",
+            str(existing_cases_file),
+            "--dry-run",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert demo_exit_code == 0
+    assert exit_code == 2
+    assert (
+        f"Retrieval benchmark cases file already exists: {existing_cases_file}"
+        in captured.err
+    )
+    assert "--append-cases-file" in captured.err
+    assert "--overwrite-cases-file" in captured.err
 
 
 def test_cli_lists_and_shows_llm_traces(tmp_path: Path, capsys, monkeypatch) -> None:
