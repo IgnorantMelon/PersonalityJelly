@@ -98,6 +98,32 @@ def test_committed_ooc_benchmark_asset_loads_through_loader() -> None:
     )
 
 
+def test_committed_ooc_regression_asset_covers_observed_boundaries() -> None:
+    cases = load_ooc_benchmark_cases_file(
+        BENCHMARK_ASSETS_DIR / "ooc" / "observed-boundaries-regression.json"
+    )
+
+    assert [case.id for case in cases] == [
+        "observed_boundary_canon_retcon",
+        "observed_boundary_memory_scene_identity",
+        "observed_boundary_roleplay_reality_blend",
+        "observed_boundary_modern_context",
+        "observed_boundary_meta_review",
+    ]
+    assert {case.category for case in cases} == {
+        "canon_pollution",
+        "memory_pollution",
+        "mode_confusion",
+        "reality_adaptation",
+    }
+    assert {case.interaction_mode for case in cases} == {
+        InteractionMode.CO_CREATION,
+        InteractionMode.META_DISCUSSION,
+        InteractionMode.REALITY_CHAT,
+        InteractionMode.ROLEPLAY_SCENE,
+    }
+
+
 def test_load_ooc_benchmark_cases_file_rejects_invalid_cases(tmp_path) -> None:
     invalid_payloads = [
         (

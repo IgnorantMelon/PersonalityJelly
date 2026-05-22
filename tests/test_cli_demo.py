@@ -21,6 +21,9 @@ from personality_jelly.storage import (
 from personality_jelly.testing.stub_provider import StubProvider
 
 
+BENCHMARK_ASSETS_DIR = Path(__file__).resolve().parents[1] / "benchmarks"
+
+
 class RecordingProvider(StubProvider):
     def __init__(self) -> None:
         self.model_names: list[str] = []
@@ -859,6 +862,75 @@ def test_cli_dry_runs_ooc_benchmark_with_cases_file_without_persisting_run(
     assert runs == []
 
 
+def test_cli_dry_runs_committed_ooc_regression_cases_file(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+    cases_file = BENCHMARK_ASSETS_DIR / "ooc" / "observed-boundaries-regression.json"
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+
+    dry_run_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "observed_boundaries_regression",
+            "--cases-file",
+            str(cases_file),
+            "--dry-run",
+            "--verbose",
+        ]
+    )
+    dry_run_output = capsys.readouterr().out
+
+    engine = create_database_engine(database_url)
+    session_factory = create_session_factory(engine)
+    with session_factory() as session:
+        runs = EvaluationRunRepository(session).list_recent()
+
+    assert demo_exit_code == 0
+    assert dry_run_exit_code == 0
+    assert "run_id=dry-run" in dry_run_output
+    assert "test_suite=observed_boundaries_regression" in dry_run_output
+    assert "cases_source=cases_file" in dry_run_output
+    assert f"cases_file={cases_file}" in dry_run_output
+    assert "total=5" in dry_run_output
+    assert "will_create_run=false" in dry_run_output
+    assert "will_call_provider=false" in dry_run_output
+    assert "cases_summary.mode_count=4" in dry_run_output
+    assert "cases_summary.mode.1.interaction_mode=co_creation" in dry_run_output
+    assert "cases_summary.mode.1.total_cases=1" in dry_run_output
+    assert "cases_summary.mode.2.interaction_mode=meta_discussion" in dry_run_output
+    assert "cases_summary.mode.3.interaction_mode=reality_chat" in dry_run_output
+    assert "cases_summary.mode.4.interaction_mode=roleplay_scene" in dry_run_output
+    assert "cases_summary.mode.4.total_cases=2" in dry_run_output
+    assert "case.1.id=observed_boundary_canon_retcon" in dry_run_output
+    assert "case.1.category=canon_pollution" in dry_run_output
+    assert "case.2.category=memory_pollution" in dry_run_output
+    assert "case.3.category=mode_confusion" in dry_run_output
+    assert "case.4.category=reality_adaptation" in dry_run_output
+    assert "case.5.id=observed_boundary_meta_review" in dry_run_output
+    assert runs == []
+
+
 def test_cli_runs_ooc_benchmark_with_cases_file(
     tmp_path: Path,
     capsys,
@@ -945,6 +1017,68 @@ def test_cli_runs_ooc_benchmark_with_cases_file(
     assert "case.1.category=ooc" in show_output
     assert "case.2.category=mode_confusion" in show_output
     assert "case.2.prompt=Enter a short scene without rewriting canon." in show_output
+
+
+def test_cli_runs_committed_ooc_regression_cases_file(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    database_url = f"sqlite:///{tmp_path / 'pjelly.db'}"
+    monkeypatch.setenv("PJ_DATABASE_URL", database_url)
+    cases_file = BENCHMARK_ASSETS_DIR / "ooc" / "observed-boundaries-regression.json"
+
+    demo_exit_code = main(
+        [
+            "demo",
+            str(source_file),
+            "--character",
+            "Lin Shuang",
+            "--reuse-existing",
+        ]
+    )
+    demo_output = capsys.readouterr().out
+    character_id = _output_value(demo_output, "character_id")
+
+    eval_exit_code = main(
+        [
+            "eval",
+            "ooc-benchmark",
+            "--character-id",
+            character_id,
+            "--test-suite",
+            "observed_boundaries_regression",
+            "--cases-file",
+            str(cases_file),
+        ]
+    )
+    eval_output = capsys.readouterr().out
+    run_id = _output_value(eval_output, "run_id")
+
+    show_exit_code = main(["show", "eval-run", run_id])
+    show_output = capsys.readouterr().out
+
+    assert demo_exit_code == 0
+    assert eval_exit_code == 0
+    assert "test_suite=observed_boundaries_regression" in eval_output
+    assert "cases_source=cases_file" in eval_output
+    assert f"cases_file={cases_file}" in eval_output
+    assert "total=5" in eval_output
+    assert "passed=5" in eval_output
+    assert "report.total_cases=5" in eval_output
+    assert "report.mode_count=4" in eval_output
+    assert "case.1.id=observed_boundary_canon_retcon" in eval_output
+    assert "case.2.category=memory_pollution" in eval_output
+    assert "case.3.category=mode_confusion" in eval_output
+    assert "case.4.category=reality_adaptation" in eval_output
+    assert "case.5.id=observed_boundary_meta_review" in eval_output
+    assert show_exit_code == 0
+    assert "case_count=5" in show_output
+    assert "case.1.assistant_message_id=msg_" in show_output
+    assert "case.1.critic_report_id=cr_" in show_output
+    assert "case.5.interaction_mode=meta_discussion" in show_output
 
 
 def test_cli_runs_expanded_ooc_benchmark_case_suite(
