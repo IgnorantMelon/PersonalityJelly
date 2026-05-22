@@ -2,18 +2,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
 from personality_jelly.domain import Conversation, MessageRole
 from personality_jelly.domain.models import utc_now
 from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
+from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder, record_structured_output
 from personality_jelly.runtime.summary_prompts import (
     SUMMARY_SYSTEM_PROMPT,
     build_summary_user_prompt,
 )
 from personality_jelly.runtime.summary_schemas import ConversationSummaryDraft
-from personality_jelly.storage import ConversationRepository, MessageRepository
+from personality_jelly.storage import (
+    ConversationRepository,
+    LLMRawOutputRepository,
+    MessageRepository,
+)
+
+
+CONVERSATION_SUMMARY_OPERATION = "runtime.summary.conversation_summary"
 
 
 @dataclass(frozen=True)
@@ -47,6 +55,7 @@ def summarize_conversation(
     if not recent_messages:
         raise ValueError(f"Conversation {conversation_id!r} has no messages to summarize")
 
+    schema = ConversationSummaryDraft.model_json_schema()
     raw = provider.generate_json(
         messages=[
             ChatMessage(role=MessageRole.SYSTEM, content=SUMMARY_SYSTEM_PROMPT),
@@ -58,10 +67,34 @@ def summarize_conversation(
                 ),
             ),
         ],
-        schema=ConversationSummaryDraft.model_json_schema(),
+        schema=schema,
         model_config=model_config,
     )
-    draft = TypeAdapter(ConversationSummaryDraft).validate_python(raw)
+    trace_recorder = RepositoryLLMTraceRecorder(LLMRawOutputRepository(session))
+    try:
+        draft = TypeAdapter(ConversationSummaryDraft).validate_python(raw)
+    except ValidationError as exc:
+        record_structured_output(
+            recorder=trace_recorder,
+            operation=CONVERSATION_SUMMARY_OPERATION,
+            schema_name=ConversationSummaryDraft.__name__,
+            provider=provider,
+            model_config=model_config,
+            response_schema=schema,
+            raw_output=raw,
+            validation_error=exc,
+        )
+        raise
+    record_structured_output(
+        recorder=trace_recorder,
+        operation=CONVERSATION_SUMMARY_OPERATION,
+        schema_name=ConversationSummaryDraft.__name__,
+        provider=provider,
+        model_config=model_config,
+        response_schema=schema,
+        raw_output=raw,
+        parsed_output=draft,
+    )
     updated = conversation_repository.update_summary(
         conversation.id,
         summary=_format_layered_summary(draft),

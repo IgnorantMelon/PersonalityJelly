@@ -2,19 +2,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
 from personality_jelly.core import EntityKind, generate_id
 from personality_jelly.domain import ClaimStatus, MessageRole, PersonaVersion
 from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
+from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder, record_structured_output
 from personality_jelly.persona.prompts import COMPILER_SYSTEM_PROMPT, build_compiler_user_prompt
 from personality_jelly.persona.schemas import PersonaCompilation
 from personality_jelly.storage import (
     CanonClaimRepository,
     CharacterRepository,
+    LLMRawOutputRepository,
     PersonaVersionRepository,
 )
+
+
+PERSONA_COMPILATION_OPERATION = "persona.compile_version"
 
 
 @dataclass(frozen=True)
@@ -37,6 +42,7 @@ def compile_persona_version(
     if not verified_claims:
         raise ValueError(f"Character {character_id!r} has no verified claims to compile")
 
+    schema = PersonaCompilation.model_json_schema()
     raw = provider.generate_json(
         messages=[
             ChatMessage(role=MessageRole.SYSTEM, content=COMPILER_SYSTEM_PROMPT),
@@ -48,10 +54,34 @@ def compile_persona_version(
                 ),
             ),
         ],
-        schema=PersonaCompilation.model_json_schema(),
+        schema=schema,
         model_config=model_config,
     )
-    compiled = TypeAdapter(PersonaCompilation).validate_python(raw)
+    trace_recorder = RepositoryLLMTraceRecorder(LLMRawOutputRepository(session))
+    try:
+        compiled = TypeAdapter(PersonaCompilation).validate_python(raw)
+    except ValidationError as exc:
+        record_structured_output(
+            recorder=trace_recorder,
+            operation=PERSONA_COMPILATION_OPERATION,
+            schema_name=PersonaCompilation.__name__,
+            provider=provider,
+            model_config=model_config,
+            response_schema=schema,
+            raw_output=raw,
+            validation_error=exc,
+        )
+        raise
+    record_structured_output(
+        recorder=trace_recorder,
+        operation=PERSONA_COMPILATION_OPERATION,
+        schema_name=PersonaCompilation.__name__,
+        provider=provider,
+        model_config=model_config,
+        response_schema=schema,
+        raw_output=raw,
+        parsed_output=compiled,
+    )
 
     repository = PersonaVersionRepository(session)
     persona_version = PersonaVersion(

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
 from personality_jelly.core import EntityKind, generate_id
 from personality_jelly.domain import Memory, MessageRole
 from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
-from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder
+from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder, record_structured_output
 from personality_jelly.memory.guard import guard_memory_candidates
 from personality_jelly.memory.prompts import CURATOR_SYSTEM_PROMPT, build_curator_user_prompt
 from personality_jelly.memory.schemas import MemoryCuration
@@ -20,6 +20,9 @@ from personality_jelly.storage import (
     MemoryRepository,
     MessageRepository,
 )
+
+
+MEMORY_CURATOR_OPERATION = "memory.curator.extract_candidates"
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,7 @@ def curate_memories_for_message(
         else None
     )
 
+    schema = MemoryCuration.model_json_schema()
     raw = provider.generate_json(
         messages=[
             ChatMessage(role=MessageRole.SYSTEM, content=CURATOR_SYSTEM_PROMPT),
@@ -72,10 +76,34 @@ def curate_memories_for_message(
                 ),
             ),
         ],
-        schema=MemoryCuration.model_json_schema(),
+        schema=schema,
         model_config=model_config,
     )
-    curation = TypeAdapter(MemoryCuration).validate_python(raw)
+    trace_recorder = RepositoryLLMTraceRecorder(LLMRawOutputRepository(session))
+    try:
+        curation = TypeAdapter(MemoryCuration).validate_python(raw)
+    except ValidationError as exc:
+        record_structured_output(
+            recorder=trace_recorder,
+            operation=MEMORY_CURATOR_OPERATION,
+            schema_name=MemoryCuration.__name__,
+            provider=provider,
+            model_config=model_config,
+            response_schema=schema,
+            raw_output=raw,
+            validation_error=exc,
+        )
+        raise
+    record_structured_output(
+        recorder=trace_recorder,
+        operation=MEMORY_CURATOR_OPERATION,
+        schema_name=MemoryCuration.__name__,
+        provider=provider,
+        model_config=model_config,
+        response_schema=schema,
+        raw_output=raw,
+        parsed_output=curation,
+    )
     guarded_candidates = guard_memory_candidates(
         curation.memories,
         user_message=user_message,
@@ -84,7 +112,7 @@ def curate_memories_for_message(
         critic_report=critic_report,
         provider=guard_provider or provider,
         model_config=guard_model_config or model_config,
-        trace_recorder=RepositoryLLMTraceRecorder(LLMRawOutputRepository(session)),
+        trace_recorder=trace_recorder,
     )
 
     memories = [

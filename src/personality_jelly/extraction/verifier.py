@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
 from personality_jelly.core import EntityKind, generate_id
@@ -16,10 +16,12 @@ from personality_jelly.domain import (
     SourceChunk,
 )
 from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
+from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder, record_structured_output
 from personality_jelly.storage import (
     CanonClaimRepository,
     ClaimConflictRepository,
     EvidenceRefRepository,
+    LLMRawOutputRepository,
     SourceChunkRepository,
 )
 from personality_jelly.extraction.verifier_prompts import (
@@ -31,6 +33,9 @@ from personality_jelly.extraction.verifier_schemas import (
     VerifierDecision,
     VerifierResult,
 )
+
+
+VERIFIER_OPERATION = "extraction.verifier.verify_claim"
 
 
 @dataclass(frozen=True)
@@ -56,6 +61,7 @@ def verify_candidate_claims(
 
     evidence_by_claim = _load_evidence(session, candidate_claims)
     chunks_by_id = _load_chunks(session, evidence_by_claim)
+    schema = VerifierResult.model_json_schema()
     raw = provider.generate_json(
         messages=[
             ChatMessage(role=MessageRole.SYSTEM, content=VERIFIER_SYSTEM_PROMPT),
@@ -69,10 +75,34 @@ def verify_candidate_claims(
                 ),
             ),
         ],
-        schema=VerifierResult.model_json_schema(),
+        schema=schema,
         model_config=model_config,
     )
-    verifier_result = TypeAdapter(VerifierResult).validate_python(raw)
+    trace_recorder = RepositoryLLMTraceRecorder(LLMRawOutputRepository(session))
+    try:
+        verifier_result = TypeAdapter(VerifierResult).validate_python(raw)
+    except ValidationError as exc:
+        record_structured_output(
+            recorder=trace_recorder,
+            operation=VERIFIER_OPERATION,
+            schema_name=VerifierResult.__name__,
+            provider=provider,
+            model_config=model_config,
+            response_schema=schema,
+            raw_output=raw,
+            validation_error=exc,
+        )
+        raise
+    record_structured_output(
+        recorder=trace_recorder,
+        operation=VERIFIER_OPERATION,
+        schema_name=VerifierResult.__name__,
+        provider=provider,
+        model_config=model_config,
+        response_schema=schema,
+        raw_output=raw,
+        parsed_output=verifier_result,
+    )
 
     claim_ids = {claim.id for claim in candidate_claims}
     updated_claims = [

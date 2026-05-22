@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from personality_jelly.characters import create_character
 from personality_jelly.critic import evaluate_message
 from personality_jelly.domain import ClaimStatus, ClaimType, MemoryStatus
@@ -9,6 +12,7 @@ from personality_jelly.persona import compile_persona_version
 from personality_jelly.runtime import create_conversation, create_user, send_message
 from personality_jelly.storage import (
     CharacterRepository,
+    LLMRawOutputRepository,
     MemoryRepository,
     create_all,
     create_database_engine,
@@ -164,6 +168,26 @@ class CuratorFakeProvider:
         raise NotImplementedError
 
 
+class InvalidCuratorFakeProvider(CuratorFakeProvider):
+    name = "invalid-curator-fake"
+
+    def generate_json(self, messages, schema, model_config):
+        self.prompt = messages[1].content
+        if schema.get("title") == "MemoryGuardDecision":
+            return super().generate_json(messages, schema, model_config)
+        return {
+            "memories": [
+                {
+                    "scope": "user_memory",
+                    "status": "accepted",
+                    "content": "invalid importance",
+                    "importance": 5,
+                    "reason": "outside valid range",
+                }
+            ]
+        }
+
+
 def test_curate_memories_for_message_persists_memory(tmp_path) -> None:
     source_file = tmp_path / "sample.md"
     source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
@@ -235,11 +259,47 @@ def test_curate_memories_for_message_persists_memory(tmp_path) -> None:
             "char_001",
             status=MemoryStatus.ACCEPTED,
         )
+        curation_traces = LLMRawOutputRepository(session).list_by_operation(
+            "memory.curator.extract_candidates"
+        )
+        guard_traces = LLMRawOutputRepository(session).list_by_operation(
+            "memory.guard.semantic_decision"
+        )
 
     assert result.memories[0].content == "用户喜欢在夜里写作。"
     assert memories[0].user_id == "user_001"
     assert memories[0].character_id == "char_001"
+    assert len(curation_traces) == 1
+    assert curation_traces[0].schema_name == "MemoryCuration"
+    assert curation_traces[0].model_name == "fake-curator"
+    assert curation_traces[0].parsed_output["memories"][0]["content"] == (
+        result.memories[0].content
+    )
+    assert curation_traces[0].validation_errors == []
+    assert len(guard_traces) == 1
     assert memories[0].content == "用户喜欢在夜里写作。"
     assert "请记住，我喜欢在夜里写作" in curator.prompt
     assert "回复没有污染 canon" in curator.prompt
+
+    with session_factory() as session:
+        with pytest.raises(ValidationError):
+            curate_memories_for_message(
+                session,
+                provider=InvalidCuratorFakeProvider(),
+                model_config=ModelConfig(model="invalid-curator"),
+                message_id=turn.assistant_message.id,
+                critic_report_id=critic_report.id,
+            )
+        session.commit()
+
+    with session_factory() as session:
+        error_traces = LLMRawOutputRepository(session).list_by_operation(
+            "memory.curator.extract_candidates"
+        )
+
+    assert len(error_traces) == 2
+    assert error_traces[0].model_name == "invalid-curator"
+    assert error_traces[0].parsed_output is None
+    assert error_traces[0].validation_errors
+    assert '"importance": 5' in error_traces[0].raw_output
 

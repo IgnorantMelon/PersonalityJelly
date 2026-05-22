@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from personality_jelly.characters import create_character
 from personality_jelly.domain import ClaimStatus, ClaimType
 from personality_jelly.extraction import run_reader_extraction, verify_candidate_claims
@@ -7,6 +10,7 @@ from personality_jelly.storage import (
     CanonClaimRepository,
     CharacterRepository,
     ClaimConflictRepository,
+    LLMRawOutputRepository,
     create_all,
     create_database_engine,
     create_session_factory,
@@ -102,6 +106,23 @@ class VerifierFakeProvider:
         raise NotImplementedError
 
 
+class InvalidVerifierFakeProvider(VerifierFakeProvider):
+    name = "invalid-verifier-fake"
+
+    def generate_json(self, messages, schema, model_config):
+        return {
+            "decisions": [
+                {
+                    "claim_id": "claim_invalid",
+                    "status": "verified",
+                    "confidence": 2,
+                    "reasoning": "outside valid range",
+                }
+            ],
+            "conflicts": [],
+        }
+
+
 def test_verify_candidate_claims_updates_claim_status_and_records_conflict(tmp_path) -> None:
     source_file = tmp_path / "sample.md"
     source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
@@ -148,10 +169,62 @@ def test_verify_candidate_claims_updates_claim_status_and_records_conflict(tmp_p
             claim_type=ClaimType.PERSONALITY,
         )
         conflicts = ClaimConflictRepository(session).list_by_claim(conflicted_claims[0].id)
+        traces = LLMRawOutputRepository(session).list_by_operation(
+            "extraction.verifier.verify_claim"
+        )
 
     assert len(result.updated_claims) == 2
+    assert len(traces) == 1
+    assert traces[0].schema_name == "VerifierResult"
+    assert traces[0].model_name == "fake-verifier"
+    assert traces[0].parsed_output["decisions"][0]["status"] == "verified"
+    assert traces[0].validation_errors == []
     assert verified_claims[0].content == "林霜行事谨慎。"
     assert verified_claims[0].reasoning == "证据支持她先观察再行动。"
     assert conflicted_claims[0].content == "林霜行事鲁莽。"
     assert conflicts[0].description == "谨慎与鲁莽描述互相冲突。"
+
+
+def test_verify_candidate_claims_traces_validation_errors(tmp_path) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        ingestion_result = ingest_text_file(session, source_file, title="sample")
+        create_character(
+            session,
+            source_work_id=ingestion_result.source_work.id,
+            canonical_name="Lin Shuang",
+            character_id="char_001",
+        )
+        run_reader_extraction(
+            session,
+            provider=ReaderFakeProvider(ingestion_result.chunks[0].id),
+            model_config=ModelConfig(model="fake-reader"),
+            character_id="char_001",
+        )
+        character = CharacterRepository(session).require("char_001")
+        with pytest.raises(ValidationError):
+            verify_candidate_claims(
+                session,
+                provider=InvalidVerifierFakeProvider(),
+                model_config=ModelConfig(model="invalid-verifier"),
+                character=character,
+            )
+        session.commit()
+
+    with session_factory() as session:
+        traces = LLMRawOutputRepository(session).list_by_operation(
+            "extraction.verifier.verify_claim"
+        )
+
+    assert len(traces) == 1
+    assert traces[0].schema_name == "VerifierResult"
+    assert traces[0].model_name == "invalid-verifier"
+    assert traces[0].parsed_output is None
+    assert traces[0].validation_errors
+    assert '"confidence": 2' in traces[0].raw_output
 

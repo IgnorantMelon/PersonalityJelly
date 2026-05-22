@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from personality_jelly.characters import create_character
 from personality_jelly.critic import evaluate_message
 from personality_jelly.domain import ClaimStatus, ClaimType
@@ -9,6 +12,7 @@ from personality_jelly.runtime import create_conversation, create_user, send_mes
 from personality_jelly.storage import (
     CharacterRepository,
     CriticReportRepository,
+    LLMRawOutputRepository,
     create_all,
     create_database_engine,
     create_session_factory,
@@ -130,6 +134,21 @@ class CriticFakeProvider:
         raise NotImplementedError
 
 
+class InvalidCriticFakeProvider(CriticFakeProvider):
+    name = "invalid-critic-fake"
+
+    def generate_json(self, messages, schema, model_config):
+        self.prompt = messages[1].content
+        return {
+            "ooc_risk": "not_a_risk",
+            "fact_risk": "low",
+            "memory_risk": "low",
+            "mode_risk": "low",
+            "reasons": ["invalid structured output"],
+            "suggested_action": "accept",
+        }
+
+
 def test_evaluate_message_persists_critic_report(tmp_path) -> None:
     source_file = tmp_path / "sample.md"
     source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
@@ -190,9 +209,36 @@ def test_evaluate_message_persists_critic_report(tmp_path) -> None:
 
     with session_factory() as session:
         stored = CriticReportRepository(session).require(result.critic_report.id)
+        traces = LLMRawOutputRepository(session).list_by_operation("critic.evaluate_message")
 
     assert stored.message_id == turn.assistant_message.id
     assert stored.ooc_risk == "low"
+    assert len(traces) == 1
+    assert traces[0].schema_name == "CriticEvaluation"
+    assert traces[0].model_name == "fake-critic"
+    assert traces[0].parsed_output["suggested_action"] == "accept"
+    assert traces[0].validation_errors == []
+
+    with session_factory() as session:
+        with pytest.raises(ValidationError):
+            evaluate_message(
+                session,
+                provider=InvalidCriticFakeProvider(),
+                model_config=ModelConfig(model="invalid-critic"),
+                message_id=turn.assistant_message.id,
+            )
+        session.commit()
+
+    with session_factory() as session:
+        error_traces = LLMRawOutputRepository(session).list_by_operation(
+            "critic.evaluate_message"
+        )
+
+    assert len(error_traces) == 2
+    assert error_traces[0].model_name == "invalid-critic"
+    assert error_traces[0].parsed_output is None
+    assert error_traces[0].validation_errors
+    assert '"ooc_risk": "not_a_risk"' in error_traces[0].raw_output
     assert stored.suggested_action == "accept"
     assert "我今天有点累" in critic.prompt
     assert "我听见了" in critic.prompt

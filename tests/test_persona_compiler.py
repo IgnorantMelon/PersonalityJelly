@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from personality_jelly.characters import create_character
 from personality_jelly.domain import ClaimStatus, ClaimType
 from personality_jelly.extraction import run_reader_extraction, verify_candidate_claims
@@ -6,6 +9,7 @@ from personality_jelly.llm import ChatMessage, EmbeddingConfig, ModelConfig
 from personality_jelly.persona import compile_persona_version
 from personality_jelly.storage import (
     CharacterRepository,
+    LLMRawOutputRepository,
     PersonaVersionRepository,
     create_all,
     create_database_engine,
@@ -95,6 +99,19 @@ class CompilerFakeProvider:
         raise NotImplementedError
 
 
+class InvalidCompilerFakeProvider(CompilerFakeProvider):
+    name = "invalid-compiler-fake"
+
+    def generate_json(self, messages, schema, model_config):
+        self.prompt = messages[1].content
+        return {
+            "speech_rules": ["missing core_self"],
+            "behavior_rules": [],
+            "world_adaptation_rules": [],
+            "forbidden_rules": [],
+        }
+
+
 def test_compile_persona_version_uses_verified_claims_only(tmp_path) -> None:
     source_file = tmp_path / "sample.md"
     source_file.write_text("# 第一章\n\n林霜总是先观察，再行动。", encoding="utf-8")
@@ -137,8 +154,62 @@ def test_compile_persona_version_uses_verified_claims_only(tmp_path) -> None:
 
     with session_factory() as session:
         stored = PersonaVersionRepository(session).latest_for_character("char_001")
+        traces = LLMRawOutputRepository(session).list_by_operation("persona.compile_version")
 
     assert result.persona_version.version_number == 1
+    assert len(traces) == 1
+    assert traces[0].schema_name == "PersonaCompilation"
+    assert traces[0].model_name == "fake-compiler"
+    assert traces[0].parsed_output["core_self"] == result.persona_version.core_self
+    assert traces[0].validation_errors == []
     assert stored.core_self == "林霜谨慎敏锐，行动前会先观察局势。"
     assert stored.source_claim_ids == result.persona_version.source_claim_ids
     assert "林霜行事谨慎" in compiler.prompt
+
+
+def test_compile_persona_version_traces_validation_errors(tmp_path) -> None:
+    source_file = tmp_path / "sample.md"
+    source_file.write_text("# chapter\n\nLin Shuang observes before acting.", encoding="utf-8")
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        ingestion_result = ingest_text_file(session, source_file, title="sample")
+        create_character(
+            session,
+            source_work_id=ingestion_result.source_work.id,
+            canonical_name="Lin Shuang",
+            character_id="char_001",
+        )
+        run_reader_extraction(
+            session,
+            provider=ReaderFakeProvider(ingestion_result.chunks[0].id),
+            model_config=ModelConfig(model="fake-reader"),
+            character_id="char_001",
+        )
+        character_model = CharacterRepository(session).require("char_001")
+        verify_candidate_claims(
+            session,
+            provider=VerifierFakeProvider(),
+            model_config=ModelConfig(model="fake-verifier"),
+            character=character_model,
+        )
+        with pytest.raises(ValidationError):
+            compile_persona_version(
+                session,
+                provider=InvalidCompilerFakeProvider(),
+                model_config=ModelConfig(model="invalid-compiler"),
+                character_id="char_001",
+            )
+        session.commit()
+
+    with session_factory() as session:
+        traces = LLMRawOutputRepository(session).list_by_operation("persona.compile_version")
+
+    assert len(traces) == 1
+    assert traces[0].schema_name == "PersonaCompilation"
+    assert traces[0].model_name == "invalid-compiler"
+    assert traces[0].parsed_output is None
+    assert traces[0].validation_errors
+    assert '"speech_rules": ["missing core_self"]' in traces[0].raw_output
