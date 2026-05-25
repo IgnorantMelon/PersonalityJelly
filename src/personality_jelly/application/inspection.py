@@ -74,7 +74,7 @@ class EvidenceRefSummary(InspectionModel):
     chunk_id: str
     excerpt: str
     support_score: float = Field(ge=0.0, le=1.0)
-    chunk: SourceChunkSummary | None = None
+    chunk: SerializeAsAny[SourceChunkSummary] | None = None
 
 
 class ClaimSummary(InspectionModel):
@@ -189,7 +189,7 @@ class ContextPackageDetail(ContextPackageSummary):
     persona_version: PersonaVersionSummary | None = None
     claims: list[ClaimSummary] = Field(default_factory=list)
     memories: list[MemorySummary] = Field(default_factory=list)
-    retrieved_chunks: list[SourceChunkSummary] = Field(default_factory=list)
+    retrieved_chunks: list[SerializeAsAny[SourceChunkSummary]] = Field(default_factory=list)
 
 
 class CriticReportSummary(InspectionModel):

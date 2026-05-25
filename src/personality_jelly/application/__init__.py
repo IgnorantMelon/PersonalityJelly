@@ -9,6 +9,12 @@ from personality_jelly.application.bootstrap import (
     create_database_resources,
     resolve_database_url,
 )
+from personality_jelly.application.conversation_inspection import (
+    ContextPackageInspectionOptions,
+    ConversationInspectionOptions,
+    inspect_context_package,
+    inspect_conversation,
+)
 from personality_jelly.application.errors import NormalizedError, normalize_error
 from personality_jelly.application.inspection import (
     BenchmarkModeDiagnostics,
@@ -64,7 +70,9 @@ __all__ = [
     "ContextPackageDetail",
     "ContextPackageSummary",
     "ConversationDetail",
+    "ConversationInspectionOptions",
     "ConversationSummary",
+    "ContextPackageInspectionOptions",
     "DatabaseResources",
     "EvaluationCaseResultSummary",
     "EvaluationRunDetail",
@@ -96,6 +104,8 @@ __all__ = [
     "UserSummary",
     "build_turn_role_bundles",
     "create_database_resources",
+    "inspect_context_package",
+    "inspect_conversation",
     "normalize_error",
     "resolve_database_url",
     "resolve_embedding_config",
