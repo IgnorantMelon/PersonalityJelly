@@ -9,6 +9,19 @@ from personality_jelly.application.bootstrap import (
     create_database_resources,
     resolve_database_url,
 )
+from personality_jelly.application.audit import (
+    BATCH_04_AUDIT_PERSISTENCE_DECISION,
+    AuditActor,
+    AuditActorType,
+    AuditEntity,
+    AuditEventPayload,
+    AuditOperation,
+    AuditRelatedIds,
+    build_manual_memory_audit_event,
+    build_memory_archive_audit_event,
+    build_memory_edit_audit_event,
+    build_memory_review_audit_event,
+)
 from personality_jelly.application.benchmarks import (
     OOCBenchmarkCaseSummary,
     OOCBenchmarkCasesSummary,
@@ -101,6 +114,13 @@ from personality_jelly.application.turn_workflow import (
 )
 
 __all__ = [
+    "BATCH_04_AUDIT_PERSISTENCE_DECISION",
+    "AuditActor",
+    "AuditActorType",
+    "AuditEntity",
+    "AuditEventPayload",
+    "AuditOperation",
+    "AuditRelatedIds",
     "BenchmarkModeDiagnostics",
     "CharacterDetail",
     "CharacterSummary",
@@ -150,6 +170,10 @@ __all__ = [
     "TurnWorkflowSummary",
     "UserSummary",
     "build_turn_role_bundles",
+    "build_manual_memory_audit_event",
+    "build_memory_archive_audit_event",
+    "build_memory_edit_audit_event",
+    "build_memory_review_audit_event",
     "create_database_resources",
     "dry_run_ooc_benchmark",
     "dry_run_retrieval_benchmark",
