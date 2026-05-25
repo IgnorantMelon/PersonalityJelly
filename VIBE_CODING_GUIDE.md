@@ -43,6 +43,9 @@ All coding agents and task prompts must follow this baseline:
 - Add or update tests for behavior changes, run focused tests first, and run the full suite when
   shared behavior is touched.
 - Final reports should include files changed, tests run and results, and any task-specific caveats.
+- Current phase direction is Batch 05 read-only API adapter work. FastAPI may be introduced only
+  for thin read-only adapters over `personality_jelly.application`; do not add write APIs,
+  platform/auth/workspace features, or semantic behavior in API handlers.
 
 ## Current Goal
 
@@ -73,12 +76,12 @@ Use what the codebase already uses:
 - the in-repo LLM provider abstraction with `generate_text`, `generate_json`, and `embed_texts`
 - OpenAI-compatible LLM and embedding provider support
 - CLI-first workflows through `pjelly`
+- Application-service workflows through `personality_jelly.application`
 - pytest for regression tests
 
 Do not introduce these as implementation dependencies unless a later task explicitly moves into
 that phase and documents the tradeoff:
 
-- FastAPI service layer
 - LangGraph orchestration
 - Qdrant, Chroma, Neo4j, GraphRAG, LightRAG, pgvector
 - LiteLLM routing
@@ -121,8 +124,14 @@ The project currently has:
   failed-only filtering, and aggregate `report.*` / `cases_summary.*` diagnostics.
 - Source-controlled curated benchmark assets under `benchmarks/ooc/` and `benchmarks/retrieval/`
   cover OOC observed-boundary cases and retrieval quality regressions.
-- P1 closeout verification status: focused benchmark, layered summary, trace CLI, config/db CLI
-  checks passed; full test suite status at this snapshot: `155 passed, 3 warnings`.
+- A thin `personality_jelly.application` layer now wraps shared orchestration and inspection
+  behavior for CLI and future API adapters. It includes bootstrap/provider role bundles, strict
+  inspection result models, read-only inspection services for conversation/context,
+  character/claim/memory/source chunks, critic/failure/trace/eval records, turn workflow summary
+  wrappers, summary and benchmark workflow wrappers, character/persona setup orchestration, and
+  payload-only audit readiness models for manual memory operations.
+- Batch 04 service-foundation verification status: focused application/CLI regression checks
+  passed; full test suite status at this snapshot: `198 passed, 3 warnings`.
 
 ## Data Boundaries
 
@@ -170,8 +179,14 @@ Keep service logic aligned with the existing modules:
 - `evaluation`: OOC and retrieval benchmarks, reports, cases files.
 - `storage`: ORM, mappers, repositories, migrations.
 - `llm`: provider abstraction, OpenAI-compatible implementation, tracing.
+- `application`: transport-neutral orchestration and read-only inspection services shared by CLI
+  and future API adapters. Keep this layer thin; it may coordinate repositories and existing
+  domain services, but it must not own prompts, semantic judgment rules, or CLI/HTTP formatting.
 - `cli`: orchestration and human-readable diagnostics only; reusable behavior belongs in service
   modules when practical.
+- Future `api`: HTTP adapter only. It should validate request/response models, acquire sessions,
+  call `application` services, and map errors. It must not duplicate workflow logic or perform
+  semantic judgments.
 
 Avoid hard-coding current MVP assumptions into shared code. A feature may be single-work and
 single-character today, but core models should continue carrying the IDs needed for later expansion.
@@ -346,13 +361,15 @@ P1:
 
 P2:
 
-- Batch 03 planning is complete when
-  `plans/batch_03_p2_planning/P2_ACCEPTANCE_CRITERIA.md` is accepted.
-- Next implementation batch: build the Batch 04 service foundation in
-  `plans/batch_04_service_foundation/`, starting with a thin `application` layer, shared
-  bootstrap, read-only inspection services, and CLI list/show migration.
-- Keep FastAPI as a later adapter over shared application services; do not add FastAPI before the
-  service boundary is extracted and tested.
+- Batch 03 planning is complete and Batch 04 service foundation is implemented.
+- Next implementation batch: Batch 05 read-only API adapter. Start by planning
+  `plans/batch_05_read_only_api/`, then add a thin FastAPI app factory, database/session
+  dependencies, health check, and structured error envelope.
+- Batch 05 should expose only read-only endpoints over existing `application` inspection services:
+  conversations, context packages, characters, claims, memories, critic reports, failure cases,
+  LLM traces, OOC eval runs, and retrieval eval runs.
+- Do not add write endpoints in Batch 05: no source ingest, character creation, turn execution,
+  summary generation, benchmark execution, memory mutation, or audit persistence through HTTP.
 - Preserve explicit ID boundaries for source works, characters, users, conversations, persona
   versions, memories, evidence chunks, and eval records.
 - Keep workspace/auth/platform features, graph/vector databases, third-party memory systems, and
