@@ -59,6 +59,7 @@ def test_summary_models_serialize_enums_and_datetimes() -> None:
         "created_at": "2026-05-25T12:00:00Z",
         "latest_persona_version_id": "persona_001",
         "claim_count": 3,
+        "evidence_count": None,
     }
 
 
