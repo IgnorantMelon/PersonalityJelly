@@ -21,6 +21,7 @@ from personality_jelly.domain import (
     Character,
     ClaimStatus,
     ClaimType,
+    Conversation,
     CriticAction,
     CriticRiskLevel,
     EvidenceRef,
@@ -43,6 +44,7 @@ from personality_jelly.evaluation import (
 from personality_jelly.storage import (
     CanonClaimRepository,
     CharacterRepository,
+    ConversationRepository,
     ContextPackageRepository,
     CriticReportRepository,
     EvaluationCaseResultRepository,
@@ -130,6 +132,7 @@ class PersonaVersionSummary(InspectionModel):
     version_number: int = Field(ge=1)
     source_claim_ids: list[str] = Field(default_factory=list)
     created_at: datetime
+    core_self: str | None = None
 
 
 class CharacterSummary(InspectionModel):
@@ -200,6 +203,7 @@ class ConversationSummary(InspectionModel):
 
 
 class ConversationDetail(ConversationSummary):
+    message_count: int | None = Field(default=None, ge=0)
     messages: list[MessageSummary] = Field(default_factory=list)
     memories: list[MemorySummary] = Field(default_factory=list)
     failure_cases: list[FailureCaseSummary] = Field(default_factory=list)
@@ -396,6 +400,33 @@ class InspectionListResult(InspectionModel):
     expansion: ExpansionState = Field(default_factory=ExpansionState)
 
 
+def list_conversations(session: Session, *, limit: int | None = None) -> InspectionListResult:
+    if limit is not None and limit < 1:
+        raise ValueError("limit must be greater than 0")
+    conversations = ConversationRepository(session).list_recent(limit=limit)
+    users = UserRepository(session)
+    characters = CharacterRepository(session)
+    personas = PersonaVersionRepository(session)
+
+    return InspectionListResult(
+        items=[
+            _conversation_to_summary(
+                conversation,
+                user=users.require(conversation.user_id),
+                character=characters.require(conversation.character_id),
+                persona_version=personas.get(conversation.persona_version_id),
+            )
+            for conversation in conversations
+        ],
+        total_count=len(conversations),
+        limit=limit,
+        expansion=ExpansionState(
+            mode="summary",
+            expanded=["user", "character", "persona_version"],
+        ),
+    )
+
+
 def get_character_detail(
     session: Session,
     character_id: str,
@@ -514,9 +545,11 @@ def list_memories(
     *,
     scope: MemoryScope | str | None = None,
     status: MemoryStatus | str | None = None,
+    validate_links: bool = True,
 ) -> InspectionListResult:
-    UserRepository(session).require(user_id)
-    CharacterRepository(session).require(character_id)
+    if validate_links:
+        UserRepository(session).require(user_id)
+        CharacterRepository(session).require(character_id)
     memories = MemoryRepository(session).list_for_user_character(
         user_id,
         character_id,
@@ -1007,6 +1040,48 @@ def _persona_version_to_summary(persona_version: PersonaVersion) -> PersonaVersi
         version_number=persona_version.version_number,
         source_claim_ids=persona_version.source_claim_ids,
         created_at=persona_version.created_at,
+        core_self=persona_version.core_self,
+    )
+
+
+def _conversation_to_summary(
+    conversation: Conversation,
+    *,
+    user,
+    character: Character,
+    persona_version: PersonaVersion | None = None,
+) -> ConversationSummary:
+    return ConversationSummary(
+        id=conversation.id,
+        user_id=conversation.user_id,
+        character_id=conversation.character_id,
+        persona_version_id=conversation.persona_version_id,
+        current_mode=conversation.current_mode,
+        summary=conversation.summary,
+        summary_layers=None,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+        user=_user_to_summary(user),
+        character=CharacterSummary(
+            id=character.id,
+            source_work_id=character.source_work_id,
+            canonical_name=character.canonical_name,
+            aliases=character.aliases,
+            created_at=character.created_at,
+        ),
+        persona_version=(
+            _persona_version_to_summary(persona_version)
+            if persona_version is not None
+            else None
+        ),
+    )
+
+
+def _user_to_summary(user) -> UserSummary:
+    return UserSummary(
+        id=user.id,
+        display_name=user.display_name,
+        created_at=user.created_at,
     )
 
 

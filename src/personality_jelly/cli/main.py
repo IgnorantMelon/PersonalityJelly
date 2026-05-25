@@ -7,8 +7,25 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from personality_jelly.application import (
+    ContextPackageInspectionOptions,
+    ConversationInspectionOptions,
     build_turn_role_bundles,
     create_database_resources,
+    get_character_detail,
+    get_critic_report_detail,
+    get_evaluation_run_detail,
+    get_failure_case_detail,
+    get_llm_trace_detail,
+    get_retrieval_evaluation_run_detail,
+    inspect_context_package,
+    inspect_conversation,
+    list_claims,
+    list_conversations,
+    list_evaluation_runs,
+    list_failure_cases,
+    list_llm_traces,
+    list_memories,
+    list_retrieval_evaluation_runs,
     resolve_database_url,
     resolve_embedding_config,
     resolve_embedding_provider,
@@ -23,9 +40,7 @@ from personality_jelly.domain import (
     ClaimType,
     Conversation,
     EvaluationCaseResult,
-    EvaluationCaseStatus,
     InteractionMode,
-    Message,
     MemoryScope,
     MemoryStatus,
     PersonaVersion,
@@ -87,7 +102,6 @@ from personality_jelly.storage.repositories import (
     FailureCaseRepository,
     LLMRawOutputRepository,
     MemoryRepository,
-    MessageRepository,
     PersonaVersionRepository,
     RetrievalEvaluationCaseResultRepository,
     RetrievalEvaluationRunRepository,
@@ -1013,18 +1027,23 @@ def _run_list_conversations(args: argparse.Namespace) -> int:
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
-        conversations = ConversationRepository(session).list_recent(limit=args.limit)
-        users = UserRepository(session)
-        characters = CharacterRepository(session)
+        try:
+            conversations = list_conversations(session, limit=args.limit).items
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
 
         print(f"database_url={database_url}")
         print(f"conversation_count={len(conversations)}")
         for index, conversation in enumerate(conversations, start=1):
-            user = users.require(conversation.user_id)
-            character = characters.require(conversation.character_id)
             print(f"conversation.{index}.id={conversation.id}")
-            print(f"conversation.{index}.user={user.display_name or user.id}")
-            print(f"conversation.{index}.character={character.canonical_name}")
+            user_name = conversation.user.display_name if conversation.user else None
+            print(f"conversation.{index}.user={user_name or conversation.user_id}")
+            character_name = (
+                conversation.character.canonical_name
+                if conversation.character
+                else conversation.character_id
+            )
+            print(f"conversation.{index}.character={character_name}")
             print(f"conversation.{index}.mode={conversation.current_mode}")
             print(f"conversation.{index}.persona_version_id={conversation.persona_version_id}")
     return 0
@@ -1040,12 +1059,14 @@ def _run_list_memories(args: argparse.Namespace) -> int:
     status = MemoryStatus(args.status) if args.status is not None else None
 
     with session_factory() as session:
-        memories = MemoryRepository(session).list_for_user_character(
+        memories = list_memories(
+            session,
             args.user_id,
             args.character_id,
             scope=scope,
             status=status,
-        )
+            validate_links=False,
+        ).items
 
         print(f"database_url={database_url}")
         print(f"memory_count={len(memories)}")
@@ -1070,27 +1091,26 @@ def _run_list_claims(args: argparse.Namespace) -> int:
 
     with session_factory() as session:
         try:
-            CharacterRepository(session).require(args.character_id)
+            result = list_claims(
+                session,
+                args.character_id,
+                status=status,
+                claim_type=claim_type,
+                expand_evidence=True,
+            )
         except LookupError as exc:
             raise CliError(str(exc)) from exc
-
-        claims = CanonClaimRepository(session).list_by_character(
-            args.character_id,
-            status=status,
-            claim_type=claim_type,
-        )
-        evidence_repository = EvidenceRefRepository(session)
+        claims = result.items
 
         print(f"database_url={database_url}")
         print(f"character_id={args.character_id}")
         print(f"claim_count={len(claims)}")
         for index, claim in enumerate(claims, start=1):
-            evidence_refs = evidence_repository.list_by_claim(claim.id)
             print(f"claim.{index}.id={claim.id}")
             print(f"claim.{index}.type={claim.claim_type}")
             print(f"claim.{index}.status={claim.status}")
             print(f"claim.{index}.confidence={claim.confidence}")
-            print(f"claim.{index}.evidence_count={len(evidence_refs)}")
+            print(f"claim.{index}.evidence_count={len(claim.evidence_ids)}")
             print(f"claim.{index}.content={claim.content}")
             print(f"claim.{index}.reasoning={claim.reasoning or ''}")
     return 0
@@ -1106,21 +1126,15 @@ def _run_list_failure_cases(args: argparse.Namespace) -> int:
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
-        repository = FailureCaseRepository(session)
-        if args.conversation_id is not None:
-            failure_cases = repository.list_by_conversation(args.conversation_id)
-            if args.category is not None:
-                failure_cases = [
-                    failure_case
-                    for failure_case in failure_cases
-                    if failure_case.category == args.category
-                ]
-            failure_cases = failure_cases[: args.limit]
-        else:
-            failure_cases = repository.list_recent(
+        try:
+            failure_cases = list_failure_cases(
+                session,
+                conversation_id=args.conversation_id,
                 limit=args.limit,
                 category=args.category,
-            )
+            ).items
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
 
         print(f"database_url={database_url}")
         print(f"failure_case_count={len(failure_cases)}")
@@ -1144,11 +1158,15 @@ def _run_list_eval_runs(args: argparse.Namespace) -> int:
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
-        runs = EvaluationRunRepository(session).list_recent(
-            limit=args.limit,
-            character_id=args.character_id,
-            test_suite=args.test_suite,
-        )
+        try:
+            runs = list_evaluation_runs(
+                session,
+                limit=args.limit,
+                character_id=args.character_id,
+                test_suite=args.test_suite,
+            ).items
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
 
         print(f"database_url={database_url}")
         print(f"eval_run_count={len(runs)}")
@@ -1174,14 +1192,18 @@ def _run_list_llm_traces(args: argparse.Namespace) -> int:
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
-        traces = LLMRawOutputRepository(session).list_recent(
-            limit=args.limit,
-            operation=args.operation,
-            schema_name=args.schema_name,
-            provider_name=args.provider_name,
-            model_name=args.model_name,
-            with_errors=args.with_errors,
-        )
+        try:
+            traces = list_llm_traces(
+                session,
+                limit=args.limit,
+                operation=args.operation,
+                schema_name=args.schema_name,
+                provider_name=args.provider_name,
+                model_name=args.model_name,
+                with_errors=args.with_errors,
+            ).items
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
 
         print(f"database_url={database_url}")
         print(f"llm_trace_count={len(traces)}")
@@ -1191,7 +1213,7 @@ def _run_list_llm_traces(args: argparse.Namespace) -> int:
             print(f"llm_trace.{index}.schema_name={trace.schema_name}")
             print(f"llm_trace.{index}.provider_name={trace.provider_name}")
             print(f"llm_trace.{index}.model_name={trace.model_name or 'none'}")
-            print(f"llm_trace.{index}.validation_error_count={len(trace.validation_errors)}")
+            print(f"llm_trace.{index}.validation_error_count={trace.validation_error_count}")
             print(f"llm_trace.{index}.created_at={trace.created_at.isoformat()}")
     return 0
 
@@ -1206,12 +1228,16 @@ def _run_list_retrieval_eval_runs(args: argparse.Namespace) -> int:
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
-        runs = RetrievalEvaluationRunRepository(session).list_recent(
-            limit=args.limit,
-            character_id=args.character_id,
-            source_work_id=args.source_work_id,
-            test_suite=args.test_suite,
-        )
+        try:
+            runs = list_retrieval_evaluation_runs(
+                session,
+                limit=args.limit,
+                character_id=args.character_id,
+                source_work_id=args.source_work_id,
+                test_suite=args.test_suite,
+            ).items
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
 
         print(f"database_url={database_url}")
         print(f"retrieval_eval_run_count={len(runs)}")
@@ -1239,25 +1265,31 @@ def _run_show_conversation(args: argparse.Namespace) -> int:
 
     with session_factory() as session:
         try:
-            conversation = ConversationRepository(session).require(args.conversation_id)
+            conversation = inspect_conversation(
+                session,
+                args.conversation_id,
+                options=ConversationInspectionOptions(message_limit=args.messages),
+            )
         except LookupError as exc:
             raise CliError(str(exc)) from exc
-        user = UserRepository(session).require(conversation.user_id)
-        character = CharacterRepository(session).require(conversation.character_id)
-        messages = MessageRepository(session).list_by_conversation(conversation.id)
-        recent_messages = messages[-args.messages :] if args.messages else []
 
         print(f"database_url={database_url}")
         print(f"conversation_id={conversation.id}")
-        print(f"user_id={user.id}")
-        print(f"user={user.display_name or user.id}")
-        print(f"character_id={character.id}")
-        print(f"character={character.canonical_name}")
+        print(f"user_id={conversation.user_id}")
+        user_name = conversation.user.display_name if conversation.user else None
+        print(f"user={user_name or conversation.user_id}")
+        print(f"character_id={conversation.character_id}")
+        character_name = (
+            conversation.character.canonical_name
+            if conversation.character
+            else conversation.character_id
+        )
+        print(f"character={character_name}")
         print(f"persona_version_id={conversation.persona_version_id}")
         print(f"mode={conversation.current_mode}")
         _print_summary_layers(conversation.summary)
-        print(f"message_count={len(messages)}")
-        for index, message in enumerate(recent_messages, start=1):
+        print(f"message_count={conversation.message_count or 0}")
+        for index, message in enumerate(conversation.messages, start=1):
             print(f"message.{index}.id={message.id}")
             print(f"message.{index}.role={message.role}")
             print(f"message.{index}.content={message.content}")
@@ -1273,38 +1305,36 @@ def _run_show_character(args: argparse.Namespace) -> int:
 
     with session_factory() as session:
         try:
-            character = CharacterRepository(session).require(args.character_id)
-            source_work = SourceWorkRepository(session).require(character.source_work_id)
+            character = get_character_detail(
+                session,
+                args.character_id,
+                include_claims=True,
+                expand_claim_evidence=True,
+            )
         except LookupError as exc:
             raise CliError(str(exc)) from exc
 
-        persona = PersonaVersionRepository(session).latest_for_character(character.id)
-        claims = CanonClaimRepository(session).list_by_character(character.id)
-        evidence_repository = EvidenceRefRepository(session)
-        status_counts = _claim_status_counts(claims)
-        type_counts = _claim_type_counts(claims)
-        evidence_count = sum(
-            len(evidence_repository.list_by_claim(claim.id))
-            for claim in claims
-        )
+        status_counts = _claim_status_counts(character.claims)
+        type_counts = _claim_type_counts(character.claims)
 
         print(f"database_url={database_url}")
         print(f"character_id={character.id}")
         print(f"canonical_name={character.canonical_name}")
         print(f"aliases={','.join(character.aliases)}")
-        print(f"source_work_id={source_work.id}")
-        print(f"source_work_title={source_work.title}")
+        print(f"source_work_id={character.source_work_id}")
+        print(f"source_work_title={character.source_work.title if character.source_work else ''}")
+        persona = character.latest_persona_version
         print(f"latest_persona_version_id={persona.id if persona else 'none'}")
         print(f"latest_persona_version_number={persona.version_number if persona else 'none'}")
-        print(f"claim_count={len(claims)}")
+        print(f"claim_count={character.claim_count or 0}")
         for status in ClaimStatus:
             print(f"claim_status.{status.value}={status_counts[status.value]}")
         for claim_type in ClaimType:
             print(f"claim_type.{claim_type.value}={type_counts[claim_type.value]}")
-        print(f"evidence_count={evidence_count}")
+        print(f"evidence_count={character.evidence_count or 0}")
         if persona is not None:
             print("core_self<<END")
-            print(persona.core_self)
+            print(persona.core_self or "")
             print("END")
     return 0
 
@@ -1318,7 +1348,11 @@ def _run_show_context_package(args: argparse.Namespace) -> int:
 
     with session_factory() as session:
         try:
-            context_package = ContextPackageRepository(session).require(args.context_package_id)
+            context_package = inspect_context_package(
+                session,
+                args.context_package_id,
+                options=ContextPackageInspectionOptions(),
+            )
         except LookupError as exc:
             raise CliError(str(exc)) from exc
 
@@ -1345,7 +1379,7 @@ def _run_show_critic_report(args: argparse.Namespace) -> int:
 
     with session_factory() as session:
         try:
-            critic_report = CriticReportRepository(session).require(args.critic_report_id)
+            critic_report = get_critic_report_detail(session, args.critic_report_id)
         except LookupError as exc:
             raise CliError(str(exc)) from exc
 
@@ -1373,10 +1407,7 @@ def _run_show_failure_case(args: argparse.Namespace) -> int:
 
     with session_factory() as session:
         try:
-            failure_case = FailureCaseRepository(session).require(args.failure_case_id)
-            user_message = MessageRepository(session).require(failure_case.user_message_id)
-            assistant_message = MessageRepository(session).require(failure_case.assistant_message_id)
-            critic_report = CriticReportRepository(session).require(failure_case.critic_report_id)
+            failure_case = get_failure_case_detail(session, args.failure_case_id)
         except LookupError as exc:
             raise CliError(str(exc)) from exc
 
@@ -1388,14 +1419,19 @@ def _run_show_failure_case(args: argparse.Namespace) -> int:
         print(f"assistant_message_id={failure_case.assistant_message_id}")
         print(f"context_package_id={failure_case.context_package_id}")
         print(f"critic_report_id={failure_case.critic_report_id}")
-        print(f"critic_action={critic_report.suggested_action}")
+        critic_action = (
+            failure_case.critic_report.suggested_action
+            if failure_case.critic_report
+            else "none"
+        )
+        print(f"critic_action={critic_action}")
         print(f"reason={failure_case.reason}")
         print(f"notes={failure_case.notes or ''}")
         print("user_message<<END")
-        print(user_message.content)
+        print(failure_case.user_message.content if failure_case.user_message else "")
         print("END")
         print("assistant_message<<END")
-        print(assistant_message.content)
+        print(failure_case.assistant_message.content if failure_case.assistant_message else "")
         print("END")
     return 0
 
@@ -1409,11 +1445,15 @@ def _run_show_eval_run(args: argparse.Namespace) -> int:
 
     with session_factory() as session:
         try:
-            run = EvaluationRunRepository(session).require(args.run_id)
+            run = get_evaluation_run_detail(
+                session,
+                args.run_id,
+                failed_only=args.failed_only,
+            )
         except LookupError as exc:
             raise CliError(str(exc)) from exc
-        case_results = EvaluationCaseResultRepository(session).list_by_run(run.id)
-        shown_case_results = _filter_eval_case_results(args, case_results)
+        shown_case_results = run.cases
+        stored_case_count = _stored_eval_case_count(session, run.id)
         try:
             exported_cases_file = _export_ooc_eval_run_cases_if_requested(
                 args,
@@ -1434,58 +1474,24 @@ def _run_show_eval_run(args: argparse.Namespace) -> int:
             failed_cases=run.failed_cases,
         )
         _print_stored_case_count_summary(
-            stored_case_count=len(case_results),
+            stored_case_count=stored_case_count,
             shown_case_count=len(shown_case_results),
             exported_cases_file=exported_cases_file,
         )
-        _print_ooc_benchmark_report(summarize_ooc_benchmark(shown_case_results))
-        assistant_messages_by_id = _load_assistant_messages_by_id(session, shown_case_results)
+        _print_ooc_benchmark_report(run.diagnostics)
         for index, case_result in enumerate(shown_case_results, start=1):
-            _print_stored_ooc_case_result(
-                index,
-                case_result,
-                assistant_messages_by_id.get(case_result.assistant_message_id),
-            )
+            _print_stored_ooc_case_result(index, case_result, case_result.assistant_message)
     return 0
-
-
-def _filter_eval_case_results(
-    args: argparse.Namespace,
-    case_results: list[EvaluationCaseResult],
-) -> list[EvaluationCaseResult]:
-    if not args.failed_only:
-        return case_results
-    return [
-        case_result
-        for case_result in case_results
-        if case_result.status == EvaluationCaseStatus.FAILED
-    ]
-
-
-def _load_assistant_messages_by_id(
-    session,
-    case_results: list[EvaluationCaseResult],
-) -> dict[str, Message]:
-    messages = MessageRepository(session)
-    messages_by_id: dict[str, Message] = {}
-    for case_result in case_results:
-        assistant_message_id = case_result.assistant_message_id
-        if assistant_message_id in messages_by_id:
-            continue
-        message = messages.get(assistant_message_id)
-        if message is not None:
-            messages_by_id[assistant_message_id] = message
-    return messages_by_id
 
 
 def _export_ooc_eval_run_cases_if_requested(
     args: argparse.Namespace,
-    case_results: list[EvaluationCaseResult],
+    case_results,
 ) -> Path | None:
     if args.export_cases_file is None:
         return None
     cases = build_ooc_benchmark_cases_from_results(
-        case_results,
+        [_evaluation_case_summary_to_domain(case_result) for case_result in case_results],
         failed_only=False,
     )
     return export_ooc_benchmark_cases_file(
@@ -1505,7 +1511,7 @@ def _run_show_llm_trace(args: argparse.Namespace) -> int:
 
     with session_factory() as session:
         try:
-            trace = LLMRawOutputRepository(session).require(args.trace_id)
+            trace = get_llm_trace_detail(session, args.trace_id)
         except LookupError as exc:
             raise CliError(str(exc)) from exc
 
@@ -1544,11 +1550,16 @@ def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
 
     with session_factory() as session:
         try:
-            run = RetrievalEvaluationRunRepository(session).require(args.run_id)
+            run = get_retrieval_evaluation_run_detail(
+                session,
+                args.run_id,
+                failed_only=args.failed_only,
+                include_chunks=False,
+            )
         except LookupError as exc:
             raise CliError(str(exc)) from exc
-        case_results = RetrievalEvaluationCaseResultRepository(session).list_by_run(run.id)
-        shown_case_results = _filter_retrieval_eval_case_results(args, case_results)
+        shown_case_results = run.cases
+        stored_case_count = _stored_retrieval_case_count(session, run.id)
         try:
             exported_cases_file = _export_retrieval_eval_run_cases_if_requested(
                 args,
@@ -1570,39 +1581,27 @@ def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
             failed_cases=run.failed_cases,
         )
         _print_stored_case_count_summary(
-            stored_case_count=len(case_results),
+            stored_case_count=stored_case_count,
             shown_case_count=len(shown_case_results),
             exported_cases_file=exported_cases_file,
         )
-        _print_retrieval_benchmark_report(
-            summarize_retrieval_benchmark(shown_case_results)
-        )
+        _print_retrieval_benchmark_report(run.diagnostics)
         for index, case_result in enumerate(shown_case_results, start=1):
             _print_stored_retrieval_case_result(index, case_result)
     return 0
 
 
-def _filter_retrieval_eval_case_results(
-    args: argparse.Namespace,
-    case_results: list[RetrievalEvaluationCaseResult],
-) -> list[RetrievalEvaluationCaseResult]:
-    if not args.failed_only:
-        return case_results
-    return [
-        case_result
-        for case_result in case_results
-        if case_result.status == EvaluationCaseStatus.FAILED
-    ]
-
-
 def _export_retrieval_eval_run_cases_if_requested(
     args: argparse.Namespace,
-    case_results: list[RetrievalEvaluationCaseResult],
+    case_results,
 ) -> Path | None:
     if args.export_cases_file is None:
         return None
     cases = build_retrieval_benchmark_cases_from_results(
-        case_results,
+        [
+            _retrieval_case_summary_to_domain(case_result)
+            for case_result in case_results
+        ],
         failed_only=False,
         limit=args.export_case_limit,
     )
@@ -1611,6 +1610,48 @@ def _export_retrieval_eval_run_cases_if_requested(
         cases,
         append=args.append_cases_file,
         overwrite=args.overwrite_cases_file,
+    )
+
+
+def _stored_eval_case_count(session, run_id: str) -> int:
+    return len(EvaluationCaseResultRepository(session).list_by_run(run_id))
+
+
+def _stored_retrieval_case_count(session, run_id: str) -> int:
+    return len(RetrievalEvaluationCaseResultRepository(session).list_by_run(run_id))
+
+
+def _evaluation_case_summary_to_domain(case_result) -> EvaluationCaseResult:
+    return EvaluationCaseResult(
+        id=case_result.id,
+        run_id=case_result.run_id,
+        case_id=case_result.case_id,
+        prompt=case_result.prompt,
+        interaction_mode=case_result.interaction_mode,
+        assistant_message_id=case_result.assistant_message_id,
+        critic_report_id=case_result.critic_report_id,
+        status=case_result.status,
+        reasons=case_result.reasons,
+        category=case_result.category,
+        created_at=case_result.created_at,
+    )
+
+
+def _retrieval_case_summary_to_domain(case_result) -> RetrievalEvaluationCaseResult:
+    return RetrievalEvaluationCaseResult(
+        id=case_result.id,
+        run_id=case_result.run_id,
+        case_id=case_result.case_id,
+        query=case_result.query,
+        expected_chunk_ids=case_result.expected_chunk_ids,
+        retrieved_chunk_ids=case_result.retrieved_chunk_ids,
+        retrieved_scores=case_result.retrieved_scores,
+        status=case_result.status,
+        recall=case_result.recall,
+        first_relevant_rank=case_result.first_relevant_rank,
+        ranking_score=case_result.ranking_score,
+        reasons=case_result.reasons,
+        created_at=case_result.created_at,
     )
 
 

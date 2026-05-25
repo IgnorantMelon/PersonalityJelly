@@ -113,6 +113,7 @@ def inspect_conversation(
         user=_user_summary(user) if user is not None else None,
         character=_character_summary(character) if character is not None else None,
         persona_version=_persona_version_summary(persona) if persona is not None else None,
+        message_count=len(MessageRepository(session).list_by_conversation(conversation.id)),
         messages=[_message_summary(message) for message in messages],
         memories=[_memory_summary(memory) for memory in memories],
     )
@@ -251,6 +252,7 @@ def _persona_version_summary(persona: PersonaVersion) -> PersonaVersionSummary:
         version_number=persona.version_number,
         source_claim_ids=persona.source_claim_ids,
         created_at=persona.created_at,
+        core_self=persona.core_self,
     )
 
 

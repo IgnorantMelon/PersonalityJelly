@@ -5,6 +5,7 @@ from personality_jelly.application import (
     ConversationInspectionOptions,
     inspect_context_package,
     inspect_conversation,
+    list_conversations,
 )
 from personality_jelly.domain import (
     CanonClaim,
@@ -87,6 +88,24 @@ def test_inspect_conversation_can_omit_messages_and_link_expansion() -> None:
     assert detail.user is None
     assert detail.character is None
     assert detail.persona_version is None
+
+
+def test_list_conversations_returns_linked_user_character_summaries() -> None:
+    session_factory = _seed_inspection_database()
+
+    with session_factory() as session:
+        result = list_conversations(session, limit=5)
+
+    assert result.total_count == 1
+    assert result.limit == 5
+    conversation = result.items[0]
+    assert conversation.id == "conv_001"
+    assert conversation.user is not None
+    assert conversation.user.display_name == "demo-user"
+    assert conversation.character is not None
+    assert conversation.character.canonical_name == "Lin Shuang"
+    assert conversation.persona_version is not None
+    assert conversation.persona_version.id == "persona_001"
 
 
 def test_inspect_context_package_defaults_to_ids_and_prompt() -> None:
