@@ -76,6 +76,12 @@ from personality_jelly.application.providers import (
     resolve_embedding_provider,
     resolve_roleplay_provider,
 )
+from personality_jelly.application.turn_workflow import (
+    TurnMemorySummary,
+    TurnWorkflowResult,
+    TurnWorkflowSummary,
+    run_turn_workflow,
+)
 
 __all__ = [
     "BenchmarkModeDiagnostics",
@@ -116,6 +122,9 @@ __all__ = [
     "SourceChunkDetail",
     "SourceChunkSummary",
     "SourceWorkSummary",
+    "TurnMemorySummary",
+    "TurnWorkflowResult",
+    "TurnWorkflowSummary",
     "UserSummary",
     "build_turn_role_bundles",
     "create_database_resources",
@@ -141,4 +150,5 @@ __all__ = [
     "resolve_embedding_config",
     "resolve_embedding_provider",
     "resolve_roleplay_provider",
+    "run_turn_workflow",
 ]
