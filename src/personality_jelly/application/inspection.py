@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Transport-neutral inspection result models.
+"""Transport-neutral inspection result models and read-only inspection services.
 
 Expansion convention:
 
@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
+from sqlalchemy.orm import Session
 
 from personality_jelly.domain import (
     ClaimStatus,
@@ -26,6 +27,23 @@ from personality_jelly.domain import (
     MemoryScope,
     MemoryStatus,
     MessageRole,
+)
+from personality_jelly.evaluation import (
+    build_retrieval_case_diagnostics,
+    summarize_ooc_benchmark,
+    summarize_retrieval_benchmark,
+)
+from personality_jelly.storage import (
+    ContextPackageRepository,
+    CriticReportRepository,
+    EvaluationCaseResultRepository,
+    EvaluationRunRepository,
+    FailureCaseRepository,
+    LLMRawOutputRepository,
+    MessageRepository,
+    RetrievalEvaluationCaseResultRepository,
+    RetrievalEvaluationRunRepository,
+    SourceChunkRepository,
 )
 
 
@@ -291,6 +309,9 @@ class EvaluationCaseResultSummary(InspectionModel):
     reasons: list[str] = Field(default_factory=list)
     category: str
     created_at: datetime
+    conversation_id: str | None = None
+    context_package_id: str | None = None
+    assistant_message: MessageSummary | None = None
 
 
 class EvaluationRunSummary(InspectionModel):
@@ -325,6 +346,13 @@ class RetrievalEvaluationCaseResultSummary(InspectionModel):
     ranking_score: float = Field(ge=0.0, le=1.0)
     reasons: list[str] = Field(default_factory=list)
     created_at: datetime
+    expected_count: int | None = Field(default=None, ge=0)
+    retrieved_count: int | None = Field(default=None, ge=0)
+    top_retrieved_chunk_id: str | None = None
+    missing_expected_chunk_ids: list[str] = Field(default_factory=list)
+    top_retrieved_chunk_expected: bool | None = None
+    expected_chunks: list[SourceChunkSummary] = Field(default_factory=list)
+    retrieved_chunks: list[SourceChunkSummary] = Field(default_factory=list)
 
 
 class RetrievalEvaluationRunSummary(InspectionModel):
@@ -351,3 +379,478 @@ class InspectionListResult(InspectionModel):
     total_count: int | None = Field(default=None, ge=0)
     limit: int | None = Field(default=None, ge=1)
     expansion: ExpansionState = Field(default_factory=ExpansionState)
+
+
+def get_critic_report_detail(session: Session, critic_report_id: str) -> CriticReportDetail:
+    critic_report = CriticReportRepository(session).require(critic_report_id)
+    message = MessageRepository(session).get(critic_report.message_id)
+    return CriticReportDetail(
+        **_critic_report_summary(critic_report).model_dump(),
+        message=_message_summary(message) if message is not None else None,
+    )
+
+
+def list_failure_cases(
+    session: Session,
+    *,
+    conversation_id: str | None = None,
+    category: str | None = None,
+    limit: int | None = None,
+) -> InspectionListResult:
+    if limit is not None and limit < 1:
+        raise ValueError("limit must be greater than 0")
+    repository = FailureCaseRepository(session)
+    if conversation_id is not None:
+        failure_cases = repository.list_by_conversation(conversation_id)
+        if category is not None:
+            failure_cases = [
+                failure_case
+                for failure_case in failure_cases
+                if failure_case.category == category
+            ]
+        if limit is not None:
+            failure_cases = failure_cases[:limit]
+    else:
+        failure_cases = repository.list_recent(limit=limit, category=category)
+    return InspectionListResult(
+        items=[_failure_case_summary(failure_case) for failure_case in failure_cases],
+        total_count=len(failure_cases),
+        limit=limit,
+    )
+
+
+def get_failure_case_detail(session: Session, failure_case_id: str) -> FailureCaseDetail:
+    failure_case = FailureCaseRepository(session).require(failure_case_id)
+    messages = MessageRepository(session)
+    context_packages = ContextPackageRepository(session)
+    critic_reports = CriticReportRepository(session)
+    user_message = messages.get(failure_case.user_message_id)
+    assistant_message = messages.get(failure_case.assistant_message_id)
+    context_package = context_packages.get(failure_case.context_package_id)
+    critic_report = critic_reports.get(failure_case.critic_report_id)
+    return FailureCaseDetail(
+        **_failure_case_summary(failure_case).model_dump(),
+        user_message=_message_summary(user_message) if user_message is not None else None,
+        assistant_message=(
+            _message_summary(assistant_message) if assistant_message is not None else None
+        ),
+        context_package=(
+            _context_package_summary(context_package) if context_package is not None else None
+        ),
+        critic_report=(
+            _critic_report_summary(critic_report) if critic_report is not None else None
+        ),
+    )
+
+
+def list_llm_traces(
+    session: Session,
+    *,
+    limit: int | None = None,
+    operation: str | None = None,
+    schema_name: str | None = None,
+    provider_name: str | None = None,
+    model_name: str | None = None,
+    with_errors: bool = False,
+) -> InspectionListResult:
+    if limit is not None and limit < 1:
+        raise ValueError("limit must be greater than 0")
+    traces = LLMRawOutputRepository(session).list_recent(
+        limit=limit,
+        operation=operation,
+        schema_name=schema_name,
+        provider_name=provider_name,
+        model_name=model_name,
+        with_errors=with_errors,
+    )
+    return InspectionListResult(
+        items=[_llm_trace_summary(trace) for trace in traces],
+        total_count=len(traces),
+        limit=limit,
+    )
+
+
+def get_llm_trace_detail(session: Session, trace_id: str) -> LLMTraceDetail:
+    trace = LLMRawOutputRepository(session).require(trace_id)
+    return LLMTraceDetail(
+        **_llm_trace_summary(trace).model_dump(),
+        raw_output=trace.raw_output,
+        response_schema=trace.response_schema,
+        parsed_output=trace.parsed_output,
+        validation_errors=trace.validation_errors,
+    )
+
+
+def list_evaluation_runs(
+    session: Session,
+    *,
+    limit: int | None = None,
+    character_id: str | None = None,
+    test_suite: str | None = None,
+) -> InspectionListResult:
+    if limit is not None and limit < 1:
+        raise ValueError("limit must be greater than 0")
+    runs = EvaluationRunRepository(session).list_recent(
+        limit=limit,
+        character_id=character_id,
+        test_suite=test_suite,
+    )
+    return InspectionListResult(
+        items=[_evaluation_run_summary(run) for run in runs],
+        total_count=len(runs),
+        limit=limit,
+    )
+
+
+def get_evaluation_run_detail(
+    session: Session,
+    run_id: str,
+    *,
+    failed_only: bool = False,
+) -> EvaluationRunDetail:
+    run = EvaluationRunRepository(session).require(run_id)
+    case_results = EvaluationCaseResultRepository(session).list_by_run(run.id)
+    shown_case_results = _filter_failed(case_results, failed_only=failed_only)
+    messages_by_id = _load_messages_by_id(
+        session,
+        [case_result.assistant_message_id for case_result in shown_case_results],
+    )
+    diagnostics = _ooc_diagnostics(shown_case_results)
+    return EvaluationRunDetail(
+        **_evaluation_run_summary(run, diagnostics=diagnostics).model_dump(),
+        cases=[
+            _evaluation_case_result_summary(
+                case_result,
+                assistant_message=messages_by_id.get(case_result.assistant_message_id),
+            )
+            for case_result in shown_case_results
+        ],
+    )
+
+
+def list_retrieval_evaluation_runs(
+    session: Session,
+    *,
+    limit: int | None = None,
+    character_id: str | None = None,
+    source_work_id: str | None = None,
+    test_suite: str | None = None,
+) -> InspectionListResult:
+    if limit is not None and limit < 1:
+        raise ValueError("limit must be greater than 0")
+    runs = RetrievalEvaluationRunRepository(session).list_recent(
+        limit=limit,
+        character_id=character_id,
+        source_work_id=source_work_id,
+        test_suite=test_suite,
+    )
+    return InspectionListResult(
+        items=[_retrieval_evaluation_run_summary(run) for run in runs],
+        total_count=len(runs),
+        limit=limit,
+    )
+
+
+def get_retrieval_evaluation_run_detail(
+    session: Session,
+    run_id: str,
+    *,
+    failed_only: bool = False,
+    include_chunks: bool = True,
+) -> RetrievalEvaluationRunDetail:
+    run = RetrievalEvaluationRunRepository(session).require(run_id)
+    case_results = RetrievalEvaluationCaseResultRepository(session).list_by_run(run.id)
+    shown_case_results = _filter_failed(case_results, failed_only=failed_only)
+    chunk_ids = _unique_chunk_ids(shown_case_results) if include_chunks else []
+    chunks_by_id = _load_source_chunks_by_id(session, chunk_ids)
+    diagnostics = _retrieval_diagnostics(shown_case_results)
+    return RetrievalEvaluationRunDetail(
+        **_retrieval_evaluation_run_summary(run, diagnostics=diagnostics).model_dump(),
+        cases=[
+            _retrieval_evaluation_case_result_summary(
+                case_result,
+                chunks_by_id=chunks_by_id,
+            )
+            for case_result in shown_case_results
+        ],
+    )
+
+
+def _message_summary(message) -> MessageSummary:
+    return MessageSummary(
+        id=message.id,
+        conversation_id=message.conversation_id,
+        role=message.role,
+        content=message.content,
+        context_package_id=message.context_package_id,
+        created_at=message.created_at,
+    )
+
+
+def _context_package_summary(context_package) -> ContextPackageSummary:
+    return ContextPackageSummary(
+        id=context_package.id,
+        conversation_id=context_package.conversation_id,
+        interaction_mode=context_package.interaction_mode,
+        persona_version_id=context_package.persona_version_id,
+        claim_ids=context_package.claim_ids,
+        memory_ids=context_package.memory_ids,
+        retrieved_chunk_ids=context_package.retrieved_chunk_ids,
+        created_at=context_package.created_at,
+    )
+
+
+def _critic_report_summary(critic_report) -> CriticReportSummary:
+    return CriticReportSummary(
+        id=critic_report.id,
+        message_id=critic_report.message_id,
+        ooc_risk=critic_report.ooc_risk,
+        fact_risk=critic_report.fact_risk,
+        memory_risk=critic_report.memory_risk,
+        mode_risk=critic_report.mode_risk,
+        suggested_action=critic_report.suggested_action,
+        reasons=critic_report.reasons,
+        created_at=critic_report.created_at,
+    )
+
+
+def _failure_case_summary(failure_case) -> FailureCaseSummary:
+    return FailureCaseSummary(
+        id=failure_case.id,
+        conversation_id=failure_case.conversation_id,
+        user_message_id=failure_case.user_message_id,
+        assistant_message_id=failure_case.assistant_message_id,
+        context_package_id=failure_case.context_package_id,
+        critic_report_id=failure_case.critic_report_id,
+        category=failure_case.category,
+        reason=failure_case.reason,
+        notes=failure_case.notes,
+        created_at=failure_case.created_at,
+    )
+
+
+def _llm_trace_summary(trace) -> LLMTraceSummary:
+    return LLMTraceSummary(
+        id=trace.id,
+        operation=trace.operation,
+        schema_name=trace.schema_name,
+        provider_name=trace.provider_name,
+        model_name=trace.model_name,
+        validation_error_count=len(trace.validation_errors),
+        created_at=trace.created_at,
+    )
+
+
+def _evaluation_run_summary(
+    run,
+    *,
+    diagnostics: OOCBenchmarkDiagnostics | None = None,
+) -> EvaluationRunSummary:
+    return EvaluationRunSummary(
+        id=run.id,
+        character_id=run.character_id,
+        persona_version_id=run.persona_version_id,
+        test_suite=run.test_suite,
+        status=run.status,
+        total_cases=run.total_cases,
+        passed_cases=run.passed_cases,
+        failed_cases=run.failed_cases,
+        created_at=run.created_at,
+        completed_at=run.completed_at,
+        diagnostics=diagnostics,
+    )
+
+
+def _evaluation_case_result_summary(
+    case_result,
+    *,
+    assistant_message=None,
+) -> EvaluationCaseResultSummary:
+    return EvaluationCaseResultSummary(
+        id=case_result.id,
+        run_id=case_result.run_id,
+        case_id=case_result.case_id,
+        prompt=case_result.prompt,
+        interaction_mode=case_result.interaction_mode,
+        assistant_message_id=case_result.assistant_message_id,
+        critic_report_id=case_result.critic_report_id,
+        status=case_result.status,
+        reasons=case_result.reasons,
+        category=case_result.category,
+        created_at=case_result.created_at,
+        conversation_id=assistant_message.conversation_id if assistant_message is not None else None,
+        context_package_id=(
+            assistant_message.context_package_id if assistant_message is not None else None
+        ),
+        assistant_message=(
+            _message_summary(assistant_message) if assistant_message is not None else None
+        ),
+    )
+
+
+def _retrieval_evaluation_run_summary(
+    run,
+    *,
+    diagnostics: RetrievalBenchmarkDiagnostics | None = None,
+) -> RetrievalEvaluationRunSummary:
+    return RetrievalEvaluationRunSummary(
+        id=run.id,
+        source_work_id=run.source_work_id,
+        character_id=run.character_id,
+        test_suite=run.test_suite,
+        status=run.status,
+        total_cases=run.total_cases,
+        passed_cases=run.passed_cases,
+        failed_cases=run.failed_cases,
+        embedding_model=run.embedding_model,
+        created_at=run.created_at,
+        completed_at=run.completed_at,
+        diagnostics=diagnostics,
+    )
+
+
+def _retrieval_evaluation_case_result_summary(
+    case_result,
+    *,
+    chunks_by_id: dict[str, SourceChunkSummary],
+) -> RetrievalEvaluationCaseResultSummary:
+    diagnostics = build_retrieval_case_diagnostics(
+        expected_chunk_ids=case_result.expected_chunk_ids,
+        retrieved_chunk_ids=case_result.retrieved_chunk_ids,
+    )
+    return RetrievalEvaluationCaseResultSummary(
+        id=case_result.id,
+        run_id=case_result.run_id,
+        case_id=case_result.case_id,
+        query=case_result.query,
+        expected_chunk_ids=case_result.expected_chunk_ids,
+        retrieved_chunk_ids=case_result.retrieved_chunk_ids,
+        retrieved_scores=case_result.retrieved_scores,
+        status=case_result.status,
+        recall=case_result.recall,
+        first_relevant_rank=case_result.first_relevant_rank,
+        ranking_score=case_result.ranking_score,
+        reasons=case_result.reasons,
+        created_at=case_result.created_at,
+        expected_count=diagnostics.expected_count,
+        retrieved_count=diagnostics.retrieved_count,
+        top_retrieved_chunk_id=diagnostics.top_retrieved_chunk_id,
+        missing_expected_chunk_ids=list(diagnostics.missing_expected_chunk_ids),
+        top_retrieved_chunk_expected=diagnostics.top_retrieved_chunk_expected,
+        expected_chunks=[
+            chunks_by_id[chunk_id]
+            for chunk_id in case_result.expected_chunk_ids
+            if chunk_id in chunks_by_id
+        ],
+        retrieved_chunks=[
+            chunks_by_id[chunk_id]
+            for chunk_id in case_result.retrieved_chunk_ids
+            if chunk_id in chunks_by_id
+        ],
+    )
+
+
+def _source_chunk_summary(chunk) -> SourceChunkSummary:
+    return SourceChunkSummary(
+        id=chunk.id,
+        source_work_id=chunk.source_work_id,
+        chapter_index=chunk.chapter_index,
+        chapter_title=chunk.chapter_title,
+        paragraph_index=chunk.paragraph_index,
+        char_start=chunk.char_start,
+        char_end=chunk.char_end,
+        text_preview=_preview(chunk.text),
+    )
+
+
+def _ooc_diagnostics(case_results) -> OOCBenchmarkDiagnostics:
+    report = summarize_ooc_benchmark(case_results)
+    return OOCBenchmarkDiagnostics(
+        total_cases=report.total_cases,
+        passed_cases=report.passed_cases,
+        failed_cases=report.failed_cases,
+        pass_rate=report.pass_rate,
+        mode_reports=[
+            BenchmarkModeDiagnostics(
+                interaction_mode=mode_report.interaction_mode,
+                total_cases=mode_report.total_cases,
+                passed_cases=mode_report.passed_cases,
+                failed_cases=mode_report.failed_cases,
+                pass_rate=mode_report.pass_rate,
+            )
+            for mode_report in report.mode_reports
+        ],
+    )
+
+
+def _retrieval_diagnostics(case_results) -> RetrievalBenchmarkDiagnostics:
+    report = summarize_retrieval_benchmark(case_results)
+    return RetrievalBenchmarkDiagnostics(
+        total_cases=report.total_cases,
+        evidence_case_count=report.evidence_case_count,
+        empty_case_count=report.empty_case_count,
+        passed_cases=report.passed_cases,
+        failed_cases=report.failed_cases,
+        pass_rate=report.pass_rate,
+        evidence_pass_rate=report.evidence_pass_rate,
+        empty_pass_rate=report.empty_pass_rate,
+        average_recall=report.average_recall,
+        average_ranking_score=report.average_ranking_score,
+        first_relevant_at_one_count=report.first_relevant_at_one_count,
+        no_relevant_result_count=report.no_relevant_result_count,
+        retrieved_empty_when_expected_empty_count=(
+            report.retrieved_empty_when_expected_empty_count
+        ),
+        retrieved_nonempty_when_expected_empty_count=(
+            report.retrieved_nonempty_when_expected_empty_count
+        ),
+        missing_expected_chunk_count=report.missing_expected_chunk_count,
+    )
+
+
+def _filter_failed(case_results, *, failed_only: bool):
+    if not failed_only:
+        return case_results
+    return [
+        case_result
+        for case_result in case_results
+        if case_result.status == EvaluationCaseStatus.FAILED
+    ]
+
+
+def _load_messages_by_id(session: Session, message_ids: list[str]):
+    repository = MessageRepository(session)
+    messages = {}
+    for message_id in dict.fromkeys(message_ids):
+        message = repository.get(message_id)
+        if message is not None:
+            messages[message_id] = message
+    return messages
+
+
+def _unique_chunk_ids(case_results) -> list[str]:
+    chunk_ids: list[str] = []
+    for case_result in case_results:
+        chunk_ids.extend(case_result.expected_chunk_ids)
+        chunk_ids.extend(case_result.retrieved_chunk_ids)
+    return list(dict.fromkeys(chunk_ids))
+
+
+def _load_source_chunks_by_id(
+    session: Session,
+    chunk_ids: list[str],
+) -> dict[str, SourceChunkSummary]:
+    repository = SourceChunkRepository(session)
+    chunks = {}
+    for chunk_id in chunk_ids:
+        chunk = repository.get(chunk_id)
+        if chunk is not None:
+            chunks[chunk_id] = _source_chunk_summary(chunk)
+    return chunks
+
+
+def _preview(text: str, *, limit: int = 120) -> str:
+    stripped = " ".join(text.split())
+    if len(stripped) <= limit:
+        return stripped
+    return f"{stripped[: limit - 3]}..."
