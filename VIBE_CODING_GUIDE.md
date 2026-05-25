@@ -1,6 +1,6 @@
 # Personality Jelly Vibe Coding Guide
 
-Last updated: 2026-05-22.
+Last updated: 2026-05-25.
 
 This is the practical guide for future coding sessions. It condenses only the project direction,
 engineering rules, and architecture choices that are currently adopted and still valid. If older
@@ -346,14 +346,17 @@ P1:
 
 P2:
 
-- First planning topic: implement the FastAPI boundary from `docs/06_api_contracts.md`, reusing the
-  same service layer as the CLI.
-- Prepare multi-work and multi-character boundaries: same-name characters, alias conflicts,
-  cross-work canon, and persona-version selection.
-- Add user/workspace/audit concepts for platformization.
-- Make agent workflows more explicit and observable, drawing from LangGraph/ReAct only when useful.
-- Evaluate third-party memory, graph, retrieval, and evaluation frameworks after canon and memory
-  boundaries are stable.
+- Batch 03 planning is complete when
+  `plans/batch_03_p2_planning/P2_ACCEPTANCE_CRITERIA.md` is accepted.
+- Next implementation batch: build the Batch 04 service foundation in
+  `plans/batch_04_service_foundation/`, starting with a thin `application` layer, shared
+  bootstrap, read-only inspection services, and CLI list/show migration.
+- Keep FastAPI as a later adapter over shared application services; do not add FastAPI before the
+  service boundary is extracted and tested.
+- Preserve explicit ID boundaries for source works, characters, users, conversations, persona
+  versions, memories, evidence chunks, and eval records.
+- Keep workspace/auth/platform features, graph/vector databases, third-party memory systems, and
+  production UI out of scope until the service foundation is stable.
 
 ## Non-Goals For The Current Phase
 
