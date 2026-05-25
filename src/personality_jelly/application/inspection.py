@@ -427,6 +427,37 @@ def list_conversations(session: Session, *, limit: int | None = None) -> Inspect
     )
 
 
+def list_characters(session: Session, *, source_work_id: str) -> InspectionListResult:
+    SourceWorkRepository(session).require(source_work_id)
+    character_repository = CharacterRepository(session)
+    persona_repository = PersonaVersionRepository(session)
+    claim_repository = CanonClaimRepository(session)
+    evidence_repository = EvidenceRefRepository(session)
+
+    characters = character_repository.list_by_source_work(source_work_id)
+    items: list[CharacterSummary] = []
+    for character in characters:
+        latest_persona = persona_repository.latest_for_character(character.id)
+        claims = claim_repository.list_by_character(character.id)
+        evidence_by_claim = _evidence_by_claim(evidence_repository, claims)
+        items.append(
+            CharacterSummary(
+                **_character_summary_payload(
+                    character,
+                    latest_persona=latest_persona,
+                    claim_count=len(claims),
+                    evidence_count=sum(len(evidence) for evidence in evidence_by_claim.values()),
+                ),
+            )
+        )
+
+    return InspectionListResult(
+        items=items,
+        total_count=len(items),
+        expansion=ExpansionState(mode="summary", expanded=["latest_persona", "counts"]),
+    )
+
+
 def get_character_detail(
     session: Session,
     character_id: str,

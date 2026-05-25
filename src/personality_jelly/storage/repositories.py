@@ -170,7 +170,11 @@ class CharacterRepository(Repository[Character, orm.CharacterORM]):
         )
 
     def list_by_source_work(self, source_work_id: str) -> list[Character]:
-        statement = select(orm.CharacterORM).where(orm.CharacterORM.source_work_id == source_work_id)
+        statement = (
+            select(orm.CharacterORM)
+            .where(orm.CharacterORM.source_work_id == source_work_id)
+            .order_by(orm.CharacterORM.created_at.asc(), orm.CharacterORM.id.asc())
+        )
         return self._all(statement)
 
     def find_by_source_work_and_name(
