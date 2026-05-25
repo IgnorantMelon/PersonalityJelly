@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from personality_jelly.application import (
+    build_character_persona,
     build_turn_role_bundles,
     create_database_resources,
     resolve_database_url,
@@ -33,7 +34,6 @@ from personality_jelly.domain import (
     SourceWork,
     User,
 )
-from personality_jelly.extraction import run_reader_extraction, verify_candidate_claims
 from personality_jelly.evaluation import (
     BENCHMARK_CASE_SUITES,
     BenchmarkCase,
@@ -67,7 +67,6 @@ from personality_jelly.runtime import (
     parse_layered_summary,
     summarize_conversation,
 )
-from personality_jelly.persona import compile_persona_version
 from personality_jelly.storage import (
     create_database_engine,
     create_session_factory,
@@ -2558,28 +2557,17 @@ def _prepare_demo_persona(
             persona_version=persona,
         )
 
-    run_reader_extraction(
+    setup_result = build_character_persona(
         session,
-        provider=provider,
-        model_config=model_config,
+        source_work_id=source_work.id,
         character_id=character.id,
-    )
-    verify_candidate_claims(
-        session,
         provider=provider,
         model_config=model_config,
-        character=CharacterRepository(session).require(character.id),
     )
-    persona = compile_persona_version(
-        session,
-        provider=provider,
-        model_config=model_config,
-        character_id=character.id,
-    ).persona_version
     return DemoPersonaContext(
         source_work=ingestion.source_work,
-        character=character,
-        persona_version=persona,
+        character=setup_result.character,
+        persona_version=setup_result.persona_version,
     )
 
 
