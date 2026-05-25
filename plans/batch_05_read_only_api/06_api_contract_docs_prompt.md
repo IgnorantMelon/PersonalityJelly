@@ -36,3 +36,11 @@ alignment, and test coverage gaps.
 
 Run the full API route test set plus focused CLI inspection tests. Run full pytest if any shared
 application models changed.
+
+## Completion
+
+Commit only this task's changes on `feature/api-contract-docs`.
+
+Do not merge this branch back into `dev`. Push only the task branch to `origin` and report the
+branch name and commit hash. A coordinator or maintainer will handle review and integration into
+`dev`.

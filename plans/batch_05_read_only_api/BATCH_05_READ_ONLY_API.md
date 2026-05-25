@@ -158,6 +158,16 @@ providers. Keep provider-specific codes documented for later write-workflow API 
 - Tests should use in-memory SQLite or temporary database URLs and should not require network
   access or real providers.
 
+## Shared Guardrails
+
+- Start each task from clean `dev` and use the scoped branch listed below.
+- Development agents must not merge their task branch back into `dev` at completion. They should
+  commit their task changes, push the task branch to `origin`, and report the branch and commit.
+  A coordinator or maintainer handles review and integration into `dev`.
+- Keep changes small and focused on the assigned endpoint family or foundation concern.
+- Preserve existing CLI behavior and application-service boundaries.
+- Run focused tests for touched behavior before pushing the task branch.
+
 ## Recommended Task Order
 
 | Task | Branch | Can start | Depends on | Main output |
