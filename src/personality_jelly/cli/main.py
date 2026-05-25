@@ -6,6 +6,14 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from personality_jelly.application import (
+    build_turn_role_bundles,
+    create_database_resources,
+    resolve_database_url,
+    resolve_embedding_config,
+    resolve_embedding_provider,
+    resolve_roleplay_provider,
+)
 from personality_jelly.characters import create_character
 from personality_jelly.core import Settings
 from personality_jelly.domain import (
@@ -53,8 +61,6 @@ from personality_jelly.llm import (
     build_llm_provider,
 )
 from personality_jelly.runtime import (
-    RoleplayTurnModelConfigs,
-    RoleplayTurnProviders,
     create_conversation,
     create_user,
     parse_layered_summary,
@@ -749,11 +755,9 @@ def _run_demo(args: argparse.Namespace) -> int:
         args.provider,
         settings=settings,
     )
-    engine = create_database_engine(database_url)
-    ensure_database_ready(engine)
-    session_factory = create_session_factory(engine)
+    resources = create_database_resources(database_url)
 
-    with session_factory() as session:
+    with resources.session_factory() as session:
         demo_context = _prepare_demo_persona(
             session,
             args=args,
@@ -772,24 +776,18 @@ def _run_demo(args: argparse.Namespace) -> int:
             persona_version_id=demo_context.persona_version.id,
             reuse_existing=args.reuse_existing,
         )
+        provider_roles, model_roles = build_turn_role_bundles(
+            provider=provider,
+            model_config=model_config,
+            retriever=embedding_provider,
+            retrieval_embedding=embedding_config,
+        )
         turn = send_roleplay_turn(
             session,
             conversation_id=conversation.id,
             content=args.user_message,
-            providers=RoleplayTurnProviders(
-                roleplay=provider,
-                critic=provider,
-                memory_curator=provider,
-                mode_classifier=provider,
-                retriever=embedding_provider,
-            ),
-            model_configs=RoleplayTurnModelConfigs(
-                roleplay=model_config,
-                critic=model_config,
-                memory_curator=model_config,
-                mode_classifier=model_config,
-                retrieval_embedding=embedding_config,
-            ),
+            providers=provider_roles.to_runtime_turn_providers(),
+            model_configs=model_roles.to_runtime_turn_model_configs(),
             interaction_mode=(
                 InteractionMode(args.interaction_mode)
                 if args.interaction_mode is not None
@@ -835,33 +833,25 @@ def _run_turn(args: argparse.Namespace) -> int:
         args.provider,
         settings=settings,
     )
-    engine = create_database_engine(database_url)
-    ensure_database_ready(engine)
-    session_factory = create_session_factory(engine)
+    resources = create_database_resources(database_url)
 
-    with session_factory() as session:
+    with resources.session_factory() as session:
         try:
             conversation = ConversationRepository(session).require(args.conversation_id)
         except LookupError as exc:
             raise CliError(str(exc)) from exc
+        provider_roles, model_roles = build_turn_role_bundles(
+            provider=provider,
+            model_config=model_config,
+            retriever=embedding_provider,
+            retrieval_embedding=embedding_config,
+        )
         turn = send_roleplay_turn(
             session,
             conversation_id=conversation.id,
             content=args.message,
-            providers=RoleplayTurnProviders(
-                roleplay=provider,
-                critic=provider,
-                memory_curator=provider,
-                mode_classifier=provider,
-                retriever=embedding_provider,
-            ),
-            model_configs=RoleplayTurnModelConfigs(
-                roleplay=model_config,
-                critic=model_config,
-                memory_curator=model_config,
-                mode_classifier=model_config,
-                retrieval_embedding=embedding_config,
-            ),
+            providers=provider_roles.to_runtime_turn_providers(),
+            model_configs=model_roles.to_runtime_turn_model_configs(),
             interaction_mode=(
                 InteractionMode(args.interaction_mode)
                 if args.interaction_mode is not None
@@ -2448,19 +2438,18 @@ def _provider_check_status(build_provider, *, errors: list[str], label: str) -> 
 
 
 def _resolve_database_url(args: argparse.Namespace, settings: Settings) -> str:
-    memory_db = getattr(args, "memory_db", False)
-    if memory_db and args.database_url:
-        raise CliError("--memory-db cannot be combined with --database-url")
-    if memory_db:
-        return "sqlite:///:memory:"
-    return args.database_url or settings.database_url
+    try:
+        return resolve_database_url(
+            settings=settings,
+            database_url=args.database_url,
+            memory_db=getattr(args, "memory_db", False),
+        )
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
 
 
 def _resolve_embedding_config(settings: Settings) -> EmbeddingConfig | None:
-    embedding_model = settings.embedding_model.strip() if settings.embedding_model else ""
-    if not embedding_model:
-        return None
-    return EmbeddingConfig(model=embedding_model)
+    return resolve_embedding_config(settings)
 
 
 def _resolve_embedding_provider(
@@ -2468,18 +2457,15 @@ def _resolve_embedding_provider(
     *,
     settings: Settings | None = None,
 ) -> tuple[LLMProvider | None, EmbeddingConfig | None]:
-    embedding_config = _resolve_embedding_config(settings or Settings())
-    if embedding_config is None:
-        return None, None
-    if provider_source == "stub":
-        return StubProvider(), embedding_config
-    if provider_source == "env":
-        active_settings = settings or Settings()
-        try:
-            return build_embedding_provider(active_settings), embedding_config
-        except ValueError as exc:
-            raise CliError(str(exc)) from exc
-    raise CliError(f"unsupported provider source {provider_source!r}")
+    try:
+        return resolve_embedding_provider(
+            provider_source,
+            settings=settings or Settings(),
+            stub_provider_factory=StubProvider,
+            embedding_provider_factory=build_embedding_provider,
+        )
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
 
 
 def _resolve_demo_provider(
@@ -2487,21 +2473,15 @@ def _resolve_demo_provider(
     *,
     settings: Settings | None = None,
 ) -> tuple[LLMProvider, ModelConfig]:
-    if provider_source == "stub":
-        return StubProvider(), ModelConfig(model="stub")
-
-    if provider_source == "env":
-        active_settings = settings or Settings()
-        llm_model = active_settings.llm_model.strip() if active_settings.llm_model else ""
-        if not llm_model:
-            raise CliError("PJ_LLM_MODEL is required when using --provider env")
-        try:
-            provider = build_llm_provider(active_settings)
-        except ValueError as exc:
-            raise CliError(str(exc)) from exc
-        return provider, ModelConfig(model=llm_model)
-
-    raise CliError(f"unsupported provider source {provider_source!r}")
+    try:
+        return resolve_roleplay_provider(
+            provider_source,
+            settings=settings or Settings(),
+            stub_provider_factory=StubProvider,
+            llm_provider_factory=build_llm_provider,
+        )
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
 
 
 def _display_value(value: str | None) -> str:
