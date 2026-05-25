@@ -31,6 +31,10 @@ from personality_jelly.application.conversation_inspection import (
     inspect_context_package,
     inspect_conversation,
 )
+from personality_jelly.application.character_persona_setup import (
+    CharacterPersonaSetupResult,
+    build_character_persona,
+)
 from personality_jelly.application.conversations import summarize_conversation_workflow
 from personality_jelly.application.errors import NormalizedError, normalize_error
 from personality_jelly.application.inspection import (
@@ -104,6 +108,7 @@ from personality_jelly.application.turn_workflow import (
 __all__ = [
     "BenchmarkModeDiagnostics",
     "CharacterDetail",
+    "CharacterPersonaSetupResult",
     "CharacterSummary",
     "ClaimSummary",
     "ContextPackageDetail",
@@ -151,6 +156,7 @@ __all__ = [
     "TurnWorkflowSummary",
     "UserSummary",
     "build_turn_role_bundles",
+    "build_character_persona",
     "create_database_resources",
     "dry_run_ooc_benchmark",
     "dry_run_retrieval_benchmark",
