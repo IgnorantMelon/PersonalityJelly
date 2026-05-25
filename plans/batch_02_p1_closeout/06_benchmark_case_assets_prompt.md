@@ -30,7 +30,7 @@ Avoid editing `src/personality_jelly/cli/main.py` unless a focused test proves i
 Read these before editing:
 
 - `VIBE_CODING_GUIDE.md`
-- `plans/P1_CLOSEOUT_ORCHESTRATION.md`
+- `plans/batch_02_p1_closeout/P1_CLOSEOUT_ORCHESTRATION.md`
 - `src/personality_jelly/evaluation/benchmark.py`
 - `src/personality_jelly/evaluation/retrieval_benchmark.py`
 - `tests/test_evaluation_benchmark.py`

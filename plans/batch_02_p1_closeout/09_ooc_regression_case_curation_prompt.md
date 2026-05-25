@@ -36,7 +36,7 @@ Coordinate before editing `src/personality_jelly/cli/main.py`; Task 11 owns broa
 Read these before editing:
 
 - `VIBE_CODING_GUIDE.md`
-- `plans/P1_CLOSEOUT_ORCHESTRATION.md`
+- `plans/batch_02_p1_closeout/P1_CLOSEOUT_ORCHESTRATION.md`
 - benchmark asset README from Task 06
 - `src/personality_jelly/evaluation/benchmark.py`
 - `src/personality_jelly/critic/service.py`

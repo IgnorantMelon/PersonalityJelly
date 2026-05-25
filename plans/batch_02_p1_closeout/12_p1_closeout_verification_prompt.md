@@ -34,7 +34,7 @@ Do not start while any Wave B or Wave C branch is still unaccepted or unintegrat
 Read these before editing:
 
 - `VIBE_CODING_GUIDE.md`
-- `plans/P1_CLOSEOUT_ORCHESTRATION.md`
+- `plans/batch_02_p1_closeout/P1_CLOSEOUT_ORCHESTRATION.md`
 - final reports and integration commits for Tasks 06-11
 - `README.md`
 - benchmark asset README

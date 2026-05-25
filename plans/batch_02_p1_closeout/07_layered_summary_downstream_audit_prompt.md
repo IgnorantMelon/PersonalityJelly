@@ -30,7 +30,7 @@ Do not edit benchmark asset files owned by Task 06.
 Read these before editing:
 
 - `VIBE_CODING_GUIDE.md`
-- `plans/P1_CLOSEOUT_ORCHESTRATION.md`
+- `plans/batch_02_p1_closeout/P1_CLOSEOUT_ORCHESTRATION.md`
 - `src/personality_jelly/runtime/summary.py`
 - `src/personality_jelly/runtime/summary_schemas.py`
 - `src/personality_jelly/runtime/context.py`

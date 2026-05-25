@@ -31,7 +31,7 @@ Task 11 should wait for this task to be accepted and integrated into `dev` becau
 Read these before editing:
 
 - `VIBE_CODING_GUIDE.md`
-- `plans/P1_CLOSEOUT_ORCHESTRATION.md`
+- `plans/batch_02_p1_closeout/P1_CLOSEOUT_ORCHESTRATION.md`
 - `src/personality_jelly/cli/main.py`
 - `src/personality_jelly/storage/repositories.py`
 - `src/personality_jelly/llm/tracing.py`
