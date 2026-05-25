@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from personality_jelly.api.errors import register_exception_handlers
 from personality_jelly.api.routes import health
 from personality_jelly.application import (
     DatabaseResources,
@@ -34,5 +35,6 @@ def create_app(
     app = FastAPI(title="Personality Jelly API")
     app.state.settings = resolved_settings
     app.state.database_resources = resources
+    register_exception_handlers(app)
     app.include_router(health.router)
     return app
