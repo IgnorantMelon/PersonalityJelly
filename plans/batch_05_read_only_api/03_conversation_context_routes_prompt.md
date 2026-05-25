@@ -38,3 +38,11 @@ inspection services.
 ## Verification
 
 Run focused API conversation/context tests and existing conversation/context inspection tests.
+
+## Completion
+
+Commit only this task's changes on `feature/api-conversation-context`.
+
+Do not merge this branch back into `dev`. Push only the task branch to `origin` and report the
+branch name and commit hash. A coordinator or maintainer will handle review and integration into
+`dev`.

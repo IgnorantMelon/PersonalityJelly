@@ -36,3 +36,11 @@ Add shared API dependencies and exception handling so route tasks can stay thin 
 
 Run focused API error/session tests. If shared bootstrap code changes, also run application
 bootstrap tests.
+
+## Completion
+
+Commit only this task's changes on `feature/api-errors-sessions`.
+
+Do not merge this branch back into `dev`. Push only the task branch to `origin` and report the
+branch name and commit hash. A coordinator or maintainer will handle review and integration into
+`dev`.

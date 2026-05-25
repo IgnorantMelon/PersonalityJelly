@@ -41,3 +41,11 @@ Expose read-only HTTP endpoints for character canon, evidence, memories, and sou
 
 Run focused API character/claim/memory/source route tests and existing application inspection
 tests.
+
+## Completion
+
+Commit only this task's changes on `feature/api-character-memory`.
+
+Do not merge this branch back into `dev`. Push only the task branch to `origin` and report the
+branch name and commit hash. A coordinator or maintainer will handle review and integration into
+`dev`.

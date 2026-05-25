@@ -37,3 +37,11 @@ Complete Batch 05 with a clean verification pass and an updated project status s
 ## Verification
 
 Run `.\.venv\Scripts\python -m pytest` before final report.
+
+## Completion
+
+Commit only this task's changes on `chore/batch-05-api-closeout`.
+
+Do not merge this branch back into `dev`. Push only the task branch to `origin` and report the
+branch name and commit hash. A coordinator or maintainer will handle review and integration into
+`dev`.
