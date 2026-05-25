@@ -13,6 +13,7 @@ from personality_jelly.application import (
     resolve_embedding_config,
     resolve_embedding_provider,
     resolve_roleplay_provider,
+    run_turn_workflow,
 )
 from personality_jelly.characters import create_character
 from personality_jelly.core import Settings
@@ -64,7 +65,6 @@ from personality_jelly.runtime import (
     create_conversation,
     create_user,
     parse_layered_summary,
-    send_roleplay_turn,
     summarize_conversation,
 )
 from personality_jelly.persona import compile_persona_version
@@ -782,12 +782,12 @@ def _run_demo(args: argparse.Namespace) -> int:
             retriever=embedding_provider,
             retrieval_embedding=embedding_config,
         )
-        turn = send_roleplay_turn(
+        turn_result = run_turn_workflow(
             session,
             conversation_id=conversation.id,
             content=args.user_message,
-            providers=provider_roles.to_runtime_turn_providers(),
-            model_configs=model_roles.to_runtime_turn_model_configs(),
+            provider_roles=provider_roles,
+            model_roles=model_roles,
             interaction_mode=(
                 InteractionMode(args.interaction_mode)
                 if args.interaction_mode is not None
@@ -795,6 +795,7 @@ def _run_demo(args: argparse.Namespace) -> int:
             ),
             retry_on_critic=args.retry_on_critic,
         )
+        turn = turn_result.runtime_result
         session.commit()
 
     print(f"database_url={database_url}")
@@ -846,12 +847,12 @@ def _run_turn(args: argparse.Namespace) -> int:
             retriever=embedding_provider,
             retrieval_embedding=embedding_config,
         )
-        turn = send_roleplay_turn(
+        turn_result = run_turn_workflow(
             session,
             conversation_id=conversation.id,
             content=args.message,
-            providers=provider_roles.to_runtime_turn_providers(),
-            model_configs=model_roles.to_runtime_turn_model_configs(),
+            provider_roles=provider_roles,
+            model_roles=model_roles,
             interaction_mode=(
                 InteractionMode(args.interaction_mode)
                 if args.interaction_mode is not None
@@ -859,6 +860,7 @@ def _run_turn(args: argparse.Namespace) -> int:
             ),
             retry_on_critic=args.retry_on_critic,
         )
+        turn = turn_result.runtime_result
         session.commit()
 
     print(f"database_url={database_url}")
