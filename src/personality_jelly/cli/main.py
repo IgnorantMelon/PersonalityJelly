@@ -42,6 +42,7 @@ from personality_jelly.domain import (
     Conversation,
     EvaluationCaseResult,
     InteractionMode,
+    Message,
     MemoryScope,
     MemoryStatus,
     PersonaVersion,
