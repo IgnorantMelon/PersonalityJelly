@@ -45,9 +45,11 @@ All coding agents and task prompts must follow this baseline:
 - Add or update tests for behavior changes, run focused tests first, and run the full suite when
   shared behavior is touched.
 - Final reports should include files changed, tests run and results, and any task-specific caveats.
-- Current phase direction is post-Batch 06 API write readiness. Batch 06 closeout recommends Batch
-  07 API Write Foundation as the next implementation batch. Until that batch is explicitly started,
-  do not add write APIs, platform/auth/workspace features, or semantic behavior in API handlers.
+- Current phase direction is Batch 07 API Write Foundation. Batch 07 is limited to local-first
+  deterministic write foundations: redaction profiles, request/workflow correlation, local actor
+  context, conversation creation, and manual memory review/edit/archive. Do not add write APIs
+  outside that accepted scope, platform/auth/workspace features, or semantic behavior in API
+  handlers.
 
 ## Current Goal
 
@@ -114,7 +116,7 @@ contracts for individual branches.
 After Batch 06 closeout, future development should stay incremental and evidence-driven:
 
 - API implementation path:
-  - use the Batch 06 closeout recommendation to start with Batch 07 API Write Foundation;
+  - use Batch 07 API Write Foundation as the active implementation batch;
   - first candidates are shared redaction profiles, request/workflow correlation, local actor
     context, conversation creation, and manual memory review/edit/archive;
   - keep write handlers as adapters over `application` services rather than moving workflow logic
@@ -146,10 +148,9 @@ After Batch 06 closeout, future development should stay incremental and evidence
 
 ## 下一阶段开发计划
 
-The next recommended phase is Batch 07 API Write Foundation. Batch 06 has produced the
-implementation-ready contracts for write workflow boundaries, local actor/auth/audit boundaries,
-redaction defaults, pagination/filter conventions, trace/workflow correlation, and next-batch
-selection.
+The next phase is Batch 07 API Write Foundation. Batch 06 produced the implementation-ready
+contracts for write workflow boundaries, local actor/auth/audit boundaries, redaction defaults,
+pagination/filter conventions, trace/workflow correlation, and next-batch selection.
 
 Batch 07 should stay local-first and deterministic:
 
@@ -178,6 +179,16 @@ Batch 06 planning artifacts live under `plans/batch_06_api_write_readiness/`:
 - `04_pagination_filter_contract.md`
 - `05_trace_workflow_correlation.md`
 - `06_batch_06_acceptance_next_recommendation.md`
+
+Current Batch 07 task prompts live under `plans/batch_07_api_write_foundation/`:
+
+- `BATCH_07_API_WRITE_FOUNDATION.md`
+- `01_redaction_profile_foundation_prompt.md`
+- `02_correlation_error_envelope_foundation_prompt.md`
+- `03_local_actor_audit_boundary_prompt.md`
+- `04_conversation_creation_write_route_prompt.md`
+- `05_manual_memory_write_routes_prompt.md`
+- `06_batch_07_closeout_verification_prompt.md`
 
 Do not add HTTP write routes outside the accepted Batch 07 scope. Provider-backed workflows require
 additional workflow correlation, redaction, partial-persistence, retry, and audit decisions before

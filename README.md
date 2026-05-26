@@ -92,13 +92,14 @@ timeout_seconds = 60
 
 ## 开发计划
 
-当前阶段：方案三 MVP 的 P2 service foundation、Batch 05 read-only API adapter 与 Batch 06 API write readiness 契约规划已完成 closeout 候选输出；下一步推荐进入 Batch 07 API Write Foundation。
+当前阶段：方案三 MVP 的 P2 service foundation、Batch 05 read-only API adapter 与 Batch 06 API write readiness 契约规划已完成 closeout，Batch 07 API Write Foundation 已建立为下一实施批次。
 
 - P1：已完成 semantic tracing、benchmark cases、layered summary 消费、retrieval diagnostics 和 CLI diagnostics 加固。
 - P2：已完成 FastAPI/service boundary 规划、多作品/多角色数据边界审计、user/workspace/audit 概念设计，以及 CLI/API shared service foundation。
 - Batch 05：已引入只读 API adapter，让 FastAPI 作为 `personality_jelly.application` 之上的薄 HTTP 层，暴露 conversation、context package、character、claim、memory、critic report、failure case、LLM trace 和 eval run 等检查接口，并通过 API/CLI focused 与 full pytest closeout。
 - Batch 06：已收束延期 API 议题的实现前契约，包括写流程边界、actor/auth/audit、API redaction、分页/filter 约定、trace/workflow correlation，以及下一批次实施建议；该批次不实现写接口。
-- 后续：推荐的下一批次是 Batch 07 API Write Foundation，先实现最小安全的本地写入基础：redaction/correlation/actor context、conversation creation，以及 manual memory review/edit/archive；在 canon 与 memory 边界稳定后，再评估 LangGraph、GraphRAG/LightRAG、第三方记忆系统、外部向量库和平台 UI。
+- Batch 07：已建立为下一实施批次，先实现最小安全的本地写入基础：redaction/correlation/actor context、conversation creation，以及 manual memory review/edit/archive；不包含 provider-backed 写流程、persistent audit、auth/workspace、部署或 UI。
+- 后续：在 Batch 07 写入基础通过 closeout 后，再评估 source ingest、character/persona setup、turn execution、summary、benchmark、persistent audit 和 cursor migration；在 canon 与 memory 边界稳定后，再评估 LangGraph、GraphRAG/LightRAG、第三方记忆系统、外部向量库和平台 UI。
 
 ## 开发指南
 
