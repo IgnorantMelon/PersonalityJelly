@@ -4,6 +4,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+class ConflictError(RuntimeError):
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.details = details or {}
+
+
 @dataclass(frozen=True)
 class NormalizedError:
     code: str
@@ -12,6 +18,12 @@ class NormalizedError:
 
 
 def normalize_error(error: Exception) -> NormalizedError:
+    if isinstance(error, ConflictError):
+        return NormalizedError(
+            code="conflict",
+            message=str(error),
+            details=error.details,
+        )
     if isinstance(error, LookupError):
         return NormalizedError(code="not_found", message=str(error))
     if isinstance(error, ValueError):

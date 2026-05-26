@@ -8,7 +8,7 @@ def _settings(**values) -> Settings:
     return Settings(config_file="missing-test-pjelly.toml", _env_file=None, **values)
 
 
-def test_openapi_contract_exposes_expected_read_only_route_set(tmp_path) -> None:
+def test_openapi_contract_exposes_expected_route_set(tmp_path) -> None:
     app = create_app(
         settings=_settings(),
         database_url=f"sqlite:///{tmp_path / 'api-contract.db'}",
@@ -42,10 +42,16 @@ def test_openapi_contract_exposes_expected_read_only_route_set(tmp_path) -> None
     assert set(paths) == expected_paths
 
     for path, path_item in paths.items():
-        assert set(path_item) == {"get"}, path
+        expected_methods = {"get", "post"} if path == "/conversations" else {"get"}
+        assert set(path_item) == expected_methods, path
         operation = path_item["get"]
         assert "200" in operation["responses"], path
         assert "application/json" in operation["responses"]["200"]["content"], path
+
+    conversation_create = paths["/conversations"]["post"]
+    assert conversation_create["tags"] == ["conversation-context"]
+    assert "201" in conversation_create["responses"]
+    assert "application/json" in conversation_create["responses"]["201"]["content"]
 
 
 def test_openapi_contract_keeps_route_tags_and_query_params_stable(tmp_path) -> None:

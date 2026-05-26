@@ -5,7 +5,10 @@ from typing import Any
 from pydantic import Field
 
 from personality_jelly.application import (
+    AuditActorType,
+    ConversationCreateResult as ApplicationConversationCreateResult,
     CorrelationContext,
+    LocalActorContext,
     WorkflowContext,
     WorkflowRelatedIds,
     WorkflowResponseSummary,
@@ -16,6 +19,7 @@ from personality_jelly.application import (
 )
 from personality_jelly.application.correlation import MAX_CORRELATION_ID_LENGTH
 from personality_jelly.application.inspection import InspectionModel
+from personality_jelly.domain import InteractionMode
 
 REQUEST_ID_HEADER = "X-Request-ID"
 
@@ -53,6 +57,79 @@ class WriteResponseEnvelope(WorkflowResponseSummary):
         return cls(
             **summary.model_dump(mode="python"),
             result=result or {},
+        )
+
+
+class ConversationCreateActor(InspectionModel):
+    actor_type: AuditActorType = AuditActorType.API_USER
+    actor_id: str = Field(min_length=1, max_length=MAX_CORRELATION_ID_LENGTH)
+    actor_label: str | None = Field(default=None, max_length=MAX_CORRELATION_ID_LENGTH)
+    user_id: str | None = Field(default=None, max_length=MAX_CORRELATION_ID_LENGTH)
+    operation_reason: str | None = Field(default=None, max_length=500)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def to_application_context(self) -> LocalActorContext:
+        return LocalActorContext(
+            actor_type=self.actor_type,
+            actor_id=self.actor_id,
+            actor_label=self.actor_label,
+            user_id=self.user_id,
+            operation_reason=self.operation_reason,
+            metadata=self.metadata,
+        )
+
+
+class ConversationCreateRequest(WriteRequestIdBody):
+    user_id: str = Field(min_length=1, max_length=MAX_CORRELATION_ID_LENGTH)
+    character_id: str = Field(min_length=1, max_length=MAX_CORRELATION_ID_LENGTH)
+    persona_version_id: str | None = Field(
+        default=None,
+        max_length=MAX_CORRELATION_ID_LENGTH,
+    )
+    conversation_id: str | None = Field(
+        default=None,
+        max_length=MAX_CORRELATION_ID_LENGTH,
+    )
+    interaction_mode: InteractionMode = InteractionMode.REALITY_CHAT
+    actor: ConversationCreateActor
+
+
+class ConversationCreateResponseConversation(InspectionModel):
+    conversation_id: str
+    user_id: str
+    character_id: str
+    persona_version_id: str
+    current_mode: InteractionMode | str
+
+
+class ConversationCreateResponseResult(InspectionModel):
+    conversation: ConversationCreateResponseConversation
+    audit_event: dict[str, Any] | None = None
+
+
+class ConversationCreateResponse(WriteResponseEnvelope):
+    result: ConversationCreateResponseResult
+
+    @classmethod
+    def from_application_result(
+        cls,
+        result: ApplicationConversationCreateResult,
+        *,
+        audit_event: dict[str, Any] | None = None,
+    ) -> "ConversationCreateResponse":
+        return cls(
+            request_id=result.request_id,
+            workflow_id=result.workflow_id,
+            workflow_type=result.workflow_type,
+            status=result.status,
+            ids=result.ids,
+            warnings=result.warnings,
+            result=ConversationCreateResponseResult(
+                conversation=ConversationCreateResponseConversation(
+                    **result.conversation.model_dump(mode="python")
+                ),
+                audit_event=audit_event,
+            ),
         )
 
 

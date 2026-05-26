@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from personality_jelly.application import (
+    ConflictError,
     ErrorCorrelation,
     NormalizedError,
     dump_error_correlation,
@@ -32,6 +33,7 @@ class ErrorEnvelope(BaseModel):
 
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(LookupError, _handle_lookup_error)
+    app.add_exception_handler(ConflictError, _handle_conflict_error)
     app.add_exception_handler(ValueError, _handle_value_error)
     app.add_exception_handler(RequestValidationError, _handle_request_validation_error)
     app.add_exception_handler(Exception, _handle_unexpected_error)
@@ -39,6 +41,10 @@ def register_exception_handlers(app: FastAPI) -> None:
 
 async def _handle_lookup_error(request: Request, exc: LookupError) -> JSONResponse:
     return _error_response(normalize_error(exc), status_code=404)
+
+
+async def _handle_conflict_error(request: Request, exc: ConflictError) -> JSONResponse:
+    return _error_response(normalize_error(exc), status_code=409)
 
 
 async def _handle_value_error(request: Request, exc: ValueError) -> JSONResponse:
