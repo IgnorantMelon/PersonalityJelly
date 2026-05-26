@@ -67,6 +67,108 @@ The target experience is:
 The project is not trying to become a generic assistant, a complete roleplay platform, or a graph
 database system in the current phase.
 
+## 项目总体规划
+
+This is the top-level development outline from project start to intended maturity. It is a
+directional map for sequencing work; task prompts and batch plans remain the implementation
+contracts for individual branches.
+
+1. MVP character brain foundation:
+   - ingest TXT/Markdown novel text;
+   - persist source works, chunks, characters, canon claims, evidence, persona versions,
+     conversations, messages, memories, context packages, traces, failures, and eval runs;
+   - support one source work and one primary protagonist while preserving IDs required for later
+     expansion.
+2. Canon and persona pipeline:
+   - extract source-backed character facts;
+   - verify canon claims through evidence and structured Verifier output;
+   - compile versioned personas from verified canon;
+   - keep unverified memory, scene state, and reflective notes out of canon.
+3. Runtime conversation and memory:
+   - classify interaction mode semantically;
+   - assemble context packages from persona, source evidence, memories, and layered summaries;
+   - generate roleplay or reality-chat responses through provider abstractions;
+   - run critic, retry/failure capture, memory curation, memory guard, and layered summaries.
+4. Quality and diagnostics hardening:
+   - record structured LLM traces and raw outputs for traceable semantic workflows;
+   - maintain OOC and retrieval benchmark suites plus curated regression assets;
+   - expose CLI diagnostics for config, database state, conversations, context packages, traces,
+     failures, memories, and eval runs;
+   - turn observed failures into explicit benchmark cases before changing behavior.
+5. Shared service foundation:
+   - move reusable workflow and inspection behavior into `personality_jelly.application`;
+   - keep CLI and API adapters thin;
+   - preserve transport-neutral request/result models and explicit ID boundaries.
+6. HTTP adapter growth:
+   - first expose read-only inspection through FastAPI over application services;
+   - plan write workflow, redaction, actor/audit, pagination, and trace-correlation contracts before
+     implementing write routes;
+   - add write APIs only after contracts and service prerequisites are accepted.
+7. Product and platform evolution:
+   - expand from single-work/single-protagonist workflows toward multi-work, multi-character, and
+     multi-user support only after data boundaries remain stable under tests;
+   - add auth/workspace/platform features, production deployment, UI, external vector stores,
+     graph systems, or third-party memory systems only when they solve a proven bottleneck.
+
+## 长期开发计划
+
+After the current Batch 06 planning batch, future development should stay incremental and
+evidence-driven:
+
+- API implementation path:
+  - use Batch 06 outputs to select the smallest safe implementation batch;
+  - likely first candidates are API write foundation services, redaction implementation, or
+    trace/workflow correlation, depending on the accepted blockers;
+  - keep write handlers as adapters over `application` services rather than moving workflow logic
+    into `api`.
+- Canon, memory, and retrieval quality:
+  - keep canon writes evidence-backed and reviewer-friendly;
+  - keep user/relationship memory separate from source canon;
+  - expand benchmark cases before changing semantic behavior;
+  - improve retrieval only with measurable recall/ranking diagnostics.
+- Multi-entity evolution:
+  - preserve `source_work_id`, `character_id`, `user_id`, `conversation_id`,
+    `persona_version_id`, memory scope, and evidence IDs in every shared contract;
+  - defer true multi-work, multi-character, and workspace semantics until the current single-entity
+    paths are reliable through CLI, application services, and API contracts.
+- Platform and dependency discipline:
+  - do not introduce LangGraph, GraphRAG/LightRAG, external vector databases, third-party memory
+    services, production UI, auth, billing, or deployment machinery as speculative groundwork;
+  - evaluate those options only after a concrete project bottleneck and migration boundary are
+    documented.
+
+## 下一阶段开发计划
+
+The next phase is Batch 06 API Write Readiness. It is a planning/readiness batch, not a write-route
+implementation batch.
+
+Batch 06 should produce implementation-ready contracts for:
+
+- write workflow boundaries for source ingest, character/persona setup, conversation creation,
+  turn execution, summary generation, benchmark execution, memory mutation, and audit persistence;
+- actor/auth/audit boundaries that support local explicit actor context while deferring full
+  platform auth and workspace features;
+- API redaction policy for assembled prompts, raw messages, memories, source chunks, LLM traces,
+  critic reports, failures, and benchmark outputs;
+- pagination, ordering, list envelope, and filter conventions beyond ad hoc `limit` handling;
+- request/workflow/LLM-trace correlation so later write routes can be debugged end to end;
+- closeout acceptance criteria and a recommendation for the next implementation batch.
+
+Current Batch 06 task prompts live under `plans/batch_06_api_write_readiness/`:
+
+- `BATCH_06_API_WRITE_READINESS.md`
+- `01_write_workflow_boundary_design_prompt.md`
+- `02_actor_auth_audit_boundary_prompt.md`
+- `03_api_redaction_policy_prompt.md`
+- `04_pagination_filter_contract_prompt.md`
+- `05_trace_workflow_correlation_prompt.md`
+- `06_batch_06_acceptance_next_recommendation_prompt.md`
+
+Batch 06 itself should not implement write API routes unless a maintainer explicitly changes the
+task from planning into implementation after the contracts are accepted. Do not add HTTP write
+routes for source ingest, character creation, turn execution, summary generation, benchmark
+execution, memory mutation, or audit persistence in this phase.
+
 ## Current Adopted Stack
 
 Use what the codebase already uses:
@@ -354,39 +456,6 @@ Common commands include:
 
 The default provider remains `stub`, so local deterministic demos and tests should not require
 network access.
-
-## Current Priority Backlog
-
-P0:
-
-- No open P0 items.
-
-P1:
-
-- No open P1 hardening items at this snapshot.
-- Future OOC or retrieval regressions should still be captured first as explicit cases files before
-  behavior changes.
-- Continue preserving stable CLI `key=value` diagnostics when adding P2 surfaces.
-
-P2:
-
-- Batch 03 planning is complete and Batch 04 service foundation is implemented.
-- Batch 05 read-only API adapter is complete and closeout verified.
-- Batch 05 exposes only read-only endpoints over existing `application` inspection services:
-  conversations, context packages, characters, claims, memories, critic reports, failure cases,
-  LLM traces, OOC eval runs, and retrieval eval runs.
-- Do not add write endpoints through HTTP without an explicit later implementation batch: no source
-  ingest, character creation, turn execution, summary generation, benchmark execution, memory
-  mutation, or audit persistence.
-- Preserve explicit ID boundaries for source works, characters, users, conversations, persona
-  versions, memories, evidence chunks, and eval records.
-- Batch 06 is the next planning/readiness batch. It should narrow deferred API questions into safe
-  future implementation contracts for write workflows, actor/auth/audit boundaries, API-level
-  redaction, pagination/filter conventions, trace/workflow correlation, and closeout acceptance.
-- Batch 06 itself should not implement write API routes unless a task explicitly changes from
-  planning into implementation after the contracts are accepted.
-- Keep workspace/auth/platform features, graph/vector databases, third-party memory systems, and
-  production UI out of scope until the service foundation is stable.
 
 ## Non-Goals For The Current Phase
 
