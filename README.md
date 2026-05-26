@@ -20,7 +20,7 @@ Personality Jelly 是一个 CLI 优先的小说角色大脑 MVP。项目目标�
 
 ## 当前状态
 
-当前实现是一个本地 MVP，P1 加固、Batch 04 service foundation 与 Batch 05 read-only API adapter 主体接口已完成验证，主要能力包括：
+当前实现是一个本地 MVP，P1 加固、Batch 04 service foundation 与 Batch 05 read-only API adapter closeout 已完成验证，主要能力包括：
 
 - Python `>=3.12,<3.14`、`uv`、Pydantic v2、SQLAlchemy 2 和 SQLite；
 - 可替换的 LLM 与 embedding provider 抽象；
@@ -92,12 +92,12 @@ timeout_seconds = 60
 
 ## 开发计划
 
-当前阶段：方案三 MVP 的 P2 service foundation 已完成，Batch 05 read-only API adapter 已完成主体接口实现，正在进行合同/文档收口与 closeout 验证。
+当前阶段：方案三 MVP 的 P2 service foundation 与 Batch 05 read-only API adapter 已完成 closeout 验证。
 
 - P1：已完成 semantic tracing、benchmark cases、layered summary 消费、retrieval diagnostics 和 CLI diagnostics 加固。
 - P2：已完成 FastAPI/service boundary 规划、多作品/多角色数据边界审计、user/workspace/audit 概念设计，以及 CLI/API shared service foundation。
-- Batch 05：已引入只读 API adapter，让 FastAPI 作为 `personality_jelly.application` 之上的薄 HTTP 层，暴露 conversation、context package、character、claim、memory、critic report、failure case、LLM trace 和 eval run 等检查接口。
-- 后续：在 canon 与 memory 边界稳定后，再评估 LangGraph、GraphRAG/LightRAG、第三方记忆系统、外部向量库和平台 UI。
+- Batch 05：已引入只读 API adapter，让 FastAPI 作为 `personality_jelly.application` 之上的薄 HTTP 层，暴露 conversation、context package、character、claim、memory、critic report、failure case、LLM trace 和 eval run 等检查接口，并通过 API/CLI focused 与 full pytest closeout。
+- 后续：优先规划 Batch 06 的延期 API 议题，例如写流程、auth/platform、API redaction、分页和 trace correlation；在 canon 与 memory 边界稳定后，再评估 LangGraph、GraphRAG/LightRAG、第三方记忆系统、外部向量库和平台 UI。
 
 ## 开发指南
 

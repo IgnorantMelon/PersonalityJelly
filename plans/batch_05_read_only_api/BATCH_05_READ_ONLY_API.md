@@ -209,6 +209,20 @@ No planned Batch 05 read-only endpoint family is intentionally deferred. Write w
 auth/platform concerns, deployment/server commands, and API-level redaction policy remain deferred
 to later batches.
 
+## Task 07 Closeout Verification Note
+
+Batch 05 closeout verification passed on 2026-05-26:
+
+- Focused API route tests: `34 passed`.
+- Focused CLI inspection tests: `11 passed, 35 deselected`.
+- Full pytest suite: `233 passed, 3 warnings`.
+- API audit confirmed the adapter exposes only GET routes and delegates to application inspection
+  services without adding write workflows.
+
+Batch 06 should start from the deferred work list below only when explicitly planned. The strongest
+next candidates are write workflow API boundaries, auth/platform policy, API-level redaction,
+pagination beyond simple `limit`, trace correlation, and server/deployment concerns.
+
 ## Deferred To Later Batches
 
 - Write workflows: ingest, character creation, conversation creation, turn execution, summary,

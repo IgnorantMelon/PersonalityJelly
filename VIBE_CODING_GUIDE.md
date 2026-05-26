@@ -43,9 +43,10 @@ All coding agents and task prompts must follow this baseline:
 - Add or update tests for behavior changes, run focused tests first, and run the full suite when
   shared behavior is touched.
 - Final reports should include files changed, tests run and results, and any task-specific caveats.
-- Current phase direction is Batch 05 read-only API adapter contract/closeout work. FastAPI is
-  limited to thin read-only adapters over `personality_jelly.application`; do not add write APIs,
-  platform/auth/workspace features, or semantic behavior in API handlers.
+- Current phase direction is post-Batch 05 planning. The read-only FastAPI adapter is closeout
+  verified and remains limited to thin read-only adapters over `personality_jelly.application`;
+  do not add write APIs, platform/auth/workspace features, or semantic behavior in API handlers
+  without an explicit later batch.
 
 ## Current Goal
 
@@ -130,12 +131,13 @@ The project currently has:
   character/claim/memory/source chunks, critic/failure/trace/eval records, turn workflow summary
   wrappers, summary and benchmark workflow wrappers, character/persona setup orchestration, and
   payload-only audit readiness models for manual memory operations.
-- Batch 05 read-only FastAPI adapter tasks 01-05 are implemented: app factory, health check,
+- Batch 05 read-only FastAPI adapter is closeout verified: app factory, health check,
   database/session dependency, structured error envelope, and GET-only route families for
   conversation/context, character/claim/memory/source chunk, critic/failure/LLM trace, OOC eval
   runs, and retrieval eval runs. Handlers call application services and do not add write workflows.
-- Batch 04 service-foundation verification status: focused application/CLI regression checks
-  passed; full test suite status at this snapshot: `198 passed, 3 warnings`.
+- Batch 05 closeout verification status: focused API route tests passed (`34 passed`), focused CLI
+  inspection tests passed (`11 passed, 35 deselected`), and the full test suite passed at this
+  snapshot: `233 passed, 3 warnings`.
 
 ## Data Boundaries
 
@@ -366,8 +368,7 @@ P1:
 P2:
 
 - Batch 03 planning is complete and Batch 04 service foundation is implemented.
-- Batch 05 read-only API adapter tasks 01-05 are implemented; current remaining work is API
-  contract/docs review and closeout verification.
+- Batch 05 read-only API adapter is complete and closeout verified.
 - Batch 05 exposes only read-only endpoints over existing `application` inspection services:
   conversations, context packages, characters, claims, memories, critic reports, failure cases,
   LLM traces, OOC eval runs, and retrieval eval runs.
@@ -375,6 +376,9 @@ P2:
   summary generation, benchmark execution, memory mutation, or audit persistence through HTTP.
 - Preserve explicit ID boundaries for source works, characters, users, conversations, persona
   versions, memories, evidence chunks, and eval records.
+- Batch 06 candidates should start from deferred API work only when explicitly planned: write
+  workflows, auth/platform boundaries, API-level redaction, pagination beyond `limit`, trace
+  correlation, and server/deployment concerns.
 - Keep workspace/auth/platform features, graph/vector databases, third-party memory systems, and
   production UI out of scope until the service foundation is stable.
 
