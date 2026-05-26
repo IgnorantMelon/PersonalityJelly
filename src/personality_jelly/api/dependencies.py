@@ -28,3 +28,16 @@ def get_session(request: Request) -> Iterator[Session]:
         raise
     finally:
         session.close()
+
+
+def get_write_session(request: Request) -> Iterator[Session]:
+    resources = get_database_resources(request)
+    session = resources.session_factory()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
