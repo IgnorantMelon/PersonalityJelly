@@ -45,10 +45,9 @@ All coding agents and task prompts must follow this baseline:
 - Add or update tests for behavior changes, run focused tests first, and run the full suite when
   shared behavior is touched.
 - Final reports should include files changed, tests run and results, and any task-specific caveats.
-- Current phase direction is post-Batch 05 planning. The read-only FastAPI adapter is closeout
-  verified and remains limited to thin read-only adapters over `personality_jelly.application`;
-  do not add write APIs, platform/auth/workspace features, or semantic behavior in API handlers
-  without an explicit later batch.
+- Current phase direction is post-Batch 06 API write readiness. Batch 06 closeout recommends Batch
+  07 API Write Foundation as the next implementation batch. Until that batch is explicitly started,
+  do not add write APIs, platform/auth/workspace features, or semantic behavior in API handlers.
 
 ## Current Goal
 
@@ -112,13 +111,12 @@ contracts for individual branches.
 
 ## 长期开发计划
 
-After the current Batch 06 planning batch, future development should stay incremental and
-evidence-driven:
+After Batch 06 closeout, future development should stay incremental and evidence-driven:
 
 - API implementation path:
-  - use Batch 06 outputs to select the smallest safe implementation batch;
-  - likely first candidates are API write foundation services, redaction implementation, or
-    trace/workflow correlation, depending on the accepted blockers;
+  - use the Batch 06 closeout recommendation to start with Batch 07 API Write Foundation;
+  - first candidates are shared redaction profiles, request/workflow correlation, local actor
+    context, conversation creation, and manual memory review/edit/archive;
   - keep write handlers as adapters over `application` services rather than moving workflow logic
     into `api`.
 - Single-character acceptance checkpoint:
@@ -148,22 +146,24 @@ evidence-driven:
 
 ## 下一阶段开发计划
 
-The next phase is Batch 06 API Write Readiness. It is a planning/readiness batch, not a write-route
-implementation batch.
+The next recommended phase is Batch 07 API Write Foundation. Batch 06 has produced the
+implementation-ready contracts for write workflow boundaries, local actor/auth/audit boundaries,
+redaction defaults, pagination/filter conventions, trace/workflow correlation, and next-batch
+selection.
 
-Batch 06 should produce implementation-ready contracts for:
+Batch 07 should stay local-first and deterministic:
 
-- write workflow boundaries for source ingest, character/persona setup, conversation creation,
-  turn execution, summary generation, benchmark execution, memory mutation, and audit persistence;
-- actor/auth/audit boundaries that support local explicit actor context while deferring full
-  platform auth and workspace features;
-- API redaction policy for assembled prompts, raw messages, memories, source chunks, LLM traces,
-  critic reports, failures, and benchmark outputs;
-- pagination, ordering, list envelope, and filter conventions beyond ad hoc `limit` handling;
-- request/workflow/LLM-trace correlation so later write routes can be debugged end to end;
-- closeout acceptance criteria and a recommendation for the next implementation batch.
+- add shared redaction profile and serializer foundations for new write-era responses;
+- add request/workflow correlation context and response fields;
+- add local actor context and payload-only audit boundaries for write services;
+- implement application services and thin HTTP adapters for conversation creation;
+- implement application services and thin HTTP adapters for manual memory review/edit/archive.
 
-Current Batch 06 task prompts live under `plans/batch_06_api_write_readiness/`:
+Batch 07 should not implement source ingest, character/persona setup, turn execution, summary
+generation, benchmark execution, persistent audit storage, auth/workspace/platform features, cursor
+migrations, CORS, deployment, UI, or provider-backed write workflows.
+
+Batch 06 planning artifacts live under `plans/batch_06_api_write_readiness/`:
 
 - `BATCH_06_API_WRITE_READINESS.md`
 - `01_write_workflow_boundary_design_prompt.md`
@@ -172,11 +172,16 @@ Current Batch 06 task prompts live under `plans/batch_06_api_write_readiness/`:
 - `04_pagination_filter_contract_prompt.md`
 - `05_trace_workflow_correlation_prompt.md`
 - `06_batch_06_acceptance_next_recommendation_prompt.md`
+- `01_write_workflow_boundary_design.md`
+- `02_actor_auth_audit_boundary.md`
+- `03_api_redaction_policy.md`
+- `04_pagination_filter_contract.md`
+- `05_trace_workflow_correlation.md`
+- `06_batch_06_acceptance_next_recommendation.md`
 
-Batch 06 itself should not implement write API routes unless a maintainer explicitly changes the
-task from planning into implementation after the contracts are accepted. Do not add HTTP write
-routes for source ingest, character creation, turn execution, summary generation, benchmark
-execution, memory mutation, or audit persistence in this phase.
+Do not add HTTP write routes outside the accepted Batch 07 scope. Provider-backed workflows require
+additional workflow correlation, redaction, partial-persistence, retry, and audit decisions before
+HTTP exposure.
 
 ## Current Adopted Stack
 
