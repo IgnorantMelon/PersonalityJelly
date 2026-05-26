@@ -7,6 +7,7 @@ from personality_jelly.application import (
     get_claim_detail,
     get_memory_detail,
     get_source_chunk_detail,
+    list_characters,
     list_claims,
     list_memories,
 )
@@ -43,6 +44,23 @@ from personality_jelly.storage import (
 
 
 NOW = datetime(2026, 5, 25, 12, 0, tzinfo=timezone.utc)
+
+
+def test_character_list_filters_by_source_work_and_includes_counts() -> None:
+    session_factory = _seed_inspection_database()
+
+    with session_factory() as session:
+        result = list_characters(session, source_work_id="sw_001")
+
+    assert result.total_count == 1
+    assert result.expansion.mode == "summary"
+    assert result.expansion.expanded == ["latest_persona", "counts"]
+    character = result.items[0]
+    assert character.id == "char_001"
+    assert character.source_work_id == "sw_001"
+    assert character.latest_persona_version_id == "pv_002"
+    assert character.claim_count == 2
+    assert character.evidence_count == 3
 
 
 def test_character_detail_includes_source_persona_claim_and_evidence_counts() -> None:

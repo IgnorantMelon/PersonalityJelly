@@ -100,6 +100,7 @@ from personality_jelly.application.inspection import (
     get_claim_detail,
     get_memory_detail,
     get_source_chunk_detail,
+    list_characters,
     list_claims,
     list_memories,
 )
@@ -202,6 +203,7 @@ __all__ = [
     "get_claim_detail",
     "get_memory_detail",
     "get_source_chunk_detail",
+    "list_characters",
     "list_claims",
     "list_memories",
     "normalize_error",
