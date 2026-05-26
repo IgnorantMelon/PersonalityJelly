@@ -53,7 +53,13 @@ from personality_jelly.application.character_persona_setup import (
     CharacterPersonaSetupResult,
     build_character_persona,
 )
-from personality_jelly.application.conversations import summarize_conversation_workflow
+from personality_jelly.application.conversations import (
+    CONVERSATION_CREATE_WORKFLOW_TYPE,
+    ConversationCreateRecord,
+    ConversationCreateResult,
+    create_conversation_workflow,
+    summarize_conversation_workflow,
+)
 from personality_jelly.application.correlation import (
     CorrelationContext,
     ErrorCorrelation,
@@ -69,7 +75,7 @@ from personality_jelly.application.correlation import (
     generate_workflow_id,
     start_workflow,
 )
-from personality_jelly.application.errors import NormalizedError, normalize_error
+from personality_jelly.application.errors import ConflictError, NormalizedError, normalize_error
 from personality_jelly.application.inspection import (
     BenchmarkModeDiagnostics,
     CharacterDetail,
@@ -153,13 +159,17 @@ __all__ = [
     "CharacterPersonaSetupResult",
     "CharacterSummary",
     "ClaimSummary",
+    "CONVERSATION_CREATE_WORKFLOW_TYPE",
     "ContextPackageDetail",
     "ContextPackageSummary",
     "ConversationDetail",
     "ConversationInspectionOptions",
+    "ConversationCreateRecord",
+    "ConversationCreateResult",
     "ConversationSummary",
     "ContextPackageInspectionOptions",
     "CorrelationContext",
+    "ConflictError",
     "DatabaseResources",
     "ErrorCorrelation",
     "EvaluationCaseResultSummary",
@@ -215,6 +225,7 @@ __all__ = [
     "build_memory_review_audit_event",
     "build_workflow_response",
     "create_database_resources",
+    "create_conversation_workflow",
     "dry_run_ooc_benchmark",
     "dry_run_retrieval_benchmark",
     "dump_error_correlation",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from personality_jelly.application import (
+    ConflictError,
     build_turn_role_bundles,
     normalize_error,
     resolve_database_url,
@@ -113,10 +114,13 @@ def test_turn_role_bundles_convert_to_runtime_configs() -> None:
 
 
 def test_normalize_error_maps_common_application_errors() -> None:
+    conflict = normalize_error(ConflictError("duplicate row", details={"id": "row_001"}))
     missing = normalize_error(LookupError("missing row"))
     invalid = normalize_error(ValueError("bad input"))
     unexpected = normalize_error(RuntimeError("boom"))
 
+    assert conflict.code == "conflict"
+    assert conflict.details == {"id": "row_001"}
     assert missing.code == "not_found"
     assert invalid.code == "validation_error"
     assert unexpected.code == "unexpected_error"
