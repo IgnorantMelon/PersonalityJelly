@@ -109,6 +109,23 @@ Batch 06 is complete when:
   changes;
 - `VIBE_CODING_GUIDE.md` and `README.md` still match the actual project phase.
 
+## Task 06 Closeout Recommendation
+
+Task 06 accepts the Batch 06 planning outputs as implementation-ready contracts and recommends
+**Batch 07 API Write Foundation** as the next batch.
+
+The recommended first implementation scope is intentionally narrow:
+
+- shared redaction profile and serializer foundation for new write-era responses;
+- request/workflow correlation context and response fields;
+- local actor context and payload-only audit boundary;
+- deterministic application services and thin HTTP adapters for conversation creation;
+- deterministic application services and thin HTTP adapters for manual memory review/edit/archive.
+
+Provider-backed write workflows, source ingest, character/persona setup, turn execution, summary
+generation, benchmark execution, persistent audit storage, auth/workspace/platform concerns, cursor
+migrations, deployment, CORS, and UI remain deferred to later batches.
+
 ## Deferred To Later Batches
 
 - Implementing write endpoints.
