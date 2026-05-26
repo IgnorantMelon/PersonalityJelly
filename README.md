@@ -1,6 +1,6 @@
 # Personality Jelly
 
-最后更新：2026-05-25
+最后更新：2026-05-26
 
 Personality Jelly 是一个 CLI 优先的小说角色大脑 MVP。项目目标是把小说原文转化为有证据支撑的角色 canon，将这些 canon 编译为可运行的人格版本，并在对话中严格区分原作设定、用户记忆、关系记忆和临时剧情。
 
@@ -20,7 +20,7 @@ Personality Jelly 是一个 CLI 优先的小说角色大脑 MVP。项目目标�
 
 ## 当前状态
 
-当前实现是一个本地 MVP，P1 加固与 Batch 04 service foundation 已完成验证，主要能力包括：
+当前实现是一个本地 MVP，P1 加固、Batch 04 service foundation 与 Batch 05 read-only API adapter 主体接口已完成验证，主要能力包括：
 
 - Python `>=3.12,<3.14`、`uv`、Pydantic v2、SQLAlchemy 2 和 SQLite；
 - 可替换的 LLM 与 embedding provider 抽象；
@@ -29,7 +29,8 @@ Personality Jelly 是一个 CLI 优先的小说角色大脑 MVP。项目目标�
 - 对话运行流程，包括 context assembly、roleplay generation、critic review、memory curation、memory guard 和 layered summary；
 - OOC 与 retrieval benchmark，支持内置套件、源控 cases file、持久化运行记录、dry-run 诊断、failed-case 检查和回归资产；
 - CLI 检查 conversation、context package、critic report、character、claim、memory、LLM trace、配置和数据库迁移，并提供 benchmark cases-file/export 诊断。
-- 可复用的 application service layer，封装 bootstrap、provider role bundle、read-only inspection、turn workflow、summary/benchmark workflow、character persona setup 和 payload-only audit readiness，供 CLI 与未来 API adapter 共用。
+- 可复用的 application service layer，封装 bootstrap、provider role bundle、read-only inspection、turn workflow、summary/benchmark workflow、character persona setup 和 payload-only audit readiness，供 CLI 与 API adapter 共用。
+- FastAPI 只读 API adapter，提供 health、conversation/context、character/claim/memory/source chunk、critic/failure/LLM trace/eval run 检查接口，并使用统一错误 envelope。
 
 ## 快速开始
 
@@ -91,11 +92,11 @@ timeout_seconds = 60
 
 ## 开发计划
 
-当前阶段：方案三 MVP 的 P2 service foundation 已完成，下一步进入 Batch 05 read-only API adapter 规划与实现。
+当前阶段：方案三 MVP 的 P2 service foundation 已完成，Batch 05 read-only API adapter 已完成主体接口实现，正在进行合同/文档收口与 closeout 验证。
 
 - P1：已完成 semantic tracing、benchmark cases、layered summary 消费、retrieval diagnostics 和 CLI diagnostics 加固。
 - P2：已完成 FastAPI/service boundary 规划、多作品/多角色数据边界审计、user/workspace/audit 概念设计，以及 CLI/API shared service foundation。
-- Batch 05：计划先引入只读 API adapter，让 FastAPI 作为 `personality_jelly.application` 之上的薄 HTTP 层，优先暴露 conversation、context package、character、claim、memory、critic report、failure case、LLM trace 和 eval run 等检查接口。
+- Batch 05：已引入只读 API adapter，让 FastAPI 作为 `personality_jelly.application` 之上的薄 HTTP 层，暴露 conversation、context package、character、claim、memory、critic report、failure case、LLM trace 和 eval run 等检查接口。
 - 后续：在 canon 与 memory 边界稳定后，再评估 LangGraph、GraphRAG/LightRAG、第三方记忆系统、外部向量库和平台 UI。
 
 ## 开发指南

@@ -198,6 +198,17 @@ Batch 05 is complete when:
 - CLI tests for existing list/show diagnostics still pass.
 - The full pytest suite passes before closeout.
 
+## Task 06 Contract Note
+
+As of Task 06, Tasks 01-05 expose the planned Batch 05 endpoint families as GET-only routes. API
+contract tests lock the route set, tags, query parameter names, and JSON response models. Route
+handlers remain adapter-only: they acquire a session, call `personality_jelly.application`
+inspection services, and rely on the shared error envelope.
+
+No planned Batch 05 read-only endpoint family is intentionally deferred. Write workflows,
+auth/platform concerns, deployment/server commands, and API-level redaction policy remain deferred
+to later batches.
+
 ## Deferred To Later Batches
 
 - Write workflows: ingest, character creation, conversation creation, turn execution, summary,
