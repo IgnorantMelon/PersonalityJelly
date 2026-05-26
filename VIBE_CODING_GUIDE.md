@@ -37,8 +37,10 @@ All coding agents and task prompts must follow this baseline:
   merging back to `dev` directly.
 - If a task branch already exists, inspect it and continue only if it is clearly the intended task
   branch.
-- Follow the current P1 hardening direction unless a task explicitly changes phase: do not add
-  FastAPI, platform features, graph/vector databases, LangGraph, new dependencies, or web UI work.
+- Follow the current post-Batch 05 direction unless a task explicitly changes phase. FastAPI and
+  httpx are adopted only for the thin read-only API adapter and its tests; do not add write APIs,
+  platform/auth/workspace features, graph/vector databases, LangGraph, unrelated new dependencies,
+  or web UI work without an explicit later batch.
 - Do not introduce keyword, regex, fixed-vocabulary, or string-containment semantic judgments.
 - Add or update tests for behavior changes, run focused tests first, and run the full suite when
   shared behavior is touched.
@@ -78,6 +80,8 @@ Use what the codebase already uses:
 - OpenAI-compatible LLM and embedding provider support
 - CLI-first workflows through `pjelly`
 - Application-service workflows through `personality_jelly.application`
+- FastAPI for the thin read-only HTTP adapter over application services
+- httpx for API route tests
 - pytest for regression tests
 
 Do not introduce these as implementation dependencies unless a later task explicitly moves into
@@ -126,7 +130,7 @@ The project currently has:
 - Source-controlled curated benchmark assets under `benchmarks/ooc/` and `benchmarks/retrieval/`
   cover OOC observed-boundary cases and retrieval quality regressions.
 - A thin `personality_jelly.application` layer now wraps shared orchestration and inspection
-  behavior for CLI and future API adapters. It includes bootstrap/provider role bundles, strict
+  behavior for CLI and API adapters. It includes bootstrap/provider role bundles, strict
   inspection result models, read-only inspection services for conversation/context,
   character/claim/memory/source chunks, critic/failure/trace/eval records, turn workflow summary
   wrappers, summary and benchmark workflow wrappers, character/persona setup orchestration, and
@@ -136,8 +140,7 @@ The project currently has:
   conversation/context, character/claim/memory/source chunk, critic/failure/LLM trace, OOC eval
   runs, and retrieval eval runs. Handlers call application services and do not add write workflows.
 - Batch 05 closeout verification status: focused API route tests passed (`34 passed`), focused CLI
-  inspection tests passed (`11 passed, 35 deselected`), and the full test suite passed at this
-  snapshot: `233 passed, 3 warnings`.
+  inspection tests passed, and the full test suite passed at closeout: `233 passed, 3 warnings`.
 
 ## Data Boundaries
 
@@ -186,11 +189,11 @@ Keep service logic aligned with the existing modules:
 - `storage`: ORM, mappers, repositories, migrations.
 - `llm`: provider abstraction, OpenAI-compatible implementation, tracing.
 - `application`: transport-neutral orchestration and read-only inspection services shared by CLI
-  and future API adapters. Keep this layer thin; it may coordinate repositories and existing
+  and API adapters. Keep this layer thin; it may coordinate repositories and existing
   domain services, but it must not own prompts, semantic judgment rules, or CLI/HTTP formatting.
 - `cli`: orchestration and human-readable diagnostics only; reusable behavior belongs in service
   modules when practical.
-- Future `api`: HTTP adapter only. It should validate request/response models, acquire sessions,
+- `api`: HTTP adapter only. It should validate request/response models, acquire sessions,
   call `application` services, and map errors. It must not duplicate workflow logic or perform
   semantic judgments.
 
@@ -372,13 +375,16 @@ P2:
 - Batch 05 exposes only read-only endpoints over existing `application` inspection services:
   conversations, context packages, characters, claims, memories, critic reports, failure cases,
   LLM traces, OOC eval runs, and retrieval eval runs.
-- Do not add write endpoints in Batch 05: no source ingest, character creation, turn execution,
-  summary generation, benchmark execution, memory mutation, or audit persistence through HTTP.
+- Do not add write endpoints through HTTP without an explicit later implementation batch: no source
+  ingest, character creation, turn execution, summary generation, benchmark execution, memory
+  mutation, or audit persistence.
 - Preserve explicit ID boundaries for source works, characters, users, conversations, persona
   versions, memories, evidence chunks, and eval records.
-- Batch 06 candidates should start from deferred API work only when explicitly planned: write
-  workflows, auth/platform boundaries, API-level redaction, pagination beyond `limit`, trace
-  correlation, and server/deployment concerns.
+- Batch 06 is the next planning/readiness batch. It should narrow deferred API questions into safe
+  future implementation contracts for write workflows, actor/auth/audit boundaries, API-level
+  redaction, pagination/filter conventions, trace/workflow correlation, and closeout acceptance.
+- Batch 06 itself should not implement write API routes unless a task explicitly changes from
+  planning into implementation after the contracts are accepted.
 - Keep workspace/auth/platform features, graph/vector databases, third-party memory systems, and
   production UI out of scope until the service foundation is stable.
 
