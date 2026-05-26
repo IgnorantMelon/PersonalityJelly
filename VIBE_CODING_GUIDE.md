@@ -32,9 +32,11 @@ All coding agents and task prompts must follow this baseline:
 - Assume other agents or the user may have changed the worktree. Do not revert, rewrite, reformat,
   or move unrelated work.
 - Keep edits tightly scoped to the assigned task and avoid broad cleanup.
-- Start from clean `dev`, create a scoped task branch, and commit only the task's changes there.
-  Multi-agent task prompts may require pushing the task branch for coordinator review instead of
-  merging back to `dev` directly.
+- Start independent tasks from clean `dev`, create a scoped task branch, and commit only the task's
+  changes there. For dependent multi-agent tasks, branch from the completed prerequisite task
+  branch, or from a dependency integration branch when multiple prerequisite branches are needed.
+  Completed task branches still flow back into `dev` through coordinator integration and
+  verification; dependent development does not have to wait for that `dev` merge.
 - If a task branch already exists, inspect it and continue only if it is clearly the intended task
   branch.
 - Follow the current post-Batch 05 direction unless a task explicitly changes phase. FastAPI and
@@ -116,7 +118,7 @@ contracts for individual branches.
 After Batch 06 closeout, future development should stay incremental and evidence-driven:
 
 - API implementation path:
-  - use Batch 08 API Workflow Persistence Foundation as the recommended next implementation batch;
+  - use Batch 08 API Workflow Persistence Foundation as the arranged current implementation batch;
   - first candidates are persistent audit events, workflow-run/link persistence,
     idempotency/replay, and provider failure/partial-persistence contracts;
   - keep write handlers as adapters over `application` services rather than moving workflow logic
@@ -148,7 +150,7 @@ After Batch 06 closeout, future development should stay incremental and evidence
 
 ## 下一阶段开发计划
 
-The next recommended phase is Batch 08 API Workflow Persistence Foundation. Batch 07 implemented
+The next arranged phase is Batch 08 API Workflow Persistence Foundation. Batch 07 implemented
 the local-first deterministic write foundation and closeout-verified:
 
 - redaction profile and serializer foundations for write-era responses;
@@ -169,6 +171,16 @@ Batch 08 should not yet expose source ingest, character/persona setup, turn exec
 generation, benchmark execution, auth/workspace/platform features, cursor migrations, CORS,
 deployment, UI, or provider-backed write workflows until those foundations are implemented and
 tested.
+
+Current Batch 08 task prompts live under `plans/batch_08_api_workflow_persistence/`:
+
+- `BATCH_08_API_WORKFLOW_PERSISTENCE.md`
+- `01_persistent_audit_event_storage_prompt.md`
+- `02_workflow_run_correlation_persistence_prompt.md`
+- `03_idempotency_replay_foundation_prompt.md`
+- `04_provider_failure_partial_persistence_contracts_prompt.md`
+- `05_audit_correlation_inspection_routes_prompt.md`
+- `06_batch_08_closeout_verification_prompt.md`
 
 Batch 06 planning artifacts live under `plans/batch_06_api_write_readiness/`:
 
@@ -441,21 +453,28 @@ When a real failure is observed, prefer turning it into a benchmark case before 
 
 Use this workflow for every code or docs change:
 
-1. Start from clean `dev`.
-2. Create a scoped branch such as `feature/...`, `fix/...`, or `docs/...`.
-3. Check `git status --short --branch` before editing.
-4. Keep the branch focused on one topic.
-5. Avoid unrelated refactors, formatting churn, and dependency additions.
-6. Do not revert unrelated user or branch changes.
-7. Add or update tests when behavior changes.
-8. Run focused tests first when practical.
-9. Run full `pytest` before submitting changes that touch shared behavior.
-10. Commit on the task branch.
-11. Follow the task-specific completion instruction:
+1. Start independent work from clean `dev`.
+2. For dependent multi-agent work, start from the completed prerequisite task branch. If the work
+   depends on multiple task branches, create a dependency integration branch from one prerequisite,
+   merge the other prerequisites into it with `git merge --no-ff`, run focused validation, and start
+   the dependent task branch from that integration branch.
+3. Create a scoped branch such as `feature/...`, `fix/...`, or `docs/...`.
+4. Check `git status --short --branch` before editing.
+5. Keep the branch focused on one topic.
+6. Avoid unrelated refactors, formatting churn, and dependency additions.
+7. Do not revert unrelated user or branch changes.
+8. Add or update tests when behavior changes.
+9. Run focused tests first when practical.
+10. Run full `pytest` before submitting changes that touch shared behavior.
+11. Commit on the task branch.
+12. Follow the task-specific completion instruction:
     - for solo/local tasks, switch back to `dev`, merge with `git merge --no-ff <branch>`, run
       relevant tests again on `dev`, and leave the worktree clean;
     - for multi-agent task prompts that request coordinator review, do not merge into `dev`;
       push only the task branch to `origin` and report the branch and commit hash.
+13. Coordinator integration still merges accepted task branches into `dev` in dependency order and
+    reruns the required validation on `dev`. Branching dependent work from prerequisite branches is
+    an efficiency path, not a replacement for final `dev` integration review.
 
 Useful commands:
 
