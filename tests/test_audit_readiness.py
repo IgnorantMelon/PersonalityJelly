@@ -1,19 +1,37 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
+from personality_jelly.api.redaction import (
+    REDACTED_AUTH_HEADER,
+    REDACTED_PATH,
+    REDACTED_PROVIDER_PAYLOAD,
+    REDACTED_REASON,
+    REDACTED_SECRET,
+    REDACTED_USER_TEXT,
+    redact_payload,
+)
 from personality_jelly.application import (
     BATCH_04_AUDIT_PERSISTENCE_DECISION,
     AuditActor,
     AuditActorType,
     AuditEventPayload,
     AuditOperation,
+    AuditResult,
+    CorrelationContext,
+    LocalActorContext,
+    build_audit_metadata,
     build_memory_archive_audit_event,
     build_memory_edit_audit_event,
     build_memory_review_audit_event,
+    require_local_actor_context,
+    require_operation_reason,
+    start_workflow,
 )
 from personality_jelly.domain import Memory, MemoryScope, MemoryStatus
 
@@ -47,7 +65,10 @@ def test_memory_review_audit_payload_carries_actor_reason_snapshots_and_related_
     assert payload["before"]["status"] == "candidate"
     assert payload["after"]["status"] == "accepted"
     assert payload["after"]["scope"] == "user_memory"
-    assert payload["metadata"] == {"request_id": "local-review"}
+    assert payload["metadata"] == {
+        "request_id": "local-review",
+        "result": "succeeded",
+    }
 
 
 def test_memory_edit_audit_payload_preserves_content_and_reason_diff() -> None:
@@ -128,6 +149,165 @@ def test_audit_models_are_strict_and_record_batch04_payload_only_decision() -> N
         )
 
 
+def test_local_actor_context_models_local_attribution_not_auth_identity() -> None:
+    actor = LocalActorContext(
+        actor_type="api_user",
+        actor_id=" api-local:reviewer ",
+        actor_label=" Local reviewer ",
+        user_id=" user_001 ",
+        operation_reason=" Manual memory correction. ",
+        metadata={"source": "local-api"},
+    )
+
+    assert actor.actor_type == "api_user"
+    assert actor.actor_id == "api-local:reviewer"
+    assert actor.actor_label == "Local reviewer"
+    assert actor.user_id == "user_001"
+    assert actor.operation_reason == "Manual memory correction."
+    assert actor.to_audit_actor() == AuditActor(
+        actor_type=AuditActorType.API_USER,
+        actor_id="api-local:reviewer",
+    )
+    assert require_local_actor_context(actor, require_user_id=True) is actor
+    assert require_operation_reason(" Manual review. ") == "Manual review."
+
+    with pytest.raises(ValueError, match="local actor context is required"):
+        require_local_actor_context(None)
+
+    with pytest.raises(ValueError, match="user_id is required"):
+        require_local_actor_context(
+            LocalActorContext(actor_type="cli_user", actor_id="cli"),
+            require_user_id=True,
+        )
+
+    with pytest.raises(ValueError, match="reason must not be blank"):
+        require_operation_reason(" ")
+
+    with pytest.raises(ValidationError):
+        LocalActorContext(actor_type="api_user", actor_id=" ")
+
+    with pytest.raises(ValidationError):
+        LocalActorContext(
+            actor_type="api_user",
+            actor_id="api-local:reviewer",
+            operation_reason=" ",
+        )
+
+
+def test_manual_memory_audit_accepts_local_actor_and_workflow_correlation() -> None:
+    before = _memory(status=MemoryStatus.CANDIDATE)
+    after = _memory(status=MemoryStatus.ACCEPTED)
+    actor = LocalActorContext(
+        actor_type="api_user",
+        actor_id="api-local:reviewer",
+        actor_label="Local reviewer",
+        user_id="user_001",
+        operation_reason="Accepted after manual review.",
+        metadata={"entrypoint": "local-api"},
+    )
+    workflow = start_workflow(
+        CorrelationContext(request_id="req_memory"),
+        workflow_type="memory.review",
+        workflow_id="wf_memory",
+    )
+
+    event = build_memory_review_audit_event(
+        event_id="audit_review_002",
+        actor=actor,
+        before=before,
+        after=after,
+        correlation=workflow,
+        metadata={"client_note": "review panel decision"},
+    )
+    payload = event.model_dump(mode="json")
+
+    assert payload["actor"] == {
+        "actor_type": "api_user",
+        "actor_id": "api-local:reviewer",
+    }
+    assert payload["reason"] == "Accepted after manual review."
+    assert payload["persistence"] == "payload_only"
+    assert payload["metadata"] == {
+        "client_note": "review panel decision",
+        "actor_label": "Local reviewer",
+        "actor_user_id": "user_001",
+        "actor_metadata": {"entrypoint": "local-api"},
+        "request_id": "req_memory",
+        "workflow_id": "wf_memory",
+        "workflow_type": "memory.review",
+        "workflow_status": "running",
+        "result": "succeeded",
+    }
+
+
+def test_audit_metadata_sanitizes_never_expose_fields() -> None:
+    metadata = build_audit_metadata(
+        {
+            "api_key": "sk-live-secret",
+            "authorization": "Bearer local-token",
+            "local_path": "C:\\Users\\figna\\private\\config.toml",
+            "provider_response_payload": {"raw": "provider body"},
+            "nested": {
+                "message": "opened C:\\Users\\figna\\private\\db.sqlite",
+            },
+        },
+        result=AuditResult.FAILED,
+    )
+
+    assert metadata["api_key"] == REDACTED_SECRET
+    assert metadata["authorization"] == REDACTED_AUTH_HEADER
+    assert metadata["local_path"] == REDACTED_PATH
+    assert metadata["provider_response_payload"] == REDACTED_PROVIDER_PAYLOAD
+    assert metadata["nested"]["message"] == f"opened {REDACTED_PATH}"
+    assert metadata["result"] == "failed"
+    serialized = _serialized(metadata)
+    assert "sk-live-secret" not in serialized
+    assert "local-token" not in serialized
+    assert "C:\\Users\\figna" not in serialized
+    assert "provider body" not in serialized
+
+
+def test_audit_payload_can_be_redacted_for_safe_response_serialization() -> None:
+    before = _memory(
+        content="User private note from C:\\Users\\figna\\notes.txt",
+        reason="User said the private note directly.",
+    )
+    after = _memory(
+        content="User corrected private note.",
+        reason="Manual correction after review.",
+    )
+
+    event = build_memory_edit_audit_event(
+        actor=LocalActorContext(
+            actor_type="api_user",
+            actor_id="api-local:reviewer",
+            operation_reason="Corrected memory wording.",
+            metadata={"api_key": "sk-actor-secret"},
+        ),
+        before=before,
+        after=after,
+        metadata={
+            "provider_response_payload": {"raw": "provider body"},
+            "local_path": "C:\\Users\\figna\\provider\\payload.json",
+        },
+    )
+
+    redacted = redact_payload(event)
+
+    assert redacted["reason"] == REDACTED_REASON
+    assert redacted["before"]["content"] == REDACTED_USER_TEXT
+    assert redacted["before"]["reason"] == REDACTED_REASON
+    assert redacted["after"]["content"] == REDACTED_USER_TEXT
+    assert redacted["after"]["reason"] == REDACTED_REASON
+    assert redacted["metadata"]["provider_response_payload"] == REDACTED_PROVIDER_PAYLOAD
+    assert redacted["metadata"]["local_path"] == REDACTED_PATH
+    assert redacted["metadata"]["actor_metadata"]["api_key"] == REDACTED_SECRET
+    serialized = _serialized(redacted)
+    assert "C:\\Users\\figna" not in serialized
+    assert "sk-actor-secret" not in serialized
+    assert "provider body" not in serialized
+
+
 def _memory(
     *,
     memory_id: str = "mem_001",
@@ -152,3 +332,7 @@ def _memory(
         reason=reason,
         created_at=NOW,
     )
+
+
+def _serialized(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
