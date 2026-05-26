@@ -112,6 +112,34 @@ Batch 07 is complete when:
 - full pytest passes before closeout if shared behavior is touched;
 - `README.md` and `VIBE_CODING_GUIDE.md` match the implemented status.
 
+## Closeout Verification
+
+Batch 07 closeout verification passed after Tasks 01-05 were merged into `dev`.
+
+Implemented write routes:
+
+- `POST /conversations`
+- `POST /memories/{memory_id}/review`
+- `PATCH /memories/{memory_id}`
+- `POST /memories/{memory_id}/archive`
+
+Closeout validation:
+
+- full pytest on merged `dev`: `279 passed, 3 warnings`;
+- route audit confirmed the implemented write route set stays inside the accepted deterministic
+  local-first scope;
+- write handlers remain thin adapters over `personality_jelly.application`;
+- default write responses apply redaction;
+- request/workflow correlation IDs are returned for write workflows;
+- manual memory mutations require local actor context and caller reason;
+- payload-only audit metadata is returned where required;
+- no provider-backed write route, persistent audit storage, auth/workspace feature, deployment,
+  CORS, or UI was added.
+
+Recommended next batch: **Batch 08 API Workflow Persistence Foundation**, focused on persistent
+audit events, workflow-run/link persistence, idempotency/replay behavior, provider failure
+contracts, and correlation/audit inspection needed before provider-backed write routes.
+
 ## Deferred To Later Batches
 
 - Source ingest and file upload/http text ingestion.
