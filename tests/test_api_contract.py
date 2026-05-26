@@ -8,7 +8,7 @@ def _settings(**values) -> Settings:
     return Settings(config_file="missing-test-pjelly.toml", _env_file=None, **values)
 
 
-def test_openapi_contract_exposes_expected_read_only_route_set(tmp_path) -> None:
+def test_openapi_contract_exposes_expected_route_set(tmp_path) -> None:
     app = create_app(
         settings=_settings(),
         database_url=f"sqlite:///{tmp_path / 'api-contract.db'}",
@@ -17,35 +17,38 @@ def test_openapi_contract_exposes_expected_read_only_route_set(tmp_path) -> None
     openapi = app.openapi()
     paths = openapi["paths"]
 
-    expected_paths = {
-        "/health",
-        "/conversations",
-        "/conversations/{conversation_id}",
-        "/context-packages/{context_package_id}",
-        "/characters",
-        "/characters/{character_id}",
-        "/claims",
-        "/claims/{claim_id}",
-        "/memories",
-        "/memories/{memory_id}",
-        "/source-chunks/{chunk_id}",
-        "/critic-reports/{critic_report_id}",
-        "/failure-cases",
-        "/failure-cases/{failure_case_id}",
-        "/llm-traces",
-        "/llm-traces/{trace_id}",
-        "/eval-runs",
-        "/eval-runs/{run_id}",
-        "/retrieval-eval-runs",
-        "/retrieval-eval-runs/{run_id}",
+    expected_path_methods = {
+        "/health": {"get"},
+        "/conversations": {"get"},
+        "/conversations/{conversation_id}": {"get"},
+        "/context-packages/{context_package_id}": {"get"},
+        "/characters": {"get"},
+        "/characters/{character_id}": {"get"},
+        "/claims": {"get"},
+        "/claims/{claim_id}": {"get"},
+        "/memories": {"get"},
+        "/memories/{memory_id}": {"get", "patch"},
+        "/memories/{memory_id}/review": {"post"},
+        "/memories/{memory_id}/archive": {"post"},
+        "/source-chunks/{chunk_id}": {"get"},
+        "/critic-reports/{critic_report_id}": {"get"},
+        "/failure-cases": {"get"},
+        "/failure-cases/{failure_case_id}": {"get"},
+        "/llm-traces": {"get"},
+        "/llm-traces/{trace_id}": {"get"},
+        "/eval-runs": {"get"},
+        "/eval-runs/{run_id}": {"get"},
+        "/retrieval-eval-runs": {"get"},
+        "/retrieval-eval-runs/{run_id}": {"get"},
     }
-    assert set(paths) == expected_paths
+    assert set(paths) == set(expected_path_methods)
 
     for path, path_item in paths.items():
-        assert set(path_item) == {"get"}, path
-        operation = path_item["get"]
-        assert "200" in operation["responses"], path
-        assert "application/json" in operation["responses"]["200"]["content"], path
+        assert set(path_item) == expected_path_methods[path], path
+        for method in expected_path_methods[path]:
+            operation = path_item[method]
+            assert "200" in operation["responses"], path
+            assert "application/json" in operation["responses"]["200"]["content"], path
 
 
 def test_openapi_contract_keeps_route_tags_and_query_params_stable(tmp_path) -> None:

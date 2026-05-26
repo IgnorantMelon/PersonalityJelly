@@ -70,6 +70,17 @@ from personality_jelly.application.correlation import (
     start_workflow,
 )
 from personality_jelly.application.errors import NormalizedError, normalize_error
+from personality_jelly.application.memory_mutations import (
+    ManualMemoryArchiveRequest,
+    ManualMemoryEditRequest,
+    ManualMemoryMutationRequest,
+    ManualMemoryMutationResult,
+    ManualMemoryReviewRequest,
+    MemoryReviewDecision,
+    archive_memory_workflow,
+    edit_memory_workflow,
+    review_memory_workflow,
+)
 from personality_jelly.application.inspection import (
     BenchmarkModeDiagnostics,
     CharacterDetail,
@@ -176,7 +187,13 @@ __all__ = [
     "LayeredSummary",
     "LinkedId",
     "LocalActorContext",
+    "ManualMemoryArchiveRequest",
+    "ManualMemoryEditRequest",
+    "ManualMemoryMutationRequest",
+    "ManualMemoryMutationResult",
+    "ManualMemoryReviewRequest",
     "MemorySummary",
+    "MemoryReviewDecision",
     "MessageSummary",
     "ModelRoleBundle",
     "NormalizedError",
@@ -215,6 +232,7 @@ __all__ = [
     "build_memory_review_audit_event",
     "build_workflow_response",
     "create_database_resources",
+    "archive_memory_workflow",
     "dry_run_ooc_benchmark",
     "dry_run_retrieval_benchmark",
     "dump_error_correlation",
@@ -248,6 +266,8 @@ __all__ = [
     "resolve_embedding_config",
     "resolve_embedding_provider",
     "resolve_roleplay_provider",
+    "edit_memory_workflow",
+    "review_memory_workflow",
     "run_turn_workflow",
     "run_ooc_benchmark_workflow",
     "run_retrieval_benchmark_workflow",
