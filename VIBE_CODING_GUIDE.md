@@ -121,6 +121,15 @@ evidence-driven:
     trace/workflow correlation, depending on the accepted blockers;
   - keep write handlers as adapters over `application` services rather than moving workflow logic
     into `api`.
+- Single-character acceptance checkpoint:
+  - place the first formal test-acceptance node for the single-character MVP after API completion,
+    not immediately after Batch 06 planning closeout;
+  - API completion means the accepted API implementation batches expose the required single-character
+    workflows and inspection surfaces through thin adapters over `application` services, with
+    redaction, pagination/filtering, audit expectations, and trace/workflow correlation resolved;
+  - this checkpoint should validate the end-to-end single-character experience across ingest,
+    character/persona setup, conversation turns, memory boundaries, diagnostics, and benchmarks
+    before expanding into multi-work, multi-character, workspace, or platform concerns.
 - Canon, memory, and retrieval quality:
   - keep canon writes evidence-backed and reviewer-friendly;
   - keep user/relationship memory separate from source canon;
