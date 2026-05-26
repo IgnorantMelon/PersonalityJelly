@@ -159,25 +159,38 @@ def test_retrieval_eval_routes_filter_and_toggle_chunk_inclusion(tmp_path) -> No
     assert case["retrieved_chunks"] == []
 
 
-def test_diagnostic_routes_return_not_found_envelope(tmp_path) -> None:
+def test_diagnostic_detail_routes_return_not_found_envelopes(tmp_path) -> None:
     with _client(tmp_path) as client:
-        response = client.get("/llm-traces/missing_trace")
+        responses = [
+            client.get("/critic-reports/missing_critic"),
+            client.get("/failure-cases/missing_failure"),
+            client.get("/llm-traces/missing_trace"),
+            client.get("/eval-runs/missing_eval"),
+            client.get("/retrieval-eval-runs/missing_retrieval_eval"),
+        ]
 
-    body = response.json()
-    assert response.status_code == 404
-    assert body["error"]["code"] == "not_found"
-    assert "missing_trace" in body["error"]["message"]
-    assert body["error"]["trace_id"] is None
+    for response in responses:
+        body = response.json()
+        assert response.status_code == 404
+        assert body["error"]["code"] == "not_found"
+        assert "missing" in body["error"]["message"]
+        assert body["error"]["trace_id"] is None
 
 
 def test_diagnostic_list_routes_reject_invalid_limits(tmp_path) -> None:
     with _client(tmp_path) as client:
-        response = client.get("/eval-runs", params={"limit": 0})
+        responses = [
+            client.get("/failure-cases", params={"limit": 0}),
+            client.get("/llm-traces", params={"limit": 0}),
+            client.get("/eval-runs", params={"limit": 0}),
+            client.get("/retrieval-eval-runs", params={"limit": 0}),
+        ]
 
-    body = response.json()
-    assert response.status_code == 422
-    assert body["error"]["code"] == "validation_error"
-    assert body["error"]["details"]["errors"][0]["loc"] == ["query", "limit"]
+    for response in responses:
+        body = response.json()
+        assert response.status_code == 422
+        assert body["error"]["code"] == "validation_error"
+        assert body["error"]["details"]["errors"][0]["loc"] == ["query", "limit"]
 
 
 def _seed_diagnostics_graph(session) -> None:

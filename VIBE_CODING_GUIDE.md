@@ -1,6 +1,6 @@
 # Personality Jelly Vibe Coding Guide
 
-Last updated: 2026-05-25.
+Last updated: 2026-05-26.
 
 This is the practical guide for future coding sessions. It condenses only the project direction,
 engineering rules, and architecture choices that are currently adopted and still valid. If older
@@ -43,8 +43,8 @@ All coding agents and task prompts must follow this baseline:
 - Add or update tests for behavior changes, run focused tests first, and run the full suite when
   shared behavior is touched.
 - Final reports should include files changed, tests run and results, and any task-specific caveats.
-- Current phase direction is Batch 05 read-only API adapter work. FastAPI may be introduced only
-  for thin read-only adapters over `personality_jelly.application`; do not add write APIs,
+- Current phase direction is Batch 05 read-only API adapter contract/closeout work. FastAPI is
+  limited to thin read-only adapters over `personality_jelly.application`; do not add write APIs,
   platform/auth/workspace features, or semantic behavior in API handlers.
 
 ## Current Goal
@@ -130,6 +130,10 @@ The project currently has:
   character/claim/memory/source chunks, critic/failure/trace/eval records, turn workflow summary
   wrappers, summary and benchmark workflow wrappers, character/persona setup orchestration, and
   payload-only audit readiness models for manual memory operations.
+- Batch 05 read-only FastAPI adapter tasks 01-05 are implemented: app factory, health check,
+  database/session dependency, structured error envelope, and GET-only route families for
+  conversation/context, character/claim/memory/source chunk, critic/failure/LLM trace, OOC eval
+  runs, and retrieval eval runs. Handlers call application services and do not add write workflows.
 - Batch 04 service-foundation verification status: focused application/CLI regression checks
   passed; full test suite status at this snapshot: `198 passed, 3 warnings`.
 
@@ -362,10 +366,9 @@ P1:
 P2:
 
 - Batch 03 planning is complete and Batch 04 service foundation is implemented.
-- Next implementation batch: Batch 05 read-only API adapter. Start by planning
-  `plans/batch_05_read_only_api/`, then add a thin FastAPI app factory, database/session
-  dependencies, health check, and structured error envelope.
-- Batch 05 should expose only read-only endpoints over existing `application` inspection services:
+- Batch 05 read-only API adapter tasks 01-05 are implemented; current remaining work is API
+  contract/docs review and closeout verification.
+- Batch 05 exposes only read-only endpoints over existing `application` inspection services:
   conversations, context packages, characters, claims, memories, critic reports, failure cases,
   LLM traces, OOC eval runs, and retrieval eval runs.
 - Do not add write endpoints in Batch 05: no source ingest, character creation, turn execution,
