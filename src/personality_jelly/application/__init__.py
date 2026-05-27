@@ -54,6 +54,15 @@ from personality_jelly.application.character_persona_setup import (
     CharacterPersonaSetupResult,
     build_character_persona,
 )
+from personality_jelly.application.characters import (
+    CHARACTER_CREATE_SUCCESS_STATUS_CODE,
+    CHARACTER_CREATE_WORKFLOW_TYPE,
+    CharacterCreateReplay,
+    CharacterCreateRequest,
+    CharacterCreateResult,
+    CharacterIdentity,
+    create_character_workflow,
+)
 from personality_jelly.application.conversations import (
     CONVERSATION_CREATE_WORKFLOW_TYPE,
     ConversationCreateRecord,
@@ -225,8 +234,14 @@ __all__ = [
     "AuditResult",
     "BenchmarkModeDiagnostics",
     "CharacterDetail",
+    "CharacterCreateReplay",
+    "CharacterCreateRequest",
+    "CharacterCreateResult",
+    "CharacterIdentity",
     "CharacterPersonaSetupResult",
     "CharacterSummary",
+    "CHARACTER_CREATE_SUCCESS_STATUS_CODE",
+    "CHARACTER_CREATE_WORKFLOW_TYPE",
     "ClaimSummary",
     "CONVERSATION_CREATE_WORKFLOW_TYPE",
     "ContextPackageDetail",
@@ -332,6 +347,7 @@ __all__ = [
     "build_workflow_failure_audit_event",
     "complete_persisted_workflow",
     "create_database_resources",
+    "create_character_workflow",
     "create_conversation_workflow",
     "archive_memory_workflow",
     "create_conversation_workflow",
