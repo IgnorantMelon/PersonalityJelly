@@ -54,6 +54,27 @@ All coding agents and task prompts must follow this baseline:
   platform/auth/workspace features, or semantic behavior in API handlers until a later batch
   explicitly selects the workflow and keeps handlers thin over `personality_jelly.application`.
 
+## Multi-Agent Orchestration Mode
+
+When a session uses a main agent plus worker/sub-agent model, keep responsibilities explicit:
+
+- The main agent is the coordinator. It reads the shared guide and task prompts, checks current
+  branch/worktree state, decomposes dependency order, assigns worker tasks, waits for worker
+  completion or explicit blockers, reviews reported outputs, and coordinates accepted-branch
+  integration.
+- The main agent must not directly take over a worker's implementation plan just because a task is
+  long-running or silent. Long periods without worker output are normal for coding tasks.
+- Interrupt or replace a worker only when the worker explicitly stops, reports a blocker, completes,
+  or the user redirects the work. If a worker stops before completing, the main agent should
+  reassign the task to another worker or ask for direction instead of silently becoming the worker.
+- Worker/sub-agents own concrete implementation inside their assigned branch or worktree. They must
+  keep edits scoped to their task, avoid reverting unrelated work, run required focused tests, commit
+  their branch, push when the prompt requires it, and report branch/commit/test status.
+- Coordinator integration is a separate responsibility from worker implementation. The main agent
+  may coordinate accepted branch merges into `dev` in dependency order and rerun validation, but
+  dependency-branch development remains only an efficiency path and never replaces final `dev`
+  integration review.
+
 ## Current Goal
 
 Personality Jelly is in the scheme-three MVP phase: a single-work, single-protagonist novel
