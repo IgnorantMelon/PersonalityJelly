@@ -225,6 +225,23 @@ class WorkflowRunLink(DomainModel):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class IdempotencyRecord(DomainModel):
+    id: str
+    workflow_type: str
+    idempotency_key: str
+    request_hash: str
+    request_id: str
+    workflow_id: str
+    status: str
+    response_status_code: int = Field(ge=100, le=599)
+    replay_payload: dict[str, Any]
+    related_ids: dict[str, Any] = Field(default_factory=dict)
+    error_code: str | None = None
+    error_details: dict[str, Any] | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class EvaluationRun(DomainModel):
     id: str
     character_id: str

@@ -5,6 +5,7 @@ from personality_jelly.domain import (
     CriticReport,
     EvaluationStatus,
     FailureCase,
+    IdempotencyRecord,
     InteractionMode,
     LLMRawOutput,
     Memory,
@@ -29,6 +30,7 @@ from personality_jelly.storage import (
     ContextPackageRepository,
     CriticReportRepository,
     FailureCaseRepository,
+    IdempotencyRecordRepository,
     LLMRawOutputRepository,
     MemoryRepository,
     MessageRepository,
@@ -521,6 +523,92 @@ def test_workflow_run_repositories_transition_status_and_create_links() -> None:
     assert by_request[0].workflow_id == "wf_repo"
     assert links[0].relation == "updated"
     assert by_entity[0].workflow_id == "wf_repo"
+
+
+def test_idempotency_record_repository_scopes_keys_by_workflow_type() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        WorkflowRunRepository(session).add(
+            WorkflowRun(
+                workflow_id="wf_conversation",
+                request_id="req_create",
+                workflow_type="conversation.create",
+                status="completed",
+            )
+        )
+        WorkflowRunRepository(session).add(
+            WorkflowRun(
+                workflow_id="wf_memory",
+                request_id="req_review",
+                workflow_type="memory.review",
+                status="completed",
+            )
+        )
+        repository = IdempotencyRecordRepository(session)
+        repository.add(
+            IdempotencyRecord(
+                id="idem_conversation",
+                workflow_type="conversation.create",
+                idempotency_key="retry-key",
+                request_hash="a" * 64,
+                request_id="req_create",
+                workflow_id="wf_conversation",
+                status="completed",
+                response_status_code=201,
+                replay_payload={
+                    "request_id": "req_create",
+                    "workflow_id": "wf_conversation",
+                    "status": "completed",
+                    "result": {"conversation": {"conversation_id": "conv_001"}},
+                },
+                related_ids={"conversation_id": "conv_001"},
+            )
+        )
+        repository.add(
+            IdempotencyRecord(
+                id="idem_memory",
+                workflow_type="memory.review",
+                idempotency_key="retry-key",
+                request_hash="b" * 64,
+                request_id="req_review",
+                workflow_id="wf_memory",
+                status="completed",
+                response_status_code=200,
+                replay_payload={
+                    "request_id": "req_review",
+                    "workflow_id": "wf_memory",
+                    "status": "completed",
+                    "result": {"memory": {"id": "mem_001"}},
+                },
+                related_ids={"memory_id": "mem_001"},
+            )
+        )
+        session.commit()
+
+    with session_factory() as session:
+        repository = IdempotencyRecordRepository(session)
+        conversation_record = repository.find_by_scope(
+            workflow_type="conversation.create",
+            idempotency_key="retry-key",
+        )
+        memory_record = repository.find_by_scope(
+            workflow_type="memory.review",
+            idempotency_key="retry-key",
+        )
+        by_workflow = repository.list_by_workflow("wf_memory")
+
+    assert conversation_record is not None
+    assert conversation_record.workflow_id == "wf_conversation"
+    assert conversation_record.response_status_code == 201
+    assert conversation_record.replay_payload["result"]["conversation"]["conversation_id"] == (
+        "conv_001"
+    )
+    assert memory_record is not None
+    assert memory_record.workflow_id == "wf_memory"
+    assert by_workflow[0].id == "idem_memory"
 
 
 def test_retrieval_evaluation_repositories_roundtrip_run_and_cases() -> None:

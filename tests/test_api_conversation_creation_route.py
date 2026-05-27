@@ -17,11 +17,14 @@ from personality_jelly.storage import (
     CharacterRepository,
     ContextPackageRepository,
     ConversationRepository,
+    IdempotencyRecordRepository,
     LLMRawOutputRepository,
     MessageRepository,
     PersonaVersionRepository,
     SourceWorkRepository,
     UserRepository,
+    WorkflowRunLinkRepository,
+    WorkflowRunRepository,
 )
 
 
@@ -86,6 +89,7 @@ def test_post_conversation_creates_conversation_with_safe_write_response(tmp_pat
         assert MessageRepository(session).list_all() == []
         assert ContextPackageRepository(session).list_all() == []
         assert LLMRawOutputRepository(session).list_all() == []
+        assert IdempotencyRecordRepository(session).list_all() == []
 
 
 def test_post_conversation_accepts_body_request_id_and_explicit_persona_mode(tmp_path) -> None:
@@ -250,6 +254,145 @@ def test_post_conversation_validates_request_id_header_and_body_match(tmp_path) 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
     assert response.json()["error"]["message"] == "X-Request-ID and body request_id must match"
+
+
+def test_post_conversation_replays_idempotency_key_without_duplicate_rows(tmp_path) -> None:
+    resources = _seeded_resources(tmp_path)
+    app = create_app(settings=_settings(), database_resources=resources)
+    body = {
+        "user_id": "user_001",
+        "character_id": "char_001",
+        "conversation_id": "conv_idempotent",
+        "actor": {
+            "actor_id": "api-local:test",
+            "user_id": "user_001",
+        },
+    }
+
+    with TestClient(app) as client:
+        first = client.post(
+            "/conversations",
+            headers={"Idempotency-Key": "conversation-retry-key"},
+            json={**body, "request_id": "req_create_first"},
+        )
+        second = client.post(
+            "/conversations",
+            headers={"Idempotency-Key": "conversation-retry-key"},
+            json={**body, "request_id": "req_create_second"},
+        )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json() == first.json()
+    assert first.json()["request_id"] == "req_create_first"
+
+    with resources.session_factory() as session:
+        conversations = ConversationRepository(session).list_all()
+        workflow_runs = WorkflowRunRepository(session).list_all()
+        workflow_links = WorkflowRunLinkRepository(session).list_by_workflow(
+            first.json()["workflow_id"],
+        )
+        idempotency_records = IdempotencyRecordRepository(session).list_all()
+
+    assert [conversation.id for conversation in conversations] == ["conv_idempotent"]
+    assert len(workflow_runs) == 1
+    assert workflow_runs[0].request_id == "req_create_first"
+    assert len(workflow_links) == 4
+    assert len(idempotency_records) == 1
+    assert idempotency_records[0].workflow_id == first.json()["workflow_id"]
+    assert idempotency_records[0].response_status_code == 201
+    assert idempotency_records[0].replay_payload == first.json()
+
+
+def test_post_conversation_rejects_idempotency_key_hash_conflict(tmp_path) -> None:
+    resources = _seeded_resources(tmp_path)
+    app = create_app(settings=_settings(), database_resources=resources)
+
+    with TestClient(app) as client:
+        first = client.post(
+            "/conversations",
+            headers={"Idempotency-Key": "conversation-conflict-key"},
+            json={
+                "request_id": "req_conflict_first",
+                "user_id": "user_001",
+                "character_id": "char_001",
+                "conversation_id": "conv_first",
+                "actor": {
+                    "actor_id": "api-local:test",
+                    "user_id": "user_001",
+                },
+            },
+        )
+        second = client.post(
+            "/conversations",
+            headers={"Idempotency-Key": "conversation-conflict-key"},
+            json={
+                "request_id": "req_conflict_second",
+                "user_id": "user_001",
+                "character_id": "char_001",
+                "conversation_id": "conv_second",
+                "actor": {
+                    "actor_id": "api-local:test",
+                    "user_id": "user_001",
+                },
+            },
+        )
+
+    assert first.status_code == 201
+    assert second.status_code == 409
+    payload = second.json()
+    assert payload["error"]["code"] == "conflict"
+    assert payload["error"]["details"]["workflow_type"] == "conversation.create"
+    assert payload["error"]["details"]["conflict"] == "request_hash_mismatch"
+    assert "conversation-conflict-key" not in second.text
+
+    with resources.session_factory() as session:
+        assert [conversation.id for conversation in ConversationRepository(session).list_all()] == [
+            "conv_first"
+        ]
+        assert len(WorkflowRunRepository(session).list_all()) == 1
+        assert len(IdempotencyRecordRepository(session).list_all()) == 1
+
+
+def test_post_conversation_validates_idempotency_key_header_and_body_match(tmp_path) -> None:
+    resources = _seeded_resources(tmp_path)
+    app = create_app(settings=_settings(), database_resources=resources)
+
+    with TestClient(app) as client:
+        matched = client.post(
+            "/conversations",
+            headers={"Idempotency-Key": "matching-key"},
+            json={
+                "idempotency_key": "matching-key",
+                "user_id": "user_001",
+                "character_id": "char_001",
+                "actor": {
+                    "actor_id": "api-local:test",
+                    "user_id": "user_001",
+                },
+            },
+        )
+        mismatched = client.post(
+            "/conversations",
+            headers={"Idempotency-Key": "header-key"},
+            json={
+                "idempotency_key": "body-key",
+                "user_id": "user_001",
+                "character_id": "char_001",
+                "actor": {
+                    "actor_id": "api-local:test",
+                    "user_id": "user_001",
+                },
+            },
+        )
+
+    assert matched.status_code == 201
+    assert mismatched.status_code == 422
+    assert mismatched.json()["error"]["code"] == "validation_error"
+    assert (
+        mismatched.json()["error"]["message"]
+        == "Idempotency-Key and body idempotency_key must match"
+    )
 
 
 def _seeded_resources(

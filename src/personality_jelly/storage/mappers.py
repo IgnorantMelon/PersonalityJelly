@@ -13,6 +13,7 @@ from personality_jelly.domain import (
     EvaluationCaseResult,
     EvaluationRun,
     FailureCase,
+    IdempotencyRecord,
     LLMRawOutput,
     Memory,
     Message,
@@ -49,6 +50,7 @@ DomainT = TypeVar(
     ContextPackage,
     CriticReport,
     FailureCase,
+    IdempotencyRecord,
     LLMRawOutput,
     EvaluationRun,
     EvaluationCaseResult,
@@ -203,6 +205,14 @@ def workflow_run_link_to_orm(model: WorkflowRunLink) -> orm.WorkflowRunLinkORM:
 
 def workflow_run_link_from_orm(row: orm.WorkflowRunLinkORM) -> WorkflowRunLink:
     return WorkflowRunLink.model_validate(_column_dict(row))
+
+
+def idempotency_record_to_orm(model: IdempotencyRecord) -> orm.IdempotencyRecordORM:
+    return orm.IdempotencyRecordORM(**model.model_dump())
+
+
+def idempotency_record_from_orm(row: orm.IdempotencyRecordORM) -> IdempotencyRecord:
+    return IdempotencyRecord.model_validate(_column_dict(row))
 
 
 def evaluation_run_to_orm(model: EvaluationRun) -> orm.EvaluationRunORM:

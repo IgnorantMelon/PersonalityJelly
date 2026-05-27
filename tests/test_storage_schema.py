@@ -29,6 +29,7 @@ def test_create_all_creates_mvp_tables() -> None:
         "llm_raw_outputs",
         "workflow_runs",
         "workflow_run_links",
+        "idempotency_records",
         "evaluation_runs",
         "evaluation_case_results",
         "retrieval_evaluation_runs",
@@ -37,4 +38,18 @@ def test_create_all_creates_mvp_tables() -> None:
 
     llm_columns = {column["name"] for column in inspect(engine).get_columns("llm_raw_outputs")}
     assert {"request_id", "workflow_id", "workflow_step", "related_ids"} <= llm_columns
+
+    idempotency_columns = {
+        column["name"] for column in inspect(engine).get_columns("idempotency_records")
+    }
+    assert {
+        "workflow_type",
+        "idempotency_key",
+        "request_hash",
+        "request_id",
+        "workflow_id",
+        "response_status_code",
+        "replay_payload",
+        "related_ids",
+    } <= idempotency_columns
 

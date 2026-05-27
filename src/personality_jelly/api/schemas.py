@@ -9,6 +9,7 @@ from personality_jelly.application import (
     ConversationCreateResult as ApplicationConversationCreateResult,
     CorrelationContext,
     LocalActorContext,
+    MAX_IDEMPOTENCY_KEY_LENGTH,
     WorkflowContext,
     WorkflowRelatedIds,
     WorkflowResponseSummary,
@@ -16,12 +17,14 @@ from personality_jelly.application import (
     WorkflowWarning,
     build_workflow_response,
     generate_request_id,
+    normalize_idempotency_key,
 )
 from personality_jelly.application.correlation import MAX_CORRELATION_ID_LENGTH
 from personality_jelly.application.inspection import InspectionModel
 from personality_jelly.domain import InteractionMode
 
 REQUEST_ID_HEADER = "X-Request-ID"
+IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 
 
 class WriteRequestCorrelation(InspectionModel):
@@ -33,6 +36,10 @@ class WriteRequestCorrelation(InspectionModel):
 
 class WriteRequestIdBody(InspectionModel):
     request_id: str | None = Field(default=None, max_length=MAX_CORRELATION_ID_LENGTH)
+    idempotency_key: str | None = Field(
+        default=None,
+        max_length=MAX_IDEMPOTENCY_KEY_LENGTH,
+    )
 
 
 class WriteResponseEnvelope(WorkflowResponseSummary):
@@ -155,6 +162,30 @@ def resolve_write_request_correlation(
     return WriteRequestCorrelation(
         request_id=normalized_header or normalized_body or generate_request_id()
     )
+
+
+def resolve_write_request_idempotency(
+    *,
+    header_idempotency_key: object | None = None,
+    body_idempotency_key: object | None = None,
+) -> str | None:
+    normalized_header = normalize_idempotency_key(
+        header_idempotency_key,
+        source=IDEMPOTENCY_KEY_HEADER,
+    )
+    normalized_body = normalize_idempotency_key(
+        body_idempotency_key,
+        source="body idempotency_key",
+    )
+
+    if normalized_header is not None and normalized_body is not None:
+        if normalized_header != normalized_body:
+            raise ValueError(
+                f"{IDEMPOTENCY_KEY_HEADER} and body idempotency_key must match"
+            )
+        return normalized_header
+
+    return normalized_header or normalized_body
 
 
 def _normalize_optional_request_id(value: object | None, *, source: str) -> str | None:

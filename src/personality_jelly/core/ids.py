@@ -24,6 +24,7 @@ class EntityKind(StrEnum):
     RETRIEVAL_EVALUATION_RUN = "retrieval_evaluation_run"
     RETRIEVAL_EVALUATION_CASE_RESULT = "retrieval_evaluation_case_result"
     WORKFLOW_RUN_LINK = "workflow_run_link"
+    IDEMPOTENCY_RECORD = "idempotency_record"
 
 
 ID_PREFIXES: dict[EntityKind, str] = {
@@ -48,6 +49,7 @@ ID_PREFIXES: dict[EntityKind, str] = {
     EntityKind.RETRIEVAL_EVALUATION_RUN: "retrievaleval",
     EntityKind.RETRIEVAL_EVALUATION_CASE_RESULT: "retrievalcase",
     EntityKind.WORKFLOW_RUN_LINK: "wflink",
+    EntityKind.IDEMPOTENCY_RECORD: "idem",
 }
 
 

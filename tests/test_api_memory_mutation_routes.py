@@ -22,10 +22,12 @@ from personality_jelly.domain import (
 from personality_jelly.storage import (
     CharacterRepository,
     ConversationRepository,
+    IdempotencyRecordRepository,
     MemoryRepository,
     PersonaVersionRepository,
     SourceWorkRepository,
     UserRepository,
+    WorkflowRunRepository,
 )
 from personality_jelly.storage.database import session_scope
 
@@ -88,6 +90,49 @@ def test_review_memory_route_updates_candidate_and_returns_redacted_audit(tmp_pa
     assert "Review decision accepted: User confirmed this relationship note." in memory.reason
 
 
+def test_review_memory_route_replays_idempotency_key_without_duplicate_rows(tmp_path) -> None:
+    app, resources = _seed_api_app(tmp_path)
+    body = {
+        "actor": _actor_body(),
+        "decision": "accept",
+        "reason": "User confirmed this relationship note.",
+        "user_id": "user_001",
+        "character_id": "char_001",
+        "conversation_id": "conv_001",
+    }
+
+    with TestClient(app) as client:
+        first = client.post(
+            "/memories/mem_candidate/review",
+            headers={"Idempotency-Key": "memory-review-key"},
+            json={**body, "request_id": "req_review_first"},
+        )
+        second = client.post(
+            "/memories/mem_candidate/review",
+            headers={"Idempotency-Key": "memory-review-key"},
+            json={**body, "request_id": "req_review_second"},
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json() == first.json()
+    assert first.json()["request_id"] == "req_review_first"
+
+    with session_scope(resources.session_factory) as session:
+        memory = MemoryRepository(session).require("mem_candidate")
+        workflow_runs = WorkflowRunRepository(session).list_all()
+        idempotency_records = IdempotencyRecordRepository(session).list_all()
+
+    assert memory.status == "accepted"
+    assert len(workflow_runs) == 1
+    assert len(idempotency_records) == 1
+    record = idempotency_records[0]
+    assert record.workflow_type == "memory.review"
+    assert record.replay_payload == first.json()
+    assert REDACTED_USER_TEXT in repr(record.replay_payload)
+    assert "Lin Shuang and the user are building trust." not in repr(record.replay_payload)
+
+
 def test_edit_memory_route_commits_update_and_sanitizes_payload_metadata(tmp_path) -> None:
     app, resources = _seed_api_app(tmp_path)
 
@@ -122,6 +167,54 @@ def test_edit_memory_route_commits_update_and_sanitizes_payload_metadata(tmp_pat
     assert memory.reason == "Manual correction after user clarification."
 
 
+def test_edit_memory_route_replays_and_rejects_hash_conflict(tmp_path) -> None:
+    app, resources = _seed_api_app(tmp_path)
+    body = {
+        "actor": _actor_body(),
+        "content": "User prefers drafting after midnight.",
+        "reason": "Manual correction after user clarification.",
+    }
+
+    with TestClient(app) as client:
+        first = client.patch(
+            "/memories/mem_accepted",
+            headers={"Idempotency-Key": "memory-edit-key"},
+            json={**body, "request_id": "req_edit_first"},
+        )
+        replay = client.patch(
+            "/memories/mem_accepted",
+            headers={"Idempotency-Key": "memory-edit-key"},
+            json={**body, "request_id": "req_edit_second"},
+        )
+        conflict = client.patch(
+            "/memories/mem_accepted",
+            headers={"Idempotency-Key": "memory-edit-key"},
+            json={
+                **body,
+                "request_id": "req_edit_conflict",
+                "content": "User prefers sunrise drafting.",
+            },
+        )
+
+    assert first.status_code == 200
+    assert replay.status_code == 200
+    assert replay.json() == first.json()
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "conflict"
+    assert conflict.json()["error"]["details"]["workflow_type"] == "memory.edit"
+    assert conflict.json()["error"]["details"]["conflict"] == "request_hash_mismatch"
+    assert "User prefers sunrise drafting." not in conflict.text
+
+    with session_scope(resources.session_factory) as session:
+        memory = MemoryRepository(session).require("mem_accepted")
+        workflow_runs = WorkflowRunRepository(session).list_all()
+        idempotency_records = IdempotencyRecordRepository(session).list_all()
+
+    assert memory.content == "User prefers drafting after midnight."
+    assert len(workflow_runs) == 1
+    assert len(idempotency_records) == 1
+
+
 def test_archive_memory_route_changes_status_with_payload_only_audit(tmp_path) -> None:
     app, resources = _seed_api_app(tmp_path)
 
@@ -147,6 +240,39 @@ def test_archive_memory_route_changes_status_with_payload_only_audit(tmp_path) -
         memory = MemoryRepository(session).require("mem_accepted")
 
     assert memory.status == "archived"
+
+
+def test_archive_memory_route_replays_idempotency_key_without_duplicate_rows(tmp_path) -> None:
+    app, resources = _seed_api_app(tmp_path)
+    body = {
+        "actor": _actor_body(),
+        "reason": "User asked to remove stale memory.",
+    }
+
+    with TestClient(app) as client:
+        first = client.post(
+            "/memories/mem_accepted/archive",
+            headers={"Idempotency-Key": "memory-archive-key"},
+            json={**body, "request_id": "req_archive_first"},
+        )
+        second = client.post(
+            "/memories/mem_accepted/archive",
+            headers={"Idempotency-Key": "memory-archive-key"},
+            json={**body, "request_id": "req_archive_second"},
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json() == first.json()
+
+    with session_scope(resources.session_factory) as session:
+        memory = MemoryRepository(session).require("mem_accepted")
+        workflow_runs = WorkflowRunRepository(session).list_all()
+        idempotency_records = IdempotencyRecordRepository(session).list_all()
+
+    assert memory.status == "archived"
+    assert len(workflow_runs) == 1
+    assert len(idempotency_records) == 1
 
 
 def test_memory_mutation_routes_use_error_envelope_for_missing_actor_reason_and_ids(

@@ -170,6 +170,31 @@ _workflow_run_links = Table(
     Index("ix_workflow_run_links_workflow", "workflow_id"),
     Index("ix_workflow_run_links_entity", "entity_type", "entity_id"),
 )
+_idempotency_records = Table(
+    "idempotency_records",
+    _metadata,
+    Column("id", String(96), primary_key=True),
+    Column("workflow_type", String(128), nullable=False),
+    Column("idempotency_key", String(128), nullable=False),
+    Column("request_hash", String(64), nullable=False),
+    Column("request_id", String(128), nullable=False),
+    Column("workflow_id", String(128), ForeignKey("workflow_runs.workflow_id"), nullable=False),
+    Column("status", String(32), nullable=False),
+    Column("response_status_code", Integer, nullable=False),
+    Column("replay_payload", SAJSON, nullable=False),
+    Column("related_ids", SAJSON, nullable=False),
+    Column("error_code", String(128)),
+    Column("error_details", SAJSON),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Index(
+        "ux_idempotency_records_scope_key",
+        "workflow_type",
+        "idempotency_key",
+        unique=True,
+    ),
+    Index("ix_idempotency_records_workflow", "workflow_id"),
+)
 
 
 def _apply_initial_schema(engine: Engine) -> None:
@@ -211,6 +236,10 @@ def _apply_workflow_persistence(engine: Engine) -> None:
         )
 
 
+def _apply_idempotency_records(engine: Engine) -> None:
+    _idempotency_records.create(engine, checkfirst=True)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
         version="0001_initial_schema",
@@ -231,6 +260,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         version="0005_workflow_persistence",
         description="Persist workflow runs, workflow links, and LLM trace correlation",
         apply=_apply_workflow_persistence,
+    ),
+    Migration(
+        version="0006_idempotency_records",
+        description="Persist idempotency replay records",
+        apply=_apply_idempotency_records,
     ),
 )
 

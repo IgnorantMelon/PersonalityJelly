@@ -6,13 +6,15 @@ from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from personality_jelly.api.dependencies import get_session
+from personality_jelly.api.dependencies import get_session, get_write_session
 from personality_jelly.api.errors import build_error_envelope
 from personality_jelly.api.redaction import redact_payload
 from personality_jelly.api.schemas import (
+    IDEMPOTENCY_KEY_HEADER,
     REQUEST_ID_HEADER,
     ConversationCreateRequest,
     ConversationCreateResponse,
+    resolve_write_request_idempotency,
     resolve_write_request_correlation,
 )
 from personality_jelly.application import (
@@ -23,14 +25,18 @@ from personality_jelly.application import (
     ContextPackageInspectionOptions,
     ConversationDetail,
     ConversationInspectionOptions,
+    IdempotencyContext,
     InspectionListResult,
     WorkflowStatus,
     build_error_correlation,
+    build_idempotency_context,
     create_conversation_workflow,
     inspect_context_package,
     inspect_conversation,
     list_conversations,
+    load_idempotency_replay,
     normalize_error,
+    store_idempotency_replay,
 )
 
 router = APIRouter(tags=["conversation-context"])
@@ -43,8 +49,12 @@ router = APIRouter(tags=["conversation-context"])
 )
 def post_conversation(
     request: ConversationCreateRequest,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[Session, Depends(get_write_session)],
     header_request_id: Annotated[str | None, Header(alias=REQUEST_ID_HEADER)] = None,
+    header_idempotency_key: Annotated[
+        str | None,
+        Header(alias=IDEMPOTENCY_KEY_HEADER),
+    ] = None,
 ) -> ConversationCreateResponse | JSONResponse:
     correlation: CorrelationContext | None = None
     try:
@@ -53,6 +63,16 @@ def post_conversation(
             body_request_id=request.request_id,
         )
         correlation = write_correlation.to_application_context()
+        idempotency = _conversation_create_idempotency_context(
+            request,
+            header_idempotency_key=header_idempotency_key,
+        )
+        replay = load_idempotency_replay(session, idempotency)
+        if replay is not None:
+            return JSONResponse(
+                status_code=replay.response_status_code,
+                content=replay.replay_payload,
+            )
         result = create_conversation_workflow(
             session,
             user_id=request.user_id,
@@ -70,7 +90,18 @@ def post_conversation(
         result,
         audit_event=result.audit_event.model_dump(mode="json"),
     )
-    return ConversationCreateResponse.model_validate(redact_payload(response))
+    redacted_response = ConversationCreateResponse.model_validate(redact_payload(response))
+    store_idempotency_replay(
+        session,
+        idempotency,
+        request_id=result.request_id,
+        workflow_id=result.workflow_id,
+        status=result.status,
+        response_status_code=201,
+        replay_payload=redacted_response.model_dump(mode="json"),
+        related_ids=result.ids,
+    )
+    return redacted_response
 
 
 @router.get("/conversations", response_model=InspectionListResult)
@@ -164,3 +195,22 @@ def _status_code_for_error(error: Exception) -> int:
     if isinstance(error, ValueError):
         return 422
     return 500
+
+
+def _conversation_create_idempotency_context(
+    request: ConversationCreateRequest,
+    *,
+    header_idempotency_key: object | None,
+) -> IdempotencyContext | None:
+    idempotency_key = resolve_write_request_idempotency(
+        header_idempotency_key=header_idempotency_key,
+        body_idempotency_key=request.idempotency_key,
+    )
+    return build_idempotency_context(
+        workflow_type=CONVERSATION_CREATE_WORKFLOW_TYPE,
+        idempotency_key=idempotency_key,
+        request_payload=request.model_dump(
+            mode="json",
+            exclude={"request_id", "idempotency_key"},
+        ),
+    )
