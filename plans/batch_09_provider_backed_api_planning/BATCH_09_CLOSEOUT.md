@@ -12,11 +12,10 @@ Accepted Batch 09 outputs:
 - `02_character_persona_setup_api_contract.md`
 - `03_provider_backed_write_contract_matrix.md`
 - `plans/batch_10_provider_backed_source_character_api/BATCH_10_PROVIDER_BACKED_SOURCE_CHARACTER_API.md`
-- Batch 10 task prompts:
+- Batch 10 development task prompts:
   - `01_source_ingest_application_workflow_prompt.md`
   - `02_source_ingest_api_route_prompt.md`
   - `03_character_creation_workflow_route_prompt.md`
-  - `04_batch_10_closeout_verification_prompt.md`
 
 ## Acceptance Summary
 
@@ -95,7 +94,9 @@ Batch 10 should implement the deterministic provider-ready sequence only:
 1. Source ingest application workflow.
 2. `POST /source-works` API route.
 3. Deterministic character creation workflow and `POST /characters` route.
-4. Batch 10 closeout verification.
+
+Batch-level validation and status updates remain coordinator acceptance work after those development
+tasks are integrated; they are not numbered Batch 10 task prompts.
 
 Batch 10 must continue to reuse Batch 08 audit, workflow, idempotency, failure, and redaction
 foundations. It must not implement provider-backed persona setup, turn execution, summary

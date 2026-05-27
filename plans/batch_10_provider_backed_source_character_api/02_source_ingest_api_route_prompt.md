@@ -95,7 +95,7 @@ Error mapping:
   implemented, zero chunks, missing actor.
 - `409 conflict`: idempotency hash mismatch or explicit `source_work_id` collision.
 - `413 validation_error`: oversized content only if you add a tested mapper; otherwise use `422`
-  and record the 413 follow-up in closeout.
+  and report the 413 status choice in the task result.
 - `500 unexpected_error`: sanitized defects.
 - Do not return provider failure, provider validation, or partial persistence for this route.
 
@@ -153,4 +153,4 @@ git status --short --branch
 ```
 
 Commit only Task 02 changes and push the branch. Report branch, commit hash, tests run, route
-scope, and any closeout follow-ups.
+scope, and any implementation notes relevant to Task 03.
