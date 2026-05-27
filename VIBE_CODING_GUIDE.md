@@ -192,6 +192,15 @@ migration.
 Do not add auth/workspace/platform features, cursor migrations, CORS, deployment, UI, queues,
 external observability, or provider-backed routes outside an accepted next-batch scope.
 
+Current Batch 09 planning prompts live under `plans/batch_09_provider_backed_api_planning/`:
+
+- `BATCH_09_PROVIDER_BACKED_API_PLANNING.md`
+- `01_source_ingest_api_contract_prompt.md`
+- `02_character_persona_setup_api_contract_prompt.md`
+- `03_provider_backed_write_contract_matrix_prompt.md`
+- `04_next_implementation_batch_plan_prompt.md`
+- `05_batch_09_closeout_prompt.md`
+
 Batch 08 task prompts and closeout artifact live under `plans/batch_08_api_workflow_persistence/`:
 
 - `BATCH_08_API_WORKFLOW_PERSISTENCE.md`
