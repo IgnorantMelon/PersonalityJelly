@@ -11,6 +11,8 @@ from personality_jelly.application import (
     ConflictError,
     ErrorCorrelation,
     NormalizedError,
+    WorkflowFailureCode,
+    WorkflowFailureError,
     dump_error_correlation,
     normalize_error,
 )
@@ -34,6 +36,7 @@ class ErrorEnvelope(BaseModel):
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(LookupError, _handle_lookup_error)
     app.add_exception_handler(ConflictError, _handle_conflict_error)
+    app.add_exception_handler(WorkflowFailureError, _handle_workflow_failure_error)
     app.add_exception_handler(ValueError, _handle_value_error)
     app.add_exception_handler(RequestValidationError, _handle_request_validation_error)
     app.add_exception_handler(Exception, _handle_unexpected_error)
@@ -45,6 +48,16 @@ async def _handle_lookup_error(request: Request, exc: LookupError) -> JSONRespon
 
 async def _handle_conflict_error(request: Request, exc: ConflictError) -> JSONResponse:
     return _error_response(normalize_error(exc), status_code=409)
+
+
+async def _handle_workflow_failure_error(
+    request: Request,
+    exc: WorkflowFailureError,
+) -> JSONResponse:
+    return _error_response(
+        normalize_error(exc),
+        status_code=_workflow_failure_status_code(exc),
+    )
 
 
 async def _handle_value_error(request: Request, exc: ValueError) -> JSONResponse:
@@ -100,6 +113,14 @@ def _error_response(error: NormalizedError, *, status_code: int) -> JSONResponse
         status_code=status_code,
         content=envelope.model_dump(mode="json"),
     )
+
+
+def _workflow_failure_status_code(error: WorkflowFailureError) -> int:
+    if error.normalized_code == WorkflowFailureCode.RETRYABLE_CONFLICT:
+        return 409
+    if error.normalized_code == WorkflowFailureCode.PARTIAL_PERSISTENCE:
+        return 500
+    return 502
 
 
 def _validation_error_details(errors: list[dict[str, Any]]) -> list[dict[str, Any]]:

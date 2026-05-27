@@ -303,8 +303,10 @@ def fail_persisted_workflow(
     error_details: dict[str, Any] | None = None,
     failed_step: str | None = None,
     ids: WorkflowRelatedIds | None = None,
+    links: list[WorkflowLinkSpec] | None = None,
 ) -> WorkflowContext:
     from personality_jelly.storage import WorkflowRunRepository
+    from personality_jelly.application.errors import sanitize_error_details
 
     failed_ids = ids or workflow.related_ids
     failed = workflow.model_copy(
@@ -318,11 +320,47 @@ def fail_persisted_workflow(
         status=WorkflowStatus.FAILED,
         completed_at=utc_now(),
         error_code=error_code,
-        error_details=error_details,
+        error_details=sanitize_error_details(error_details or {}),
         failed_step=failed_step,
         persisted_ids=_dump_related_ids(failed_ids),
     )
+    link_workflow_records(session, workflow.workflow_id, links or [])
     return failed
+
+
+def partial_persisted_workflow(
+    session: Session,
+    workflow: WorkflowContext,
+    *,
+    error_code: str,
+    error_details: dict[str, Any] | None = None,
+    failed_step: str | None = None,
+    ids: WorkflowRelatedIds | None = None,
+    links: list[WorkflowLinkSpec] | None = None,
+    warnings: list[WorkflowWarning] | None = None,
+) -> WorkflowContext:
+    from personality_jelly.application.errors import sanitize_error_details
+    from personality_jelly.storage import WorkflowRunRepository
+
+    partial_ids = ids or workflow.related_ids
+    partial = workflow.model_copy(
+        update={
+            "status": WorkflowStatus.PARTIAL,
+            "related_ids": partial_ids,
+        }
+    )
+    WorkflowRunRepository(session).update_status(
+        workflow.workflow_id,
+        status=WorkflowStatus.PARTIAL,
+        completed_at=utc_now(),
+        error_code=error_code,
+        error_details=sanitize_error_details(error_details or {}),
+        failed_step=failed_step,
+        warnings=[warning.model_dump(mode="json") for warning in warnings or []],
+        persisted_ids=_dump_related_ids(partial_ids),
+    )
+    link_workflow_records(session, workflow.workflow_id, links or [])
+    return partial
 
 
 def link_workflow_records(
