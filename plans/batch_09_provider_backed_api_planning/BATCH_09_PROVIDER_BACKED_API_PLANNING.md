@@ -7,6 +7,18 @@ Follow `VIBE_CODING_GUIDE.md`, especially the multi-agent orchestration mode and
 closeout. Batch 09 should produce implementation-ready contracts and task prompts. It must not add
 provider-backed write routes during the planning batch.
 
+## Closeout Status
+
+Batch 09 is closeout accepted in `BATCH_09_CLOSEOUT.md`. The accepted next implementation scope is
+Batch 10:
+
+1. implement `POST /source-works` first;
+2. implement deterministic `POST /characters` next;
+3. defer provider-backed `POST /characters/{character_id}/persona-setup-runs`.
+
+Batch 09 remained planning-only and did not add provider-backed routes, source behavior changes,
+schemas, migrations, source code, or tests.
+
 ## Batch Goals
 
 - Evaluate source ingest and character/persona setup as the first provider-backed API candidates.
@@ -100,3 +112,7 @@ Batch 09 is complete when:
 - docs identify which workflow should be implemented first and why;
 - no provider-backed write route or source behavior change was added during planning;
 - planning artifacts, `VIBE_CODING_GUIDE.md`, and the batch plan agree on the next step.
+
+Closeout artifact:
+
+- `BATCH_09_CLOSEOUT.md`
