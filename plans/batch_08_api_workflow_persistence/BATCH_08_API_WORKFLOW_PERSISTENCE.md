@@ -139,3 +139,21 @@ Closeout should verify:
   secrets, local paths, or stack traces;
 - route handlers remain adapters over application services;
 - full pytest passes on merged `dev`.
+
+## Closeout Status
+
+Batch 08 is closeout verified on merged `dev` as of 2026-05-27.
+
+- Integrated order: Task 01 persistent audit events, Task 02 workflow run/link persistence, Task 03
+  idempotency replay, Task 04 provider failure/partial-persistence contracts, Task 05 audit/workflow
+  inspection routes.
+- Schema verified: `audit_events`, `workflow_runs`, `workflow_run_links`, `idempotency_records`,
+  and LLM trace correlation fields (`request_id`, `workflow_id`, `workflow_step`, `related_ids`).
+- Route scope verified: existing deterministic write routes remain limited to `POST /conversations`,
+  `POST /memories/{memory_id}/review`, `PATCH /memories/{memory_id}`, and
+  `POST /memories/{memory_id}/archive`; Batch 08 only added read-only `GET /audit-events`,
+  `GET /audit-events/{audit_event_id}`, `GET /workflow-runs`, and
+  `GET /workflow-runs/{workflow_id}` inspection routes.
+- Validation on merged `dev`: focused Batch 08 tests passed (`90 passed, 15 warnings`) and full
+  pytest passed (`317 passed, 15 warnings`).
+- Closeout artifact: `plans/batch_08_api_workflow_persistence/BATCH_08_CLOSEOUT.md`.

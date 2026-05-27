@@ -1,6 +1,6 @@
 # Personality Jelly Vibe Coding Guide
 
-Last updated: 2026-05-26.
+Last updated: 2026-05-27.
 
 This is the practical guide for future coding sessions. It condenses only the project direction,
 engineering rules, and architecture choices that are currently adopted and still valid. If older
@@ -47,11 +47,12 @@ All coding agents and task prompts must follow this baseline:
 - Add or update tests for behavior changes, run focused tests first, and run the full suite when
   shared behavior is touched.
 - Final reports should include files changed, tests run and results, and any task-specific caveats.
-- Current phase direction is post-Batch 07 API Write Foundation. Batch 07 closeout verified the
-  local-first deterministic write foundation: redaction profiles, request/workflow correlation,
-  local actor context, `POST /conversations`, and manual memory review/edit/archive. Do not add
-  provider-backed write APIs, platform/auth/workspace features, or semantic behavior in API handlers
-  until a later batch explicitly accepts the required audit/correlation/idempotency foundations.
+- Current phase direction is post-Batch 08 API Workflow Persistence Foundation. Batch 08 closeout
+  verified persistent audit events, workflow runs/links, LLM trace correlation fields, durable
+  idempotency replay/conflict behavior, provider failure/partial-persistence contracts, and
+  read-only audit/workflow inspection routes. Do not add new provider-backed HTTP write routes,
+  platform/auth/workspace features, or semantic behavior in API handlers until a later batch
+  explicitly selects the workflow and keeps handlers thin over `personality_jelly.application`.
 
 ## Current Goal
 
@@ -118,8 +119,10 @@ contracts for individual branches.
 After Batch 06 closeout, future development should stay incremental and evidence-driven:
 
 - API implementation path:
-  - use Batch 08 API Workflow Persistence Foundation as the arranged current implementation batch;
-  - first candidates are persistent audit events, workflow-run/link persistence,
+  - Batch 08 API Workflow Persistence Foundation is closeout verified;
+  - next provider-backed API candidates should be selected deliberately, with source ingest and
+    character/persona setup evaluated before turn execution, summary, or benchmark execution;
+  - every provider-backed route must reuse Batch 08 persistent audit, workflow-run/link,
     idempotency/replay, and provider failure/partial-persistence contracts;
   - keep write handlers as adapters over `application` services rather than moving workflow logic
     into `api`.
@@ -150,29 +153,25 @@ After Batch 06 closeout, future development should stay incremental and evidence
 
 ## 下一阶段开发计划
 
-The next arranged phase is Batch 08 API Workflow Persistence Foundation. Batch 07 implemented
-the local-first deterministic write foundation and closeout-verified:
+Batch 08 API Workflow Persistence Foundation is closeout verified. It added:
 
-- redaction profile and serializer foundations for write-era responses;
-- request/workflow correlation context and response fields;
-- local actor context and payload-only audit boundaries for write services;
-- application services and thin HTTP adapters for conversation creation;
-- application services and thin HTTP adapters for manual memory review/edit/archive.
+- persistent audit event schema/repository/service wiring for deterministic writes;
+- workflow-run and workflow-link persistence for request/workflow/domain/trace correlation;
+- LLM trace correlation fields for future provider-backed diagnostics;
+- durable idempotency replay/conflict behavior for deterministic write retries;
+- provider failure and partial-persistence contracts with redacted details and retry hints;
+- redaction-aware read-only `/audit-events` and `/workflow-runs` inspection routes.
 
-Batch 08 should resolve the persistence blockers before provider-backed routes:
+Recommended next batch: select and implement the first provider-backed API workflow only after its
+route contract, redaction behavior, audit/workflow links, idempotency key behavior, persisted-ID
+policy, and failure/partial-persistence states are explicit. Prefer evaluating source ingest and
+character/persona setup before turn execution, summary generation, benchmark execution, or cursor
+migration.
 
-- persistent audit event schema/repository and transaction policy;
-- workflow-run/link persistence for request/workflow/domain/trace correlation;
-- idempotency and replay/conflict behavior for write retries;
-- provider failure and partial-persistence error contracts;
-- audit and correlation inspection surfaces if needed for debugging.
+Do not add auth/workspace/platform features, cursor migrations, CORS, deployment, UI, queues,
+external observability, or provider-backed routes outside an accepted next-batch scope.
 
-Batch 08 should not yet expose source ingest, character/persona setup, turn execution, summary
-generation, benchmark execution, auth/workspace/platform features, cursor migrations, CORS,
-deployment, UI, or provider-backed write workflows until those foundations are implemented and
-tested.
-
-Current Batch 08 task prompts live under `plans/batch_08_api_workflow_persistence/`:
+Batch 08 task prompts and closeout artifact live under `plans/batch_08_api_workflow_persistence/`:
 
 - `BATCH_08_API_WORKFLOW_PERSISTENCE.md`
 - `01_persistent_audit_event_storage_prompt.md`
@@ -181,6 +180,7 @@ Current Batch 08 task prompts live under `plans/batch_08_api_workflow_persistenc
 - `04_provider_failure_partial_persistence_contracts_prompt.md`
 - `05_audit_correlation_inspection_routes_prompt.md`
 - `06_batch_08_closeout_verification_prompt.md`
+- `BATCH_08_CLOSEOUT.md`
 
 Batch 06 planning artifacts live under `plans/batch_06_api_write_readiness/`:
 
@@ -248,8 +248,8 @@ The project currently has:
 
 - SQLite + SQLAlchemy repositories for source works, chunks, source chunk embeddings, characters,
   canon claims, evidence, persona versions, conversations, messages, memories, context packages,
-  critic reports, failure cases, LLM raw outputs, OOC evaluation runs, and retrieval evaluation
-  runs.
+  critic reports, failure cases, LLM raw outputs, OOC evaluation runs, retrieval evaluation runs,
+  audit events, workflow runs/links, and idempotency records.
 - Database migrations tracked with `schema_migrations`; CLI commands auto-apply pending migrations,
   with `pjelly db status` and `pjelly db migrate` available for explicit control.
 - TXT/Markdown ingestion with chapter/paragraph chunking and stable chunk IDs.
@@ -278,13 +278,20 @@ The project currently has:
 - A thin `personality_jelly.application` layer now wraps shared orchestration and inspection
   behavior for CLI and API adapters. It includes bootstrap/provider role bundles, strict
   inspection result models, read-only inspection services for conversation/context,
-  character/claim/memory/source chunks, critic/failure/trace/eval records, turn workflow summary
-  wrappers, summary and benchmark workflow wrappers, character/persona setup orchestration, and
-  payload-only audit readiness models for manual memory operations.
+  character/claim/memory/source chunks, critic/failure/trace/eval records, audit/workflow records,
+  turn workflow summary wrappers, summary and benchmark workflow wrappers, character/persona setup
+  orchestration, persistent audit/workflow/idempotency helpers, provider failure contracts, and
+  local actor models for deterministic write operations.
 - Batch 05 read-only FastAPI adapter is closeout verified: app factory, health check,
   database/session dependency, structured error envelope, and GET-only route families for
   conversation/context, character/claim/memory/source chunk, critic/failure/LLM trace, OOC eval
   runs, and retrieval eval runs. Handlers call application services and do not add write workflows.
+- Batch 07 deterministic write API foundation is closeout verified: `POST /conversations` plus
+  manual memory review/edit/archive routes stay local-first and do not invoke providers.
+- Batch 08 workflow persistence foundation is closeout verified: deterministic writes persist audit
+  events, workflow runs/links, and idempotency records; provider failure/partial-persistence
+  contracts are normalized and redacted; `/audit-events` and `/workflow-runs` provide read-only
+  diagnostics; no provider-backed write route was added.
 - Batch 05 closeout verification status: focused API route tests passed (`34 passed`), focused CLI
   inspection tests passed, and the full test suite passed at closeout: `233 passed, 3 warnings`.
 

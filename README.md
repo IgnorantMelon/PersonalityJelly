@@ -1,6 +1,6 @@
 # Personality Jelly
 
-最后更新：2026-05-26
+最后更新：2026-05-27
 
 Personality Jelly 是一个 CLI 优先的小说角色大脑 MVP。项目目标是把小说原文转化为有证据支撑的角色 canon，将这些 canon 编译为可运行的人格版本，并在对话中严格区分原作设定、用户记忆、关系记忆和临时剧情。
 
@@ -92,14 +92,15 @@ timeout_seconds = 60
 
 ## 开发计划
 
-当前阶段：方案三 MVP 的 P2 service foundation、Batch 05 read-only API adapter、Batch 06 API write readiness 与 Batch 07 API Write Foundation 已完成 closeout 验证。
+当前阶段：方案三 MVP 的 P2 service foundation、Batch 05 read-only API adapter、Batch 06 API write readiness、Batch 07 API Write Foundation 与 Batch 08 API Workflow Persistence Foundation 已完成 closeout 验证。
 
 - P1：已完成 semantic tracing、benchmark cases、layered summary 消费、retrieval diagnostics 和 CLI diagnostics 加固。
 - P2：已完成 FastAPI/service boundary 规划、多作品/多角色数据边界审计、user/workspace/audit 概念设计，以及 CLI/API shared service foundation。
 - Batch 05：已引入只读 API adapter，让 FastAPI 作为 `personality_jelly.application` 之上的薄 HTTP 层，暴露 conversation、context package、character、claim、memory、critic report、failure case、LLM trace 和 eval run 等检查接口，并通过 API/CLI focused 与 full pytest closeout。
 - Batch 06：已收束延期 API 议题的实现前契约，包括写流程边界、actor/auth/audit、API redaction、分页/filter 约定、trace/workflow correlation，以及下一批次实施建议；该批次不实现写接口。
 - Batch 07：已实现最小安全的本地写入基础：redaction/correlation/actor context、`POST /conversations`，以及 manual memory review/edit/archive；不包含 provider-backed 写流程、persistent audit、auth/workspace、部署或 UI。
-- 后续：推荐下一批次聚焦 API workflow persistence，包括 persistent audit、workflow-run/link correlation、idempotency/replay、provider failure/partial-persistence contracts；这些完成后再评估 source ingest、character/persona setup、turn execution、summary、benchmark 和 cursor migration。
+- Batch 08：已实现 API workflow persistence foundation：persistent audit events、workflow_runs/workflow_run_links、LLM trace correlation fields、idempotency replay/conflict、provider failure/partial-persistence contracts，以及只读 audit/workflow inspection routes；仍不包含 provider-backed 写流程、source ingest/character/persona/turn/summary/benchmark 写接口、auth/workspace、部署或 UI。
+- 后续：推荐下一批次先选择并收束首个 provider-backed API 工作流的契约与实现顺序，优先评估 source ingest 与 character/persona setup；再进入 turn execution、summary、benchmark 或 cursor migration。任何 provider-backed route 都必须继续复用 Batch 08 的 audit/workflow/idempotency/failure contract。
 
 ## 开发指南
 
