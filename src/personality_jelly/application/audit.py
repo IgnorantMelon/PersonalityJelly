@@ -11,6 +11,7 @@ from pydantic import Field, field_validator
 from sqlalchemy.orm import Session
 
 from personality_jelly.application.correlation import CorrelationContext, WorkflowContext
+from personality_jelly.application.errors import sanitize_error_details
 from personality_jelly.application.inspection import InspectionModel, MemorySummary
 from personality_jelly.domain import AuditEvent, Memory
 from personality_jelly.domain.models import utc_now
@@ -315,6 +316,50 @@ def build_manual_memory_audit_event(
         after=after_snapshot,
         metadata=build_audit_metadata(
             metadata,
+            actor_context=actor_context,
+            correlation=correlation,
+            result=result,
+        ),
+    )
+
+
+def build_workflow_failure_audit_event(
+    *,
+    actor: AuditActor | LocalActorContext | Mapping[str, Any],
+    operation: AuditOperation | str,
+    entity: AuditEntity | Mapping[str, Any],
+    reason: str | None = None,
+    related_ids: AuditRelatedIds | Mapping[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+    correlation: CorrelationContext | WorkflowContext | None = None,
+    result: AuditResult | str = AuditResult.FAILED,
+    failure_details: Mapping[str, Any] | None = None,
+    event_id: str | None = None,
+) -> AuditEventPayload:
+    actor_context = _coerce_local_actor_context(actor)
+    audit_actor = actor_context.to_audit_actor() if actor_context is not None else actor
+    audit_entity = entity if isinstance(entity, AuditEntity) else AuditEntity.model_validate(entity)
+    audit_related_ids = (
+        related_ids
+        if isinstance(related_ids, AuditRelatedIds)
+        else AuditRelatedIds.model_validate(related_ids or {})
+    )
+    event_reason = _resolve_event_reason(reason=reason, actor_context=actor_context)
+    failure_metadata = dict(metadata or {})
+    if failure_details is not None:
+        failure_metadata["failure"] = sanitize_error_details(failure_details)
+
+    return AuditEventPayload(
+        id=event_id if event_id is not None else _generate_audit_event_id(),
+        actor=audit_actor,
+        operation=operation,
+        entity=audit_entity,
+        related_ids=audit_related_ids,
+        reason=event_reason,
+        before=None,
+        after=None,
+        metadata=build_audit_metadata(
+            failure_metadata,
             actor_context=actor_context,
             correlation=correlation,
             result=result,
