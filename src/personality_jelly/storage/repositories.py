@@ -23,6 +23,7 @@ from personality_jelly.domain import (
     EvaluationRun,
     EvaluationStatus,
     FailureCase,
+    IdempotencyRecord,
     LLMRawOutput,
     Memory,
     MemoryScope,
@@ -544,6 +545,7 @@ class LLMRawOutputRepository(Repository[LLMRawOutput, orm.LLMRawOutputORM]):
                 traces = traces[:limit]
         return traces
 
+
 class WorkflowRunRepository(Repository[WorkflowRun, orm.WorkflowRunORM]):
     def __init__(self, session: Session) -> None:
         super().__init__(
@@ -615,7 +617,43 @@ class WorkflowRunLinkRepository(Repository[WorkflowRunLink, orm.WorkflowRunLinkO
             )
             .order_by(orm.WorkflowRunLinkORM.created_at.asc(), orm.WorkflowRunLinkORM.id.asc())
         )
+        return self._all(statement)
 
+
+class IdempotencyRecordRepository(
+    Repository[IdempotencyRecord, orm.IdempotencyRecordORM],
+):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.IdempotencyRecordORM,
+            mappers.idempotency_record_to_orm,
+            mappers.idempotency_record_from_orm,
+        )
+
+    def find_by_scope(
+        self,
+        *,
+        workflow_type: str,
+        idempotency_key: str,
+    ) -> IdempotencyRecord | None:
+        statement = (
+            select(orm.IdempotencyRecordORM)
+            .where(
+                orm.IdempotencyRecordORM.workflow_type == workflow_type,
+                orm.IdempotencyRecordORM.idempotency_key == idempotency_key,
+            )
+            .limit(1)
+        )
+        row = self.session.scalars(statement).first()
+        return mappers.idempotency_record_from_orm(row) if row is not None else None
+
+    def list_by_workflow(self, workflow_id: str) -> list[IdempotencyRecord]:
+        statement = (
+            select(orm.IdempotencyRecordORM)
+            .where(orm.IdempotencyRecordORM.workflow_id == workflow_id)
+            .order_by(orm.IdempotencyRecordORM.created_at.asc())
+        )
         return self._all(statement)
 
 

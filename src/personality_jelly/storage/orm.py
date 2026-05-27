@@ -270,6 +270,7 @@ class LLMRawOutputORM(Base):
     validation_errors: Mapped[list[str]] = mapped_column(SAJSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
+
 class WorkflowRunORM(Base):
     __tablename__ = "workflow_runs"
     __table_args__ = (
@@ -307,6 +308,37 @@ class WorkflowRunLinkORM(Base):
     entity_id: Mapped[str] = mapped_column(String(128), nullable=False)
     relation: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class IdempotencyRecordORM(Base):
+    __tablename__ = "idempotency_records"
+    __table_args__ = (
+        Index(
+            "ux_idempotency_records_scope_key",
+            "workflow_type",
+            "idempotency_key",
+            unique=True,
+        ),
+        Index("ix_idempotency_records_workflow", "workflow_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    workflow_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("workflow_runs.workflow_id"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    response_status_code: Mapped[int] = mapped_column(Integer, nullable=False)
+    replay_payload: Mapped[dict] = mapped_column(SAJSON, nullable=False)
+    related_ids: Mapped[dict] = mapped_column(SAJSON, nullable=False, default=dict)
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_details: Mapped[dict | None] = mapped_column(SAJSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class AuditEventORM(Base):

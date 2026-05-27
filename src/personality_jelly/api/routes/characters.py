@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from personality_jelly.api.dependencies import get_session, get_write_session
@@ -13,13 +14,16 @@ from personality_jelly.api.memory_mutation_schemas import (
 )
 from personality_jelly.api.redaction import redact_payload
 from personality_jelly.api.schemas import (
+    IDEMPOTENCY_KEY_HEADER,
     REQUEST_ID_HEADER,
     WriteResponseEnvelope,
     resolve_write_request_correlation,
+    resolve_write_request_idempotency,
 )
 from personality_jelly.application import (
     CharacterDetail,
     ClaimSummary,
+    IdempotencyContext,
     InspectionListResult,
     ManualMemoryArchiveRequest,
     ManualMemoryEditRequest,
@@ -28,6 +32,7 @@ from personality_jelly.application import (
     MemorySummary,
     SourceChunkDetail,
     archive_memory_workflow,
+    build_idempotency_context,
     edit_memory_workflow,
     get_character_detail,
     get_claim_detail,
@@ -36,7 +41,9 @@ from personality_jelly.application import (
     list_characters,
     list_claims,
     list_memories,
+    load_idempotency_replay,
     review_memory_workflow,
+    store_idempotency_replay,
 )
 from personality_jelly.domain import ClaimStatus, ClaimType, MemoryScope, MemoryStatus
 
@@ -115,11 +122,27 @@ def review_memory(
     body: MemoryReviewRequestBody,
     session: Annotated[Session, Depends(get_write_session)],
     x_request_id: Annotated[str | None, Header(alias=REQUEST_ID_HEADER)] = None,
-) -> WriteResponseEnvelope:
+    header_idempotency_key: Annotated[
+        str | None,
+        Header(alias=IDEMPOTENCY_KEY_HEADER),
+    ] = None,
+) -> WriteResponseEnvelope | JSONResponse:
     correlation = resolve_write_request_correlation(
         header_request_id=x_request_id,
         body_request_id=body.request_id,
     ).to_application_context()
+    idempotency = _memory_mutation_idempotency_context(
+        body,
+        memory_id=memory_id,
+        workflow_type="memory.review",
+        header_idempotency_key=header_idempotency_key,
+    )
+    replay = load_idempotency_replay(session, idempotency)
+    if replay is not None:
+        return JSONResponse(
+            status_code=replay.response_status_code,
+            content=replay.replay_payload,
+        )
     result = review_memory_workflow(
         session,
         ManualMemoryReviewRequest(
@@ -134,7 +157,7 @@ def review_memory(
             metadata=body.metadata,
         ),
     )
-    return _memory_mutation_response(result)
+    return _memory_mutation_response(session, result, idempotency=idempotency)
 
 
 @router.patch("/memories/{memory_id}", response_model=WriteResponseEnvelope)
@@ -143,11 +166,27 @@ def edit_memory(
     body: MemoryEditRequestBody,
     session: Annotated[Session, Depends(get_write_session)],
     x_request_id: Annotated[str | None, Header(alias=REQUEST_ID_HEADER)] = None,
-) -> WriteResponseEnvelope:
+    header_idempotency_key: Annotated[
+        str | None,
+        Header(alias=IDEMPOTENCY_KEY_HEADER),
+    ] = None,
+) -> WriteResponseEnvelope | JSONResponse:
     correlation = resolve_write_request_correlation(
         header_request_id=x_request_id,
         body_request_id=body.request_id,
     ).to_application_context()
+    idempotency = _memory_mutation_idempotency_context(
+        body,
+        memory_id=memory_id,
+        workflow_type="memory.edit",
+        header_idempotency_key=header_idempotency_key,
+    )
+    replay = load_idempotency_replay(session, idempotency)
+    if replay is not None:
+        return JSONResponse(
+            status_code=replay.response_status_code,
+            content=replay.replay_payload,
+        )
     result = edit_memory_workflow(
         session,
         ManualMemoryEditRequest(
@@ -162,7 +201,7 @@ def edit_memory(
             metadata=body.metadata,
         ),
     )
-    return _memory_mutation_response(result)
+    return _memory_mutation_response(session, result, idempotency=idempotency)
 
 
 @router.post("/memories/{memory_id}/archive", response_model=WriteResponseEnvelope)
@@ -171,11 +210,27 @@ def archive_memory(
     body: MemoryArchiveRequestBody,
     session: Annotated[Session, Depends(get_write_session)],
     x_request_id: Annotated[str | None, Header(alias=REQUEST_ID_HEADER)] = None,
-) -> WriteResponseEnvelope:
+    header_idempotency_key: Annotated[
+        str | None,
+        Header(alias=IDEMPOTENCY_KEY_HEADER),
+    ] = None,
+) -> WriteResponseEnvelope | JSONResponse:
     correlation = resolve_write_request_correlation(
         header_request_id=x_request_id,
         body_request_id=body.request_id,
     ).to_application_context()
+    idempotency = _memory_mutation_idempotency_context(
+        body,
+        memory_id=memory_id,
+        workflow_type="memory.archive",
+        header_idempotency_key=header_idempotency_key,
+    )
+    replay = load_idempotency_replay(session, idempotency)
+    if replay is not None:
+        return JSONResponse(
+            status_code=replay.response_status_code,
+            content=replay.replay_payload,
+        )
     result = archive_memory_workflow(
         session,
         ManualMemoryArchiveRequest(
@@ -189,7 +244,7 @@ def archive_memory(
             metadata=body.metadata,
         ),
     )
-    return _memory_mutation_response(result)
+    return _memory_mutation_response(session, result, idempotency=idempotency)
 
 
 @router.get("/source-chunks/{chunk_id}", response_model=SourceChunkDetail)
@@ -209,9 +264,12 @@ def _application_actor(
 
 
 def _memory_mutation_response(
+    session: Session,
     result: ManualMemoryMutationResult,
+    *,
+    idempotency: IdempotencyContext | None,
 ) -> WriteResponseEnvelope:
-    return WriteResponseEnvelope(
+    response = WriteResponseEnvelope(
         request_id=result.request_id,
         workflow_id=result.workflow_id,
         workflow_type=result.workflow_type,
@@ -224,4 +282,38 @@ def _memory_mutation_response(
                 "audit_event": result.audit_event,
             }
         ),
+    )
+    store_idempotency_replay(
+        session,
+        idempotency,
+        request_id=result.request_id,
+        workflow_id=result.workflow_id,
+        status=result.status,
+        response_status_code=200,
+        replay_payload=response.model_dump(mode="json"),
+        related_ids=result.ids,
+    )
+    return response
+
+
+def _memory_mutation_idempotency_context(
+    body: MemoryArchiveRequestBody | MemoryEditRequestBody | MemoryReviewRequestBody,
+    *,
+    memory_id: str,
+    workflow_type: str,
+    header_idempotency_key: object | None,
+) -> IdempotencyContext | None:
+    idempotency_key = resolve_write_request_idempotency(
+        header_idempotency_key=header_idempotency_key,
+        body_idempotency_key=body.idempotency_key,
+    )
+    request_payload = body.model_dump(
+        mode="json",
+        exclude={"request_id", "idempotency_key"},
+    )
+    request_payload["memory_id"] = memory_id
+    return build_idempotency_context(
+        workflow_type=workflow_type,
+        idempotency_key=idempotency_key,
+        request_payload=request_payload,
     )

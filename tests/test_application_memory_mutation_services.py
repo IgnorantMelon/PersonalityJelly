@@ -108,6 +108,7 @@ def test_review_memory_workflow_accepts_candidate_with_audit_and_canon_boundary(
         ("user", "user_001", "input"),
         ("character", "char_001", "input"),
         ("conversation", "conv_001", "input"),
+        ("audit_event", result.audit_event.id, "audit"),
     }
     assert stored_audit.operation == "memory.review"
     assert stored_audit.result == "succeeded"
