@@ -266,6 +266,53 @@ class LLMRawOutputORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class AuditEventORM(Base):
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        Index("ix_audit_events_created", "created_at"),
+        Index("ix_audit_events_operation_created", "operation", "created_at"),
+        Index("ix_audit_events_actor_created", "actor_type", "actor_id", "created_at"),
+        Index("ix_audit_events_entity_created", "entity_type", "entity_id", "created_at"),
+        Index("ix_audit_events_user_created", "user_id", "created_at"),
+        Index("ix_audit_events_character_created", "character_id", "created_at"),
+        Index("ix_audit_events_conversation_created", "conversation_id", "created_at"),
+        Index("ix_audit_events_memory_created", "memory_id", "created_at"),
+        Index("ix_audit_events_llm_trace_created", "llm_trace_id", "created_at"),
+        Index("ix_audit_events_eval_run_created", "evaluation_run_id", "created_at"),
+        Index(
+            "ix_audit_events_retrieval_eval_run_created",
+            "retrieval_evaluation_run_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    operation: Mapped[str] = mapped_column(String(128), nullable=False)
+    result: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    request_id: Mapped[str | None] = mapped_column(String(128))
+    workflow_id: Mapped[str | None] = mapped_column(String(128))
+    workflow_type: Mapped[str | None] = mapped_column(String(128))
+    user_id: Mapped[str | None] = mapped_column(String(64))
+    character_id: Mapped[str | None] = mapped_column(String(64))
+    conversation_id: Mapped[str | None] = mapped_column(String(96))
+    memory_id: Mapped[str | None] = mapped_column(String(96))
+    llm_trace_id: Mapped[str | None] = mapped_column(String(96))
+    evaluation_run_id: Mapped[str | None] = mapped_column(String(96))
+    retrieval_evaluation_run_id: Mapped[str | None] = mapped_column(String(96))
+    related_ids: Mapped[dict] = mapped_column(SAJSON, nullable=False, default=dict)
+    before: Mapped[dict | None] = mapped_column(SAJSON)
+    after: Mapped[dict | None] = mapped_column(SAJSON)
+    metadata_json: Mapped[dict] = mapped_column("metadata", SAJSON, nullable=False, default=dict)
+    persistence: Mapped[str] = mapped_column(String(32), nullable=False, default="payload_only")
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
 class EvaluationRunORM(Base):
     __tablename__ = "evaluation_runs"
     __table_args__ = (

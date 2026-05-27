@@ -1,4 +1,10 @@
+from datetime import datetime, timezone
+
+import pytest
+from sqlalchemy.exc import IntegrityError
+
 from personality_jelly.domain import (
+    AuditEvent,
     Character,
     Conversation,
     ContextPackage,
@@ -21,6 +27,7 @@ from personality_jelly.domain import (
 )
 from personality_jelly.ingestion import chunk_source_text
 from personality_jelly.storage import (
+    AuditEventRepository,
     CharacterRepository,
     ConversationRepository,
     ContextPackageRepository,
@@ -40,6 +47,122 @@ from personality_jelly.storage import (
     create_database_engine,
     create_session_factory,
 )
+
+
+NOW = datetime(2026, 5, 27, 10, 0, tzinfo=timezone.utc)
+
+
+def test_audit_event_repository_roundtrips_and_lists_recent_filters() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        repository = AuditEventRepository(session)
+        repository.add(
+            AuditEvent(
+                id="audit_001",
+                created_at=NOW,
+                operation="conversation.create",
+                result="succeeded",
+                actor_type="api_user",
+                actor_id="api-local:test",
+                entity_type="conversation",
+                entity_id="conv_001",
+                reason="Create conversation.",
+                request_id="req_001",
+                workflow_id="wf_001",
+                workflow_type="conversation.create",
+                user_id="user_001",
+                character_id="char_001",
+                conversation_id="conv_001",
+                related_ids={
+                    "user_id": "user_001",
+                    "character_id": "char_001",
+                    "conversation_id": "conv_001",
+                },
+                before=None,
+                after={"conversation_id": "conv_001"},
+                metadata={"result": "succeeded"},
+            )
+        )
+        repository.add(
+            AuditEvent(
+                id="audit_002",
+                created_at=NOW,
+                operation="memory.review",
+                result="succeeded",
+                actor_type="api_user",
+                actor_id="api-local:test",
+                entity_type="memory",
+                entity_id="mem_001",
+                reason="Review memory.",
+                request_id="req_002",
+                workflow_id="wf_002",
+                workflow_type="memory.review",
+                user_id="user_001",
+                character_id="char_001",
+                conversation_id="conv_001",
+                memory_id="mem_001",
+                related_ids={
+                    "user_id": "user_001",
+                    "character_id": "char_001",
+                    "conversation_id": "conv_001",
+                    "memory_id": "mem_001",
+                },
+                before={"status": "candidate"},
+                after={"status": "accepted"},
+                metadata={"result": "succeeded", "decision": "accept"},
+            )
+        )
+        session.commit()
+
+    with session_factory() as session:
+        repository = AuditEventRepository(session)
+        stored = repository.require("audit_002")
+        recent = repository.list_recent(limit=1)
+        by_operation = repository.list_recent(operation="conversation.create")
+        by_memory = repository.list_recent(memory_id="mem_001")
+
+    assert stored.operation == "memory.review"
+    assert stored.result == "succeeded"
+    assert stored.entity_type == "memory"
+    assert stored.memory_id == "mem_001"
+    assert stored.related_ids["memory_id"] == "mem_001"
+    assert stored.before == {"status": "candidate"}
+    assert stored.after == {"status": "accepted"}
+    assert stored.metadata["decision"] == "accept"
+    assert [event.id for event in recent] == ["audit_002"]
+    assert [event.id for event in by_operation] == ["audit_001"]
+    assert [event.id for event in by_memory] == ["audit_002"]
+
+
+def test_audit_event_repository_is_append_only_by_primary_key() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    event = AuditEvent(
+        id="audit_001",
+        created_at=NOW,
+        operation="memory.edit",
+        result="succeeded",
+        actor_type="api_user",
+        actor_id="api-local:test",
+        entity_type="memory",
+        entity_id="mem_001",
+        reason="Edit memory.",
+        user_id="user_001",
+        character_id="char_001",
+        memory_id="mem_001",
+    )
+
+    with session_factory() as session:
+        repository = AuditEventRepository(session)
+        repository.add(event)
+        with pytest.raises(IntegrityError):
+            repository.add(event)
+        session.rollback()
 
 
 def test_repository_roundtrip_for_source_character_conversation_and_memory() -> None:

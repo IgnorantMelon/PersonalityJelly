@@ -8,11 +8,13 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import Field, field_validator
+from sqlalchemy.orm import Session
 
 from personality_jelly.application.correlation import CorrelationContext, WorkflowContext
 from personality_jelly.application.inspection import InspectionModel, MemorySummary
-from personality_jelly.domain import Memory
+from personality_jelly.domain import AuditEvent, Memory
 from personality_jelly.domain.models import utc_now
+from personality_jelly.storage import AuditEventRepository
 
 
 BATCH_04_AUDIT_PERSISTENCE_DECISION: Literal["payload_only"] = "payload_only"
@@ -27,6 +29,7 @@ class AuditActorType(StrEnum):
 
 
 class AuditOperation(StrEnum):
+    CONVERSATION_CREATE = "conversation.create"
     MEMORY_REVIEW = "memory.review"
     MEMORY_EDIT = "memory.edit"
     MEMORY_ARCHIVE = "memory.archive"
@@ -99,6 +102,7 @@ class AuditRelatedIds(InspectionModel):
     character_id: str | None = None
     user_id: str | None = None
     conversation_id: str | None = None
+    memory_id: str | None = None
     message_id: str | None = None
     context_package_id: str | None = None
     persona_version_id: str | None = None
@@ -304,6 +308,7 @@ def build_manual_memory_audit_event(
             user_id=after_snapshot["user_id"],
             character_id=after_snapshot["character_id"],
             conversation_id=after_snapshot.get("conversation_id"),
+            memory_id=after_snapshot["id"],
         ),
         reason=event_reason,
         before=before_snapshot,
@@ -338,6 +343,55 @@ def _validate_same_memory_boundary(
 
 def _generate_audit_event_id() -> str:
     return f"audit_{uuid4().hex}"
+
+
+def audit_event_payload_to_domain(event: AuditEventPayload) -> AuditEvent:
+    metadata = event.metadata
+    related_ids = event.related_ids.model_dump(mode="json", exclude_none=True)
+    result = _metadata_text(metadata, "result") or str(AuditResult.SUCCEEDED)
+    return AuditEvent(
+        id=event.id,
+        created_at=event.created_at,
+        operation=str(event.operation),
+        result=result,
+        actor_type=str(event.actor.actor_type),
+        actor_id=event.actor.actor_id,
+        entity_type=event.entity.entity_type,
+        entity_id=event.entity.entity_id,
+        reason=event.reason,
+        request_id=_metadata_text(metadata, "request_id"),
+        workflow_id=_metadata_text(metadata, "workflow_id"),
+        workflow_type=_metadata_text(metadata, "workflow_type"),
+        user_id=event.related_ids.user_id,
+        character_id=event.related_ids.character_id,
+        conversation_id=event.related_ids.conversation_id,
+        memory_id=_resolve_memory_id(event),
+        llm_trace_id=event.related_ids.llm_trace_id,
+        evaluation_run_id=event.related_ids.evaluation_run_id,
+        retrieval_evaluation_run_id=event.related_ids.retrieval_evaluation_run_id,
+        related_ids=related_ids,
+        before=event.before,
+        after=event.after,
+        metadata=metadata,
+        persistence=event.persistence,
+    )
+
+
+def persist_audit_event(session: Session, event: AuditEventPayload) -> AuditEvent:
+    return AuditEventRepository(session).add(audit_event_payload_to_domain(event))
+
+
+def _metadata_text(metadata: Mapping[str, Any], key: str) -> str | None:
+    value = metadata.get(key)
+    return value if isinstance(value, str) and value else None
+
+
+def _resolve_memory_id(event: AuditEventPayload) -> str | None:
+    if event.related_ids.memory_id is not None:
+        return event.related_ids.memory_id
+    if event.entity.entity_type == "memory":
+        return event.entity.entity_id
+    return None
 
 
 def _coerce_local_actor_context(

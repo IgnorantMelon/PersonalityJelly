@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from enum import StrEnum
 from typing import Any
 
@@ -12,6 +13,7 @@ from personality_jelly.application.audit import (
     build_memory_archive_audit_event,
     build_memory_edit_audit_event,
     build_memory_review_audit_event,
+    persist_audit_event,
     require_local_actor_context,
     require_operation_reason,
 )
@@ -76,29 +78,32 @@ def review_memory_workflow(
     )
     actor = require_local_actor_context(request.actor, require_user_id=True)
     reason = require_operation_reason(request.reason)
-    repository = MemoryRepository(session)
-    before = repository.require(request.memory_id)
-    _validate_memory_related_ids(before, actor=actor, request=request)
+    with _manual_memory_mutation_transaction(session):
+        repository = MemoryRepository(session)
+        before = repository.require(request.memory_id)
+        _validate_memory_related_ids(before, actor=actor, request=request)
 
-    target_status = (
-        MemoryStatus.ACCEPTED
-        if request.decision == MemoryReviewDecision.ACCEPT
-        else MemoryStatus.REJECTED
-    )
-    after = repository.review_candidate(before.id, status=target_status, reason=reason)
-    return _build_result(
-        session,
-        workflow=workflow,
-        memory=after,
-        audit_event=build_memory_review_audit_event(
+        target_status = (
+            MemoryStatus.ACCEPTED
+            if request.decision == MemoryReviewDecision.ACCEPT
+            else MemoryStatus.REJECTED
+        )
+        after = repository.review_candidate(before.id, status=target_status, reason=reason)
+        audit_event = build_memory_review_audit_event(
             actor=actor,
             before=before,
             after=after,
             reason=reason,
             metadata={**request.metadata, "decision": str(request.decision)},
             correlation=_completed_workflow(workflow, _related_ids(after)),
-        ),
-    )
+        )
+        persist_audit_event(session, audit_event)
+        return _build_result(
+            session,
+            workflow=workflow,
+            memory=after,
+            audit_event=audit_event,
+        )
 
 
 def edit_memory_workflow(
@@ -113,26 +118,29 @@ def edit_memory_workflow(
     actor = require_local_actor_context(request.actor, require_user_id=True)
     reason = require_operation_reason(request.reason)
     content = _require_text(request.content, field_name="content")
-    repository = MemoryRepository(session)
-    before = repository.require(request.memory_id)
-    _validate_memory_related_ids(before, actor=actor, request=request)
-    if before.status == MemoryStatus.ARCHIVED:
-        raise ValueError("archived memories cannot be edited")
+    with _manual_memory_mutation_transaction(session):
+        repository = MemoryRepository(session)
+        before = repository.require(request.memory_id)
+        _validate_memory_related_ids(before, actor=actor, request=request)
+        if before.status == MemoryStatus.ARCHIVED:
+            raise ValueError("archived memories cannot be edited")
 
-    after = repository.update_content(before.id, content=content, reason=reason)
-    return _build_result(
-        session,
-        workflow=workflow,
-        memory=after,
-        audit_event=build_memory_edit_audit_event(
+        after = repository.update_content(before.id, content=content, reason=reason)
+        audit_event = build_memory_edit_audit_event(
             actor=actor,
             before=before,
             after=after,
             reason=reason,
             metadata=request.metadata,
             correlation=_completed_workflow(workflow, _related_ids(after)),
-        ),
-    )
+        )
+        persist_audit_event(session, audit_event)
+        return _build_result(
+            session,
+            workflow=workflow,
+            memory=after,
+            audit_event=audit_event,
+        )
 
 
 def archive_memory_workflow(
@@ -146,26 +154,40 @@ def archive_memory_workflow(
     )
     actor = require_local_actor_context(request.actor, require_user_id=True)
     reason = require_operation_reason(request.reason)
-    repository = MemoryRepository(session)
-    before = repository.require(request.memory_id)
-    _validate_memory_related_ids(before, actor=actor, request=request)
-    if before.status == MemoryStatus.ARCHIVED:
-        raise ValueError("memory is already archived")
+    with _manual_memory_mutation_transaction(session):
+        repository = MemoryRepository(session)
+        before = repository.require(request.memory_id)
+        _validate_memory_related_ids(before, actor=actor, request=request)
+        if before.status == MemoryStatus.ARCHIVED:
+            raise ValueError("memory is already archived")
 
-    after = repository.update_status(before.id, status=MemoryStatus.ARCHIVED)
-    return _build_result(
-        session,
-        workflow=workflow,
-        memory=after,
-        audit_event=build_memory_archive_audit_event(
+        after = repository.update_status(before.id, status=MemoryStatus.ARCHIVED)
+        audit_event = build_memory_archive_audit_event(
             actor=actor,
             before=before,
             after=after,
             reason=reason,
             metadata=request.metadata,
             correlation=_completed_workflow(workflow, _related_ids(after)),
-        ),
-    )
+        )
+        persist_audit_event(session, audit_event)
+        return _build_result(
+            session,
+            workflow=workflow,
+            memory=after,
+            audit_event=audit_event,
+        )
+
+
+@contextmanager
+def _manual_memory_mutation_transaction(session: Session):
+    if session.in_transaction():
+        with session.begin_nested():
+            yield
+        return
+
+    with session.begin():
+        yield
 
 
 def _build_result(

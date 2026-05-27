@@ -13,6 +13,7 @@ from personality_jelly.application.audit import (
     AuditResult,
     LocalActorContext,
     build_audit_metadata,
+    persist_audit_event,
     require_local_actor_context,
 )
 from personality_jelly.application.conversation_inspection import (
@@ -119,10 +120,23 @@ def create_conversation_workflow(
             conversation_id=conversation.id,
             persona_version_id=conversation.persona_version_id,
         )
+        completed_workflow = workflow.model_copy(
+            update={
+                "status": WorkflowStatus.COMPLETED,
+                "related_ids": ids,
+            }
+        )
         audit_event = _build_conversation_create_audit_event(
             conversation=conversation,
             actor_context=actor,
-            workflow=workflow,
+            workflow=completed_workflow,
+        )
+        persist_audit_event(session, audit_event)
+        ids = ids.model_copy(
+            update={
+                "audit_event_id": audit_event.id,
+                "audit_event_ids": [audit_event.id],
+            }
         )
 
     return ConversationCreateResult(

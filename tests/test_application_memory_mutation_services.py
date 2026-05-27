@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+import personality_jelly.application.memory_mutations as memory_mutations_application
 from personality_jelly.application import (
     CorrelationContext,
     LocalActorContext,
@@ -29,6 +30,7 @@ from personality_jelly.domain import (
     User,
 )
 from personality_jelly.storage import (
+    AuditEventRepository,
     CanonClaimRepository,
     CharacterRepository,
     ConversationRepository,
@@ -65,6 +67,7 @@ def test_review_memory_workflow_accepts_candidate_with_audit_and_canon_boundary(
 
         stored_memory = MemoryRepository(session).require("mem_candidate")
         stored_claim = CanonClaimRepository(session).require("claim_001")
+        stored_audit = AuditEventRepository(session).require(result.audit_event.id)
 
     assert result.request_id == "req_review"
     assert result.workflow_id.startswith("wf_")
@@ -72,6 +75,8 @@ def test_review_memory_workflow_accepts_candidate_with_audit_and_canon_boundary(
     assert result.status == "completed"
     assert result.ids.memory_id == "mem_candidate"
     assert result.ids.user_id == "user_001"
+    assert result.ids.audit_event_id == result.audit_event.id
+    assert result.ids.audit_event_ids == [result.audit_event.id]
     assert result.memory.status == "accepted"
     assert result.audit_event.operation == "memory.review"
     assert result.audit_event.persistence == "payload_only"
@@ -82,10 +87,23 @@ def test_review_memory_workflow_accepts_candidate_with_audit_and_canon_boundary(
     assert result.audit_event.metadata["request_id"] == "req_review"
     assert result.audit_event.metadata["workflow_status"] == "completed"
     assert result.audit_event.metadata["decision"] == "accept"
+    assert result.audit_event.related_ids.memory_id == "mem_candidate"
     assert stored_memory.status == "accepted"
     assert "Review decision accepted" in stored_memory.reason
     assert stored_claim.status == "verified"
     assert stored_claim.content == "Lin Shuang observes before acting."
+    assert stored_audit.operation == "memory.review"
+    assert stored_audit.result == "succeeded"
+    assert stored_audit.entity_type == "memory"
+    assert stored_audit.entity_id == "mem_candidate"
+    assert stored_audit.user_id == "user_001"
+    assert stored_audit.character_id == "char_001"
+    assert stored_audit.conversation_id == "conv_001"
+    assert stored_audit.memory_id == "mem_candidate"
+    assert stored_audit.request_id == "req_review"
+    assert stored_audit.workflow_id == result.workflow_id
+    assert stored_audit.workflow_type == "memory.review"
+    assert stored_audit.metadata["decision"] == "accept"
 
 
 def test_edit_memory_workflow_updates_content_reason_and_payload_audit() -> None:
@@ -105,6 +123,7 @@ def test_edit_memory_workflow_updates_content_reason_and_payload_audit() -> None
         )
 
         stored_memory = MemoryRepository(session).require("mem_accepted")
+        stored_audit = AuditEventRepository(session).require(result.audit_event.id)
 
     assert result.workflow_type == "memory.edit"
     assert result.memory.content == "User prefers writing after midnight."
@@ -117,6 +136,13 @@ def test_edit_memory_workflow_updates_content_reason_and_payload_audit() -> None
     assert result.audit_event.metadata["source"] == "local-test"
     assert stored_memory.content == "User prefers writing after midnight."
     assert stored_memory.reason == "Manual correction after user clarification."
+    assert stored_audit.operation == "memory.edit"
+    assert stored_audit.memory_id == "mem_accepted"
+    assert stored_audit.before is not None
+    assert stored_audit.before["content"] == "User likes night writing."
+    assert stored_audit.after is not None
+    assert stored_audit.after["content"] == "User prefers writing after midnight."
+    assert stored_audit.metadata["source"] == "local-test"
 
 
 def test_archive_memory_workflow_requires_reason_and_archives_without_rewriting_content() -> None:
@@ -134,6 +160,7 @@ def test_archive_memory_workflow_requires_reason_and_archives_without_rewriting_
         )
 
         stored_memory = MemoryRepository(session).require("mem_accepted")
+        stored_audit = AuditEventRepository(session).require(result.audit_event.id)
 
     assert result.workflow_type == "memory.archive"
     assert result.memory.status == "archived"
@@ -144,6 +171,10 @@ def test_archive_memory_workflow_requires_reason_and_archives_without_rewriting_
     assert result.audit_event.after["status"] == "archived"
     assert stored_memory.status == "archived"
     assert stored_memory.content == "User likes night writing."
+    assert stored_audit.operation == "memory.archive"
+    assert stored_audit.memory_id == "mem_accepted"
+    assert stored_audit.after is not None
+    assert stored_audit.after["status"] == "archived"
 
 
 def test_manual_memory_workflows_reject_missing_actor_reason_and_related_mismatch() -> None:
@@ -236,6 +267,41 @@ def test_manual_memory_workflows_reject_not_found_and_invalid_status_transition(
                     correlation=CorrelationContext(request_id="req_archived_edit"),
                 ),
             )
+
+        assert AuditEventRepository(session).list_all() == []
+
+
+def test_manual_memory_workflow_rolls_back_when_audit_persistence_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_factory = _seed_database()
+
+    def fail_audit_persistence(*args, **kwargs):
+        raise RuntimeError("audit persistence failed")
+
+    monkeypatch.setattr(
+        memory_mutations_application,
+        "persist_audit_event",
+        fail_audit_persistence,
+    )
+
+    with session_factory() as session:
+        with pytest.raises(RuntimeError, match="audit persistence failed"):
+            edit_memory_workflow(
+                session,
+                ManualMemoryEditRequest(
+                    memory_id="mem_accepted",
+                    content="Changed content that should roll back.",
+                    reason="Manual correction.",
+                    actor=_actor(),
+                    correlation=CorrelationContext(request_id="req_audit_fail"),
+                ),
+            )
+
+        stored = MemoryRepository(session).require("mem_accepted")
+        assert stored.content == "User likes night writing."
+        assert stored.reason == "User stated a stable preference."
+        assert AuditEventRepository(session).list_all() == []
 
 
 def _actor(*, user_id: str = "user_001") -> LocalActorContext:

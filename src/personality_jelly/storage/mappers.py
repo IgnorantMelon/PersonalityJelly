@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TypeVar
 
 from personality_jelly.domain import (
+    AuditEvent,
     CanonClaim,
     Character,
     ClaimConflict,
@@ -52,6 +53,7 @@ DomainT = TypeVar(
     EvaluationCaseResult,
     RetrievalEvaluationRun,
     RetrievalEvaluationCaseResult,
+    AuditEvent,
 )
 
 
@@ -183,6 +185,44 @@ def llm_raw_output_to_orm(model: LLMRawOutput) -> orm.LLMRawOutputORM:
 
 def llm_raw_output_from_orm(row: orm.LLMRawOutputORM) -> LLMRawOutput:
     return LLMRawOutput.model_validate(_column_dict(row))
+
+
+def audit_event_to_orm(model: AuditEvent) -> orm.AuditEventORM:
+    payload = model.model_dump(mode="python")
+    metadata = payload.pop("metadata")
+    return orm.AuditEventORM(**payload, metadata_json=metadata)
+
+
+def audit_event_from_orm(row: orm.AuditEventORM) -> AuditEvent:
+    return AuditEvent.model_validate(
+        {
+            "id": row.id,
+            "created_at": row.created_at,
+            "operation": row.operation,
+            "result": row.result,
+            "actor_type": row.actor_type,
+            "actor_id": row.actor_id,
+            "entity_type": row.entity_type,
+            "entity_id": row.entity_id,
+            "reason": row.reason,
+            "request_id": row.request_id,
+            "workflow_id": row.workflow_id,
+            "workflow_type": row.workflow_type,
+            "user_id": row.user_id,
+            "character_id": row.character_id,
+            "conversation_id": row.conversation_id,
+            "memory_id": row.memory_id,
+            "llm_trace_id": row.llm_trace_id,
+            "evaluation_run_id": row.evaluation_run_id,
+            "retrieval_evaluation_run_id": row.retrieval_evaluation_run_id,
+            "related_ids": row.related_ids,
+            "before": row.before,
+            "after": row.after,
+            "metadata": row.metadata_json,
+            "persistence": row.persistence,
+            "schema_version": row.schema_version,
+        }
+    )
 
 
 def evaluation_run_to_orm(model: EvaluationRun) -> orm.EvaluationRunORM:
