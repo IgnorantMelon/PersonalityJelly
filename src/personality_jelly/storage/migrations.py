@@ -170,6 +170,50 @@ _workflow_run_links = Table(
     Index("ix_workflow_run_links_workflow", "workflow_id"),
     Index("ix_workflow_run_links_entity", "entity_type", "entity_id"),
 )
+_audit_events = Table(
+    "audit_events",
+    _metadata,
+    Column("id", String(96), primary_key=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("operation", String(128), nullable=False),
+    Column("result", String(32), nullable=False),
+    Column("actor_type", String(32), nullable=False),
+    Column("actor_id", String(128), nullable=False),
+    Column("entity_type", String(64), nullable=False),
+    Column("entity_id", String(128), nullable=False),
+    Column("reason", Text, nullable=False),
+    Column("request_id", String(128)),
+    Column("workflow_id", String(128)),
+    Column("workflow_type", String(128)),
+    Column("user_id", String(64)),
+    Column("character_id", String(64)),
+    Column("conversation_id", String(96)),
+    Column("memory_id", String(96)),
+    Column("llm_trace_id", String(96)),
+    Column("evaluation_run_id", String(96)),
+    Column("retrieval_evaluation_run_id", String(96)),
+    Column("related_ids", SAJSON, nullable=False),
+    Column("before", SAJSON),
+    Column("after", SAJSON),
+    Column("metadata", SAJSON, nullable=False),
+    Column("persistence", String(32), nullable=False),
+    Column("schema_version", Integer, nullable=False),
+    Index("ix_audit_events_created", "created_at"),
+    Index("ix_audit_events_operation_created", "operation", "created_at"),
+    Index("ix_audit_events_actor_created", "actor_type", "actor_id", "created_at"),
+    Index("ix_audit_events_entity_created", "entity_type", "entity_id", "created_at"),
+    Index("ix_audit_events_user_created", "user_id", "created_at"),
+    Index("ix_audit_events_character_created", "character_id", "created_at"),
+    Index("ix_audit_events_conversation_created", "conversation_id", "created_at"),
+    Index("ix_audit_events_memory_created", "memory_id", "created_at"),
+    Index("ix_audit_events_llm_trace_created", "llm_trace_id", "created_at"),
+    Index("ix_audit_events_eval_run_created", "evaluation_run_id", "created_at"),
+    Index(
+        "ix_audit_events_retrieval_eval_run_created",
+        "retrieval_evaluation_run_id",
+        "created_at",
+    ),
+)
 
 
 def _apply_initial_schema(engine: Engine) -> None:
@@ -183,6 +227,9 @@ def _apply_source_chunk_embeddings(engine: Engine) -> None:
 def _apply_retrieval_evaluation(engine: Engine) -> None:
     _retrieval_evaluation_runs.create(engine, checkfirst=True)
     _retrieval_evaluation_case_results.create(engine, checkfirst=True)
+
+def _apply_audit_events(engine: Engine) -> None:
+    _audit_events.create(engine, checkfirst=True)
 
 
 def _apply_workflow_persistence(engine: Engine) -> None:
@@ -226,6 +273,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         version="0003_retrieval_evaluation",
         description="Persist retrieval quality evaluation runs",
         apply=_apply_retrieval_evaluation,
+    ),
+    Migration(
+        version="0004_audit_events",
+        description="Persist append-only audit events",
+        apply=_apply_audit_events,
     ),
     Migration(
         version="0005_workflow_persistence",

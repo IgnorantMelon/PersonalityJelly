@@ -201,7 +201,6 @@ class LLMRawOutput(DomainModel):
     validation_errors: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utc_now)
 
-
 class WorkflowRun(DomainModel):
     workflow_id: str
     request_id: str
@@ -223,6 +222,34 @@ class WorkflowRunLink(DomainModel):
     entity_id: str
     relation: str
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class AuditEvent(DomainModel):
+    id: str
+    created_at: datetime = Field(default_factory=utc_now)
+    operation: str
+    result: str
+    actor_type: str
+    actor_id: str
+    entity_type: str
+    entity_id: str
+    reason: str
+    request_id: str | None = None
+    workflow_id: str | None = None
+    workflow_type: str | None = None
+    user_id: str | None = None
+    character_id: str | None = None
+    conversation_id: str | None = None
+    memory_id: str | None = None
+    llm_trace_id: str | None = None
+    evaluation_run_id: str | None = None
+    retrieval_evaluation_run_id: str | None = None
+    related_ids: dict[str, Any] = Field(default_factory=dict)
+    before: dict[str, Any] | None = None
+    after: dict[str, Any] | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    persistence: str = "payload_only"
+    schema_version: int = 1
 
 
 class EvaluationRun(DomainModel):

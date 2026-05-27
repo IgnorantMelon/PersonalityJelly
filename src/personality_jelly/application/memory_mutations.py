@@ -13,6 +13,7 @@ from personality_jelly.application.audit import (
     build_memory_archive_audit_event,
     build_memory_edit_audit_event,
     build_memory_review_audit_event,
+    persist_audit_event,
     require_local_actor_context,
     require_operation_reason,
 )
@@ -99,6 +100,7 @@ def review_memory_workflow(
             metadata={**request.metadata, "decision": str(request.decision)},
             correlation=_completed_workflow(workflow, _related_ids(after)),
         )
+        persist_audit_event(session, audit_event)
         return _build_result(
             session,
             workflow=workflow,
@@ -136,6 +138,7 @@ def edit_memory_workflow(
             metadata=request.metadata,
             correlation=_completed_workflow(workflow, _related_ids(after)),
         )
+        persist_audit_event(session, audit_event)
         return _build_result(
             session,
             workflow=workflow,
@@ -172,6 +175,7 @@ def archive_memory_workflow(
             metadata=request.metadata,
             correlation=_completed_workflow(workflow, _related_ids(after)),
         )
+        persist_audit_event(session, audit_event)
         return _build_result(
             session,
             workflow=workflow,

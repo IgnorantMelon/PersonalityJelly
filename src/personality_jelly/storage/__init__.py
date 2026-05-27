@@ -14,6 +14,7 @@ from personality_jelly.storage.migrations import (
 )
 from personality_jelly.storage.orm import Base, create_all
 from personality_jelly.storage.repositories import (
+    AuditEventRepository,
     CanonClaimRepository,
     CharacterRepository,
     ClaimConflictRepository,
@@ -39,6 +40,7 @@ from personality_jelly.storage.repositories import (
 )
 
 __all__ = [
+    "AuditEventRepository",
     "Base",
     "CURRENT_SCHEMA_VERSION",
     "CanonClaimRepository",
