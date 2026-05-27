@@ -574,3 +574,5 @@ Do not build these unless the task explicitly changes phase:
 
 The immediate project value is a reliable, inspectable character brain, not platform breadth.
 
+Batch 10 closeout note: the source/character API is now implemented and merged on `dev`. Batch 11
+should start from that accepted state and add only staged provider-backed persona setup.

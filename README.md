@@ -106,3 +106,7 @@ timeout_seconds = 60
 ## 开发指南
 
 所有面向编码智能体的指引、实现规则、已采纳架构选择、工作流约束和当前非目标，都集中维护在 [VIBE_CODING_GUIDE.md](./VIBE_CODING_GUIDE.md)。本 README 只用于项目介绍、快速开始和简要开发计划展示。
+## Batch 10 Update
+
+Batch 10 source/character API has been implemented and verified on `dev`. The next staged batch is
+provider-backed persona setup only (`POST /characters/{character_id}/persona-setup-runs`).
