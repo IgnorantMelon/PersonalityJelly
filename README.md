@@ -92,7 +92,7 @@ timeout_seconds = 60
 
 ## 开发计划
 
-当前阶段：方案三 MVP 的 P2 service foundation、Batch 05 read-only API adapter、Batch 06 API write readiness、Batch 07 API Write Foundation 与 Batch 08 API Workflow Persistence Foundation 已完成 closeout 验证。
+当前阶段：方案三 MVP 的 P2 service foundation、Batch 05 read-only API adapter、Batch 06 API write readiness、Batch 07 API Write Foundation、Batch 08 API Workflow Persistence Foundation 与 Batch 09 provider-backed API planning 已完成 closeout 验证。
 
 - P1：已完成 semantic tracing、benchmark cases、layered summary 消费、retrieval diagnostics 和 CLI diagnostics 加固。
 - P2：已完成 FastAPI/service boundary 规划、多作品/多角色数据边界审计、user/workspace/audit 概念设计，以及 CLI/API shared service foundation。
@@ -100,7 +100,8 @@ timeout_seconds = 60
 - Batch 06：已收束延期 API 议题的实现前契约，包括写流程边界、actor/auth/audit、API redaction、分页/filter 约定、trace/workflow correlation，以及下一批次实施建议；该批次不实现写接口。
 - Batch 07：已实现最小安全的本地写入基础：redaction/correlation/actor context、`POST /conversations`，以及 manual memory review/edit/archive；不包含 provider-backed 写流程、persistent audit、auth/workspace、部署或 UI。
 - Batch 08：已实现 API workflow persistence foundation：persistent audit events、workflow_runs/workflow_run_links、LLM trace correlation fields、idempotency replay/conflict、provider failure/partial-persistence contracts，以及只读 audit/workflow inspection routes；仍不包含 provider-backed 写流程、source ingest/character/persona/turn/summary/benchmark 写接口、auth/workspace、部署或 UI。
-- 后续：推荐下一批次先选择并收束首个 provider-backed API 工作流的契约与实现顺序，优先评估 source ingest 与 character/persona setup；再进入 turn execution、summary、benchmark 或 cursor migration。任何 provider-backed route 都必须继续复用 Batch 08 的 audit/workflow/idempotency/failure contract。
+- Batch 09：已完成 provider-backed API planning，明确 source ingest、character/persona setup 契约、共享 write contract matrix 与 Batch 10 实施计划；未新增 provider-backed 路由或 source 行为变更。
+- Batch 10：下一实施批次先实现 `POST /source-works`，再实现确定性 `POST /characters`；provider-backed persona setup 延后。任何 provider-backed route 都必须继续复用 Batch 08 的 audit/workflow/idempotency/failure contract。
 
 ## 开发指南
 

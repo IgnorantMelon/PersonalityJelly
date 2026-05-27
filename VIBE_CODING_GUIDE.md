@@ -47,12 +47,12 @@ All coding agents and task prompts must follow this baseline:
 - Add or update tests for behavior changes, run focused tests first, and run the full suite when
   shared behavior is touched.
 - Final reports should include files changed, tests run and results, and any task-specific caveats.
-- Current phase direction is post-Batch 08 API Workflow Persistence Foundation. Batch 08 closeout
-  verified persistent audit events, workflow runs/links, LLM trace correlation fields, durable
-  idempotency replay/conflict behavior, provider failure/partial-persistence contracts, and
-  read-only audit/workflow inspection routes. Do not add new provider-backed HTTP write routes,
-  platform/auth/workspace features, or semantic behavior in API handlers until a later batch
-  explicitly selects the workflow and keeps handlers thin over `personality_jelly.application`.
+- Current phase direction is post-Batch 09 Provider-Backed API Planning closeout. Batch 09 selected
+  Batch 10 as the next accepted implementation scope: implement `POST /source-works` first, then
+  deterministic `POST /characters`. Provider-backed persona setup remains deferred. Do not add
+  provider-backed persona setup, other provider-backed HTTP write routes, platform/auth/workspace
+  features, or semantic behavior in API handlers outside the accepted Batch 10 plan, and keep
+  handlers thin over `personality_jelly.application`.
 
 ## Multi-Agent Orchestration Mode
 
@@ -141,8 +141,11 @@ After Batch 06 closeout, future development should stay incremental and evidence
 
 - API implementation path:
   - Batch 08 API Workflow Persistence Foundation is closeout verified;
-  - next provider-backed API candidates should be selected deliberately, with source ingest and
-    character/persona setup evaluated before turn execution, summary, or benchmark execution;
+  - Batch 09 Provider-Backed API Planning is closeout accepted and selected Batch 10 to implement
+    `POST /source-works` first, then deterministic `POST /characters`;
+  - provider-backed `POST /characters/{character_id}/persona-setup-runs` is deferred until a later
+    staged setup batch; turn execution, summary, benchmark execution, and cursor migration remain
+    later candidates;
   - every provider-backed route must reuse Batch 08 persistent audit, workflow-run/link,
     idempotency/replay, and provider failure/partial-persistence contracts;
   - keep write handlers as adapters over `application` services rather than moving workflow logic
@@ -174,25 +177,10 @@ After Batch 06 closeout, future development should stay incremental and evidence
 
 ## 下一阶段开发计划
 
-Batch 08 API Workflow Persistence Foundation is closeout verified. It added:
+Batch 09 Provider-Backed API Planning is closeout accepted. It added planning contracts only and did
+not add provider-backed routes, source behavior changes, schemas, migrations, source code, or tests.
 
-- persistent audit event schema/repository/service wiring for deterministic writes;
-- workflow-run and workflow-link persistence for request/workflow/domain/trace correlation;
-- LLM trace correlation fields for future provider-backed diagnostics;
-- durable idempotency replay/conflict behavior for deterministic write retries;
-- provider failure and partial-persistence contracts with redacted details and retry hints;
-- redaction-aware read-only `/audit-events` and `/workflow-runs` inspection routes.
-
-Recommended next batch: select and implement the first provider-backed API workflow only after its
-route contract, redaction behavior, audit/workflow links, idempotency key behavior, persisted-ID
-policy, and failure/partial-persistence states are explicit. Prefer evaluating source ingest and
-character/persona setup before turn execution, summary generation, benchmark execution, or cursor
-migration.
-
-Do not add auth/workspace/platform features, cursor migrations, CORS, deployment, UI, queues,
-external observability, or provider-backed routes outside an accepted next-batch scope.
-
-Current Batch 09 planning prompts live under `plans/batch_09_provider_backed_api_planning/`:
+Accepted Batch 09 planning artifacts live under `plans/batch_09_provider_backed_api_planning/`:
 
 - `BATCH_09_PROVIDER_BACKED_API_PLANNING.md`
 - `01_source_ingest_api_contract_prompt.md`
@@ -200,6 +188,29 @@ Current Batch 09 planning prompts live under `plans/batch_09_provider_backed_api
 - `03_provider_backed_write_contract_matrix_prompt.md`
 - `04_next_implementation_batch_plan_prompt.md`
 - `05_batch_09_closeout_prompt.md`
+- `01_source_ingest_api_contract.md`
+- `02_character_persona_setup_api_contract.md`
+- `03_provider_backed_write_contract_matrix.md`
+- `BATCH_09_CLOSEOUT.md`
+
+Current Batch 10 implementation plan lives under
+`plans/batch_10_provider_backed_source_character_api/`:
+
+- `BATCH_10_PROVIDER_BACKED_SOURCE_CHARACTER_API.md`
+- `01_source_ingest_application_workflow_prompt.md`
+- `02_source_ingest_api_route_prompt.md`
+- `03_character_creation_workflow_route_prompt.md`
+- `04_batch_10_closeout_verification_prompt.md`
+
+Accepted Batch 10 scope:
+
+1. Implement the source ingest application workflow and `POST /source-works`.
+2. Implement deterministic character creation and `POST /characters`.
+3. Defer provider-backed `POST /characters/{character_id}/persona-setup-runs` until a later batch.
+
+Do not add auth/workspace/platform features, cursor migrations, CORS, deployment, UI, queues,
+external observability, uploads, URL fetches, embeddings, provider-backed persona setup, or other
+provider-backed routes outside the accepted Batch 10 scope.
 
 Batch 08 task prompts and closeout artifact live under `plans/batch_08_api_workflow_persistence/`:
 
