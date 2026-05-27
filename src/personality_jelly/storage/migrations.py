@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    text,
     inspect,
     select,
 )
@@ -139,6 +140,36 @@ _retrieval_evaluation_case_results = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Index("ix_retrieval_evaluation_case_results_run", "run_id"),
 )
+_workflow_runs = Table(
+    "workflow_runs",
+    _metadata,
+    Column("workflow_id", String(128), primary_key=True),
+    Column("request_id", String(128), nullable=False),
+    Column("workflow_type", String(128), nullable=False),
+    Column("status", String(32), nullable=False),
+    Column("started_at", DateTime(timezone=True), nullable=False),
+    Column("completed_at", DateTime(timezone=True)),
+    Column("error_code", String(128)),
+    Column("error_details", SAJSON),
+    Column("failed_step", String(128)),
+    Column("warnings", SAJSON, nullable=False),
+    Column("persisted_ids", SAJSON, nullable=False),
+    Index("ix_workflow_runs_request", "request_id"),
+    Index("ix_workflow_runs_type_started", "workflow_type", "started_at"),
+    Index("ix_workflow_runs_status_started", "status", "started_at"),
+)
+_workflow_run_links = Table(
+    "workflow_run_links",
+    _metadata,
+    Column("id", String(96), primary_key=True),
+    Column("workflow_id", String(128), ForeignKey("workflow_runs.workflow_id"), nullable=False),
+    Column("entity_type", String(128), nullable=False),
+    Column("entity_id", String(128), nullable=False),
+    Column("relation", String(64), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Index("ix_workflow_run_links_workflow", "workflow_id"),
+    Index("ix_workflow_run_links_entity", "entity_type", "entity_id"),
+)
 _audit_events = Table(
     "audit_events",
     _metadata,
@@ -197,9 +228,34 @@ def _apply_retrieval_evaluation(engine: Engine) -> None:
     _retrieval_evaluation_runs.create(engine, checkfirst=True)
     _retrieval_evaluation_case_results.create(engine, checkfirst=True)
 
-
 def _apply_audit_events(engine: Engine) -> None:
     _audit_events.create(engine, checkfirst=True)
+
+
+def _apply_workflow_persistence(engine: Engine) -> None:
+    _workflow_runs.create(engine, checkfirst=True)
+    _workflow_run_links.create(engine, checkfirst=True)
+    inspector = inspect(engine)
+    columns = {column["name"] for column in inspector.get_columns("llm_raw_outputs")}
+    statements: list[str] = []
+    if "request_id" not in columns:
+        statements.append("ALTER TABLE llm_raw_outputs ADD COLUMN request_id VARCHAR(128)")
+    if "workflow_id" not in columns:
+        statements.append("ALTER TABLE llm_raw_outputs ADD COLUMN workflow_id VARCHAR(128)")
+    if "workflow_step" not in columns:
+        statements.append("ALTER TABLE llm_raw_outputs ADD COLUMN workflow_step VARCHAR(128)")
+    if "related_ids" not in columns:
+        statements.append("ALTER TABLE llm_raw_outputs ADD COLUMN related_ids JSON")
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_llm_raw_outputs_workflow "
+                "ON llm_raw_outputs (workflow_id, workflow_step)"
+            )
+        )
 
 
 MIGRATIONS: tuple[Migration, ...] = (
@@ -222,6 +278,11 @@ MIGRATIONS: tuple[Migration, ...] = (
         version="0004_audit_events",
         description="Persist append-only audit events",
         apply=_apply_audit_events,
+    ),
+    Migration(
+        version="0005_workflow_persistence",
+        description="Persist workflow runs, workflow links, and LLM trace correlation",
+        apply=_apply_workflow_persistence,
     ),
 )
 

@@ -5,8 +5,11 @@ from typing import Any
 from uuid import uuid4
 
 from pydantic import Field, field_validator
+from sqlalchemy.orm import Session
 
 from personality_jelly.application.inspection import InspectionModel
+from personality_jelly.domain import WorkflowRun, WorkflowRunLink
+from personality_jelly.domain.models import utc_now
 
 
 MAX_CORRELATION_ID_LENGTH = 128
@@ -162,6 +165,21 @@ class WorkflowResponseSummary(InspectionModel):
     warnings: list[WorkflowWarning] = Field(default_factory=list)
 
 
+class WorkflowLinkSpec(InspectionModel):
+    entity_type: str = Field(min_length=1, max_length=128)
+    entity_id: str = Field(min_length=1, max_length=128)
+    relation: str = Field(min_length=1, max_length=64)
+
+    @field_validator("entity_type", "entity_id", "relation", mode="before")
+    @classmethod
+    def _normalize_link_text(cls, value: object) -> object:
+        return _normalize_required_text(
+            value,
+            field_name="workflow link field",
+            max_length=128,
+        )
+
+
 class ErrorCorrelation(InspectionModel):
     request_id: str = Field(min_length=1, max_length=MAX_CORRELATION_ID_LENGTH)
     workflow_id: str | None = Field(default=None, max_length=MAX_CORRELATION_ID_LENGTH)
@@ -222,6 +240,116 @@ def start_workflow(
     )
 
 
+def start_persisted_workflow(
+    session: Session,
+    correlation: CorrelationContext,
+    *,
+    workflow_type: str,
+    workflow_id: str | None = None,
+    related_ids: WorkflowRelatedIds | None = None,
+) -> WorkflowContext:
+    from personality_jelly.storage import WorkflowRunRepository
+
+    workflow = start_workflow(
+        correlation,
+        workflow_type=workflow_type,
+        workflow_id=workflow_id,
+        related_ids=related_ids,
+    )
+    WorkflowRunRepository(session).add(
+        WorkflowRun(
+            workflow_id=workflow.workflow_id,
+            request_id=workflow.request_id,
+            workflow_type=workflow.workflow_type,
+            status=WorkflowStatus.RUNNING,
+            persisted_ids=_dump_related_ids(workflow.related_ids),
+        )
+    )
+    return workflow
+
+
+def complete_persisted_workflow(
+    session: Session,
+    workflow: WorkflowContext,
+    *,
+    ids: WorkflowRelatedIds,
+    links: list[WorkflowLinkSpec] | None = None,
+    warnings: list[WorkflowWarning] | None = None,
+) -> WorkflowContext:
+    from personality_jelly.storage import WorkflowRunRepository
+
+    completed = workflow.model_copy(
+        update={
+            "status": WorkflowStatus.COMPLETED,
+            "related_ids": ids,
+        }
+    )
+    WorkflowRunRepository(session).update_status(
+        workflow.workflow_id,
+        status=WorkflowStatus.COMPLETED,
+        completed_at=utc_now(),
+        warnings=[warning.model_dump(mode="json") for warning in warnings or []],
+        persisted_ids=_dump_related_ids(ids),
+    )
+    link_workflow_records(session, workflow.workflow_id, links or [])
+    return completed
+
+
+def fail_persisted_workflow(
+    session: Session,
+    workflow: WorkflowContext,
+    *,
+    error_code: str,
+    error_details: dict[str, Any] | None = None,
+    failed_step: str | None = None,
+    ids: WorkflowRelatedIds | None = None,
+) -> WorkflowContext:
+    from personality_jelly.storage import WorkflowRunRepository
+
+    failed_ids = ids or workflow.related_ids
+    failed = workflow.model_copy(
+        update={
+            "status": WorkflowStatus.FAILED,
+            "related_ids": failed_ids,
+        }
+    )
+    WorkflowRunRepository(session).update_status(
+        workflow.workflow_id,
+        status=WorkflowStatus.FAILED,
+        completed_at=utc_now(),
+        error_code=error_code,
+        error_details=error_details,
+        failed_step=failed_step,
+        persisted_ids=_dump_related_ids(failed_ids),
+    )
+    return failed
+
+
+def link_workflow_records(
+    session: Session,
+    workflow_id: str,
+    links: list[WorkflowLinkSpec],
+) -> list[WorkflowRunLink]:
+    from personality_jelly.core import EntityKind, generate_id
+    from personality_jelly.storage import WorkflowRunLinkRepository
+
+    repository = WorkflowRunLinkRepository(session)
+    created: list[WorkflowRunLink] = []
+    for link in links:
+        created.append(
+            repository.add(
+                WorkflowRunLink(
+                    id=generate_id(EntityKind.WORKFLOW_RUN_LINK),
+                    workflow_id=workflow_id,
+                    entity_type=link.entity_type,
+                    entity_id=link.entity_id,
+                    relation=link.relation,
+                )
+            )
+        )
+    return created
+
+
 def build_workflow_response(
     workflow: WorkflowContext,
     *,
@@ -237,6 +365,10 @@ def build_workflow_response(
         ids=ids or workflow.related_ids,
         warnings=warnings or [],
     )
+
+
+def _dump_related_ids(ids: WorkflowRelatedIds) -> dict[str, Any]:
+    return ids.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
 
 
 def build_error_correlation(

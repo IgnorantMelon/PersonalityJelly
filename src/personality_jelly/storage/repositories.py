@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from typing import Generic, TypeVar
 
 from sqlalchemy import Select, select
@@ -34,6 +35,8 @@ from personality_jelly.domain import (
     SourceChunkEmbedding,
     SourceWork,
     User,
+    WorkflowRun,
+    WorkflowRunLink,
 )
 from personality_jelly.storage import mappers
 from personality_jelly.storage import orm
@@ -540,6 +543,80 @@ class LLMRawOutputRepository(Repository[LLMRawOutput, orm.LLMRawOutputORM]):
             if limit is not None:
                 traces = traces[:limit]
         return traces
+
+class WorkflowRunRepository(Repository[WorkflowRun, orm.WorkflowRunORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.WorkflowRunORM,
+            mappers.workflow_run_to_orm,
+            mappers.workflow_run_from_orm,
+        )
+
+    def update_status(
+        self,
+        workflow_id: str,
+        *,
+        status: str,
+        completed_at: datetime | None = None,
+        error_code: str | None = None,
+        error_details: dict | None = None,
+        failed_step: str | None = None,
+        warnings: list[dict] | None = None,
+        persisted_ids: dict | None = None,
+    ) -> WorkflowRun:
+        row = self.session.get(orm.WorkflowRunORM, workflow_id)
+        if row is None:
+            raise LookupError(f"WorkflowRunORM {workflow_id!r} was not found")
+        row.status = status
+        row.completed_at = completed_at
+        row.error_code = error_code
+        row.error_details = error_details
+        row.failed_step = failed_step
+        if warnings is not None:
+            row.warnings = warnings
+        if persisted_ids is not None:
+            row.persisted_ids = persisted_ids
+        self.session.flush()
+        return mappers.workflow_run_from_orm(row)
+
+    def list_by_request(self, request_id: str) -> list[WorkflowRun]:
+        statement = (
+            select(orm.WorkflowRunORM)
+            .where(orm.WorkflowRunORM.request_id == request_id)
+            .order_by(orm.WorkflowRunORM.started_at.asc())
+        )
+        return self._all(statement)
+
+
+class WorkflowRunLinkRepository(Repository[WorkflowRunLink, orm.WorkflowRunLinkORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.WorkflowRunLinkORM,
+            mappers.workflow_run_link_to_orm,
+            mappers.workflow_run_link_from_orm,
+        )
+
+    def list_by_workflow(self, workflow_id: str) -> list[WorkflowRunLink]:
+        statement = (
+            select(orm.WorkflowRunLinkORM)
+            .where(orm.WorkflowRunLinkORM.workflow_id == workflow_id)
+            .order_by(orm.WorkflowRunLinkORM.created_at.asc(), orm.WorkflowRunLinkORM.id.asc())
+        )
+        return self._all(statement)
+
+    def list_by_entity(self, *, entity_type: str, entity_id: str) -> list[WorkflowRunLink]:
+        statement = (
+            select(orm.WorkflowRunLinkORM)
+            .where(
+                orm.WorkflowRunLinkORM.entity_type == entity_type,
+                orm.WorkflowRunLinkORM.entity_id == entity_id,
+            )
+            .order_by(orm.WorkflowRunLinkORM.created_at.asc(), orm.WorkflowRunLinkORM.id.asc())
+        )
+
+        return self._all(statement)
 
 
 class AuditEventRepository(Repository[AuditEvent, orm.AuditEventORM]):

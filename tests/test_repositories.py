@@ -24,7 +24,10 @@ from personality_jelly.domain import (
     SourceChunkEmbedding,
     SourceWork,
     User,
+    WorkflowRun,
+    WorkflowRunLink,
 )
+from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder
 from personality_jelly.ingestion import chunk_source_text
 from personality_jelly.storage import (
     AuditEventRepository,
@@ -43,6 +46,8 @@ from personality_jelly.storage import (
     SourceChunkRepository,
     SourceWorkRepository,
     UserRepository,
+    WorkflowRunLinkRepository,
+    WorkflowRunRepository,
     create_all,
     create_database_engine,
     create_session_factory,
@@ -512,6 +517,10 @@ def test_llm_raw_output_repository_roundtrips_structured_trace() -> None:
             schema_name="InteractionModeClassification",
             model_name="fake-mode",
             provider_name="mode-fake",
+            request_id="req_trace",
+            workflow_id="wf_trace",
+            workflow_step="mode_classification",
+            related_ids={"conversation_id": "conv_001"},
             response_schema={"title": "InteractionModeClassification"},
             raw_output='{"mode": "roleplay_scene"}',
             parsed_output={"mode": "roleplay_scene", "confidence": 0.9},
@@ -526,9 +535,115 @@ def test_llm_raw_output_repository_roundtrips_structured_trace() -> None:
         traces = repository.list_by_operation("runtime.mode.classify_interaction_mode", limit=1)
 
     assert stored.provider_name == "mode-fake"
+    assert stored.request_id == "req_trace"
+    assert stored.workflow_id == "wf_trace"
+    assert stored.workflow_step == "mode_classification"
+    assert stored.related_ids == {"conversation_id": "conv_001"}
     assert stored.response_schema["title"] == "InteractionModeClassification"
     assert stored.parsed_output["mode"] == "roleplay_scene"
     assert traces[0].id == "llmraw_001"
+
+
+def test_llm_trace_recorder_preserves_default_correlation_context() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        WorkflowRunRepository(session).add(
+            WorkflowRun(
+                workflow_id="wf_bound",
+                request_id="req_bound",
+                workflow_type="conversation.turn",
+                status="running",
+            )
+        )
+        recorder = RepositoryLLMTraceRecorder(
+            LLMRawOutputRepository(session),
+            request_id="req_bound",
+            workflow_id="wf_bound",
+            workflow_step="memory_guard",
+            related_ids={"memory_id": "mem_001"},
+        )
+        trace = recorder.record(
+            operation="memory.guard.semantic_decision",
+            schema_name="MemoryGuardDecision",
+            provider_name="guard-fake",
+            model_name="fake-guard",
+            response_schema={"title": "MemoryGuardDecision"},
+            raw_output='{"decision": "allow"}',
+            parsed_output={"decision": "allow"},
+            validation_errors=[],
+        )
+        session.commit()
+
+    with session_factory() as session:
+        stored = LLMRawOutputRepository(session).require(trace.id)
+        trace_links = WorkflowRunLinkRepository(session).list_by_entity(
+            entity_type="llm_raw_output",
+            entity_id=trace.id,
+        )
+
+    assert stored.request_id == "req_bound"
+    assert stored.workflow_id == "wf_bound"
+    assert stored.workflow_step == "memory_guard"
+    assert stored.related_ids == {"memory_id": "mem_001"}
+    assert len(trace_links) == 1
+    assert trace_links[0].workflow_id == "wf_bound"
+    assert trace_links[0].relation == "trace"
+
+
+def test_workflow_run_repositories_transition_status_and_create_links() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        run_repository = WorkflowRunRepository(session)
+        link_repository = WorkflowRunLinkRepository(session)
+        run_repository.add(
+            WorkflowRun(
+                workflow_id="wf_repo",
+                request_id="req_repo",
+                workflow_type="memory.edit",
+                status="running",
+                persisted_ids={"memory_id": "mem_001"},
+            )
+        )
+        link_repository.add(
+            WorkflowRunLink(
+                id="wflink_001",
+                workflow_id="wf_repo",
+                entity_type="memory",
+                entity_id="mem_001",
+                relation="updated",
+            )
+        )
+        updated = run_repository.update_status(
+            "wf_repo",
+            status="completed",
+            completed_at=run_repository.require("wf_repo").started_at,
+            persisted_ids={"memory_id": "mem_001", "memory_ids": ["mem_001"]},
+        )
+        session.commit()
+
+    with session_factory() as session:
+        run_repository = WorkflowRunRepository(session)
+        link_repository = WorkflowRunLinkRepository(session)
+        stored = run_repository.require("wf_repo")
+        by_request = run_repository.list_by_request("req_repo")
+        links = link_repository.list_by_workflow("wf_repo")
+        by_entity = link_repository.list_by_entity(
+            entity_type="memory",
+            entity_id="mem_001",
+        )
+
+    assert updated.status == "completed"
+    assert stored.completed_at is not None
+    assert stored.persisted_ids == {"memory_id": "mem_001", "memory_ids": ["mem_001"]}
+    assert by_request[0].workflow_id == "wf_repo"
+    assert links[0].relation == "updated"
+    assert by_entity[0].workflow_id == "wf_repo"
 
 
 def test_retrieval_evaluation_repositories_roundtrip_run_and_cases() -> None:

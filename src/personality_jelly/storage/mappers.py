@@ -24,6 +24,8 @@ from personality_jelly.domain import (
     SourceChunkEmbedding,
     SourceWork,
     User,
+    WorkflowRun,
+    WorkflowRunLink,
 )
 from personality_jelly.storage import orm
 
@@ -53,6 +55,8 @@ DomainT = TypeVar(
     EvaluationCaseResult,
     RetrievalEvaluationRun,
     RetrievalEvaluationCaseResult,
+    WorkflowRun,
+    WorkflowRunLink,
     AuditEvent,
 )
 
@@ -185,6 +189,21 @@ def llm_raw_output_to_orm(model: LLMRawOutput) -> orm.LLMRawOutputORM:
 
 def llm_raw_output_from_orm(row: orm.LLMRawOutputORM) -> LLMRawOutput:
     return LLMRawOutput.model_validate(_column_dict(row))
+
+def workflow_run_to_orm(model: WorkflowRun) -> orm.WorkflowRunORM:
+    return orm.WorkflowRunORM(**model.model_dump())
+
+
+def workflow_run_from_orm(row: orm.WorkflowRunORM) -> WorkflowRun:
+    return WorkflowRun.model_validate(_column_dict(row))
+
+
+def workflow_run_link_to_orm(model: WorkflowRunLink) -> orm.WorkflowRunLinkORM:
+    return orm.WorkflowRunLinkORM(**model.model_dump())
+
+
+def workflow_run_link_from_orm(row: orm.WorkflowRunLinkORM) -> WorkflowRunLink:
+    return WorkflowRunLink.model_validate(_column_dict(row))
 
 
 def audit_event_to_orm(model: AuditEvent) -> orm.AuditEventORM:

@@ -25,7 +25,9 @@ from personality_jelly.application.correlation import (
     WorkflowRelatedIds,
     WorkflowStatus,
     WorkflowWarning,
-    start_workflow,
+    WorkflowLinkSpec,
+    complete_persisted_workflow,
+    start_persisted_workflow,
 )
 from personality_jelly.application.errors import ConflictError
 from personality_jelly.application.inspection import ConversationDetail, InspectionModel
@@ -85,18 +87,18 @@ def create_conversation_workflow(
     if actor.user_id != normalized_user_id:
         raise ValueError("local actor context user_id must match user_id")
 
-    workflow = start_workflow(
-        correlation_context,
-        workflow_type=CONVERSATION_CREATE_WORKFLOW_TYPE,
-        related_ids=WorkflowRelatedIds(
-            user_id=normalized_user_id,
-            character_id=normalized_character_id,
-            persona_version_id=normalized_persona_version_id,
-            conversation_id=normalized_conversation_id,
-        ),
-    )
-
     with _conversation_creation_transaction(session):
+        workflow = start_persisted_workflow(
+            session,
+            correlation_context,
+            workflow_type=CONVERSATION_CREATE_WORKFLOW_TYPE,
+            related_ids=WorkflowRelatedIds(
+                user_id=normalized_user_id,
+                character_id=normalized_character_id,
+                persona_version_id=normalized_persona_version_id,
+                conversation_id=normalized_conversation_id,
+            ),
+        )
         if normalized_conversation_id is not None:
             existing = ConversationRepository(session).get(normalized_conversation_id)
             if existing is not None:
@@ -138,6 +140,12 @@ def create_conversation_workflow(
                 "audit_event_ids": [audit_event.id],
             }
         )
+        workflow = complete_persisted_workflow(
+            session,
+            workflow,
+            ids=ids,
+            links=_conversation_create_links(conversation),
+        )
 
     return ConversationCreateResult(
         request_id=workflow.request_id,
@@ -148,6 +156,23 @@ def create_conversation_workflow(
         conversation=_conversation_create_record(conversation),
         audit_event=audit_event,
     )
+
+
+def _conversation_create_links(conversation: Conversation) -> list[WorkflowLinkSpec]:
+    return [
+        WorkflowLinkSpec(entity_type="conversation", entity_id=conversation.id, relation="created"),
+        WorkflowLinkSpec(entity_type="user", entity_id=conversation.user_id, relation="input"),
+        WorkflowLinkSpec(
+            entity_type="character",
+            entity_id=conversation.character_id,
+            relation="input",
+        ),
+        WorkflowLinkSpec(
+            entity_type="persona_version",
+            entity_id=conversation.persona_version_id,
+            relation="input",
+        ),
+    ]
 
 
 def summarize_conversation_workflow(

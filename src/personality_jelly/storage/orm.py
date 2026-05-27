@@ -252,6 +252,7 @@ class LLMRawOutputORM(Base):
     __tablename__ = "llm_raw_outputs"
     __table_args__ = (
         Index("ix_llm_raw_outputs_operation_created", "operation", "created_at"),
+        Index("ix_llm_raw_outputs_workflow", "workflow_id", "workflow_step"),
     )
 
     id: Mapped[str] = mapped_column(String(96), primary_key=True)
@@ -259,10 +260,52 @@ class LLMRawOutputORM(Base):
     schema_name: Mapped[str] = mapped_column(String(128), nullable=False)
     model_name: Mapped[str | None] = mapped_column(String(128))
     provider_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    request_id: Mapped[str | None] = mapped_column(String(128))
+    workflow_id: Mapped[str | None] = mapped_column(String(128))
+    workflow_step: Mapped[str | None] = mapped_column(String(128))
+    related_ids: Mapped[dict | None] = mapped_column(SAJSON)
     raw_output: Mapped[str] = mapped_column(Text, nullable=False)
     response_schema: Mapped[dict] = mapped_column(SAJSON, nullable=False, default=dict)
     parsed_output: Mapped[dict | None] = mapped_column(SAJSON)
     validation_errors: Mapped[list[str]] = mapped_column(SAJSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+class WorkflowRunORM(Base):
+    __tablename__ = "workflow_runs"
+    __table_args__ = (
+        Index("ix_workflow_runs_request", "request_id"),
+        Index("ix_workflow_runs_type_started", "workflow_type", "started_at"),
+        Index("ix_workflow_runs_status_started", "status", "started_at"),
+    )
+
+    workflow_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    workflow_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_details: Mapped[dict | None] = mapped_column(SAJSON)
+    failed_step: Mapped[str | None] = mapped_column(String(128))
+    warnings: Mapped[list[dict]] = mapped_column(SAJSON, nullable=False, default=list)
+    persisted_ids: Mapped[dict] = mapped_column(SAJSON, nullable=False, default=dict)
+
+
+class WorkflowRunLinkORM(Base):
+    __tablename__ = "workflow_run_links"
+    __table_args__ = (
+        Index("ix_workflow_run_links_workflow", "workflow_id"),
+        Index("ix_workflow_run_links_entity", "entity_type", "entity_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(
+        ForeignKey("workflow_runs.workflow_id"),
+        nullable=False,
+    )
+    entity_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    relation: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 

@@ -27,10 +27,15 @@ def test_create_all_creates_mvp_tables() -> None:
         "critic_reports",
         "failure_cases",
         "llm_raw_outputs",
+        "workflow_runs",
+        "workflow_run_links",
         "evaluation_runs",
         "evaluation_case_results",
         "retrieval_evaluation_runs",
         "retrieval_evaluation_case_results",
         "audit_events",
     } <= table_names
+
+    llm_columns = {column["name"] for column in inspect(engine).get_columns("llm_raw_outputs")}
+    assert {"request_id", "workflow_id", "workflow_step", "related_ids"} <= llm_columns
 

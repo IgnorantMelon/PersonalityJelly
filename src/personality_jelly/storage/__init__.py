@@ -35,6 +35,8 @@ from personality_jelly.storage.repositories import (
     SourceChunkEmbeddingRepository,
     SourceWorkRepository,
     UserRepository,
+    WorkflowRunLinkRepository,
+    WorkflowRunRepository,
 )
 
 __all__ = [
@@ -66,6 +68,8 @@ __all__ = [
     "SourceChunkEmbeddingRepository",
     "SourceWorkRepository",
     "UserRepository",
+    "WorkflowRunLinkRepository",
+    "WorkflowRunRepository",
     "create_all",
     "create_database_engine",
     "create_session_factory",
