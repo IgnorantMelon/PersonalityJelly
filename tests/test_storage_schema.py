@@ -31,5 +31,6 @@ def test_create_all_creates_mvp_tables() -> None:
         "evaluation_case_results",
         "retrieval_evaluation_runs",
         "retrieval_evaluation_case_results",
+        "audit_events",
     } <= table_names
 
