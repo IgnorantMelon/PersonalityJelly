@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from personality_jelly.core import Settings
@@ -54,6 +54,20 @@ class ModelRoleBundle:
         )
 
 
+@dataclass(frozen=True)
+class PersonaSetupProviderRoleBundle:
+    reader: LLMProvider
+    verifier: LLMProvider
+    persona_compiler: LLMProvider
+
+
+@dataclass(frozen=True)
+class PersonaSetupModelRoleBundle:
+    reader: ModelConfig
+    verifier: ModelConfig
+    persona_compiler: ModelConfig
+
+
 def build_turn_role_bundles(
     *,
     provider: LLMProvider,
@@ -79,6 +93,55 @@ def build_turn_role_bundles(
     )
 
 
+def build_persona_setup_role_bundles(
+    *,
+    provider: LLMProvider,
+    model_config: ModelConfig,
+    role_models: Mapping[str, str | None] | None = None,
+) -> tuple[PersonaSetupProviderRoleBundle, PersonaSetupModelRoleBundle]:
+    return (
+        PersonaSetupProviderRoleBundle(
+            reader=provider,
+            verifier=provider,
+            persona_compiler=provider,
+        ),
+        PersonaSetupModelRoleBundle(
+            reader=_model_config_for_role(
+                model_config,
+                role_models=role_models,
+                role_name="reader",
+            ),
+            verifier=_model_config_for_role(
+                model_config,
+                role_models=role_models,
+                role_name="verifier",
+            ),
+            persona_compiler=_model_config_for_role(
+                model_config,
+                role_models=role_models,
+                role_name="persona_compiler",
+            ),
+        ),
+    )
+
+
+def _model_config_for_role(
+    model_config: ModelConfig,
+    *,
+    role_models: Mapping[str, str | None] | None,
+    role_name: str,
+) -> ModelConfig:
+    if role_models is None:
+        return model_config
+    role_model = role_models.get(role_name)
+    if role_model is None:
+        return model_config
+    normalized = role_model.strip()
+    if not normalized:
+        return model_config
+    return model_config.model_copy(update={"model": normalized})
+
+
 def resolve_embedding_config(settings: Settings) -> EmbeddingConfig | None:
     embedding_model = settings.embedding_model.strip() if settings.embedding_model else ""
     if not embedding_model:
@@ -101,6 +164,27 @@ def resolve_embedding_provider(
     if provider_source == "env":
         return embedding_provider_factory(settings), embedding_config
     raise ValueError(f"unsupported provider source {provider_source!r}")
+
+
+def resolve_persona_setup_provider(
+    provider_source: str,
+    *,
+    settings: Settings,
+    stub_provider_factory: StubProviderFactory,
+    llm_provider_factory: ProviderFactory = build_llm_provider,
+    role_models: Mapping[str, str | None] | None = None,
+) -> tuple[PersonaSetupProviderRoleBundle, PersonaSetupModelRoleBundle]:
+    provider, model_config = resolve_roleplay_provider(
+        provider_source,
+        settings=settings,
+        stub_provider_factory=stub_provider_factory,
+        llm_provider_factory=llm_provider_factory,
+    )
+    return build_persona_setup_role_bundles(
+        provider=provider,
+        model_config=model_config,
+        role_models=role_models,
+    )
 
 
 def resolve_roleplay_provider(

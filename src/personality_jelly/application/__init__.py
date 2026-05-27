@@ -52,6 +52,7 @@ from personality_jelly.application.conversation_inspection import (
 )
 from personality_jelly.application.character_persona_setup import (
     CharacterPersonaSetupResult,
+    PersonaSetupTraceRecorders,
     build_character_persona,
 )
 from personality_jelly.application.characters import (
@@ -198,10 +199,14 @@ from personality_jelly.application.inspection import (
 )
 from personality_jelly.application.providers import (
     ModelRoleBundle,
+    PersonaSetupModelRoleBundle,
+    PersonaSetupProviderRoleBundle,
     ProviderRoleBundle,
+    build_persona_setup_role_bundles,
     build_turn_role_bundles,
     resolve_embedding_config,
     resolve_embedding_provider,
+    resolve_persona_setup_provider,
     resolve_roleplay_provider,
 )
 from personality_jelly.application.sources import (
@@ -294,6 +299,9 @@ __all__ = [
     "OOCBenchmarkDryRunResult",
     "PartialPersistenceDetails",
     "PartialPersistenceError",
+    "PersonaSetupModelRoleBundle",
+    "PersonaSetupProviderRoleBundle",
+    "PersonaSetupTraceRecorders",
     "PersonaVersionSummary",
     "ProviderFailureError",
     "ProviderRoleBundle",
@@ -342,6 +350,7 @@ __all__ = [
     "build_idempotency_context",
     "build_idempotency_request_hash",
     "build_partial_persistence_details",
+    "build_persona_setup_role_bundles",
     "build_provider_failure_details",
     "build_workflow_response",
     "build_workflow_failure_audit_event",
@@ -393,6 +402,7 @@ __all__ = [
     "resolve_database_url",
     "resolve_embedding_config",
     "resolve_embedding_provider",
+    "resolve_persona_setup_provider",
     "resolve_roleplay_provider",
     "edit_memory_workflow",
     "review_memory_workflow",

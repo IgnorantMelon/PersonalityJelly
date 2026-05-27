@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from personality_jelly.domain import CanonClaim, EvidenceRef, SourceChunk
 from personality_jelly.extraction.reader import extract_candidate_claims
 from personality_jelly.llm import LLMProvider, ModelConfig
-from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder
+from personality_jelly.llm.tracing import LLMTraceRecorder, RepositoryLLMTraceRecorder
 from personality_jelly.storage import (
     CanonClaimRepository,
     CharacterRepository,
@@ -31,6 +31,7 @@ def run_reader_extraction(
     model_config: ModelConfig,
     character_id: str,
     max_chunks: int | None = None,
+    trace_recorder: LLMTraceRecorder | None = None,
 ) -> ExtractionPersistenceResult:
     character = CharacterRepository(session).require(character_id)
     chunks = SourceChunkRepository(session).list_by_source_work(character.source_work_id)
@@ -42,7 +43,8 @@ def run_reader_extraction(
         source_work_id=character.source_work_id,
         character=character,
         chunks=selected_chunks,
-        trace_recorder=RepositoryLLMTraceRecorder(LLMRawOutputRepository(session)),
+        trace_recorder=trace_recorder
+        or RepositoryLLMTraceRecorder(LLMRawOutputRepository(session)),
     )
 
     claim_repository = CanonClaimRepository(session)

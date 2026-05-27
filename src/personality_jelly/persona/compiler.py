@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 from personality_jelly.core import EntityKind, generate_id
 from personality_jelly.domain import ClaimStatus, MessageRole, PersonaVersion
 from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
-from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder, record_structured_output
+from personality_jelly.llm.tracing import (
+    LLMTraceRecorder,
+    RepositoryLLMTraceRecorder,
+    record_structured_output,
+)
 from personality_jelly.persona.prompts import COMPILER_SYSTEM_PROMPT, build_compiler_user_prompt
 from personality_jelly.persona.schemas import PersonaCompilation
 from personality_jelly.storage import (
@@ -33,6 +37,7 @@ def compile_persona_version(
     provider: LLMProvider,
     model_config: ModelConfig,
     character_id: str,
+    trace_recorder: LLMTraceRecorder | None = None,
 ) -> PersonaCompilationResult:
     character = CharacterRepository(session).require(character_id)
     verified_claims = CanonClaimRepository(session).list_by_character(
@@ -57,7 +62,7 @@ def compile_persona_version(
         schema=schema,
         model_config=model_config,
     )
-    trace_recorder = RepositoryLLMTraceRecorder(LLMRawOutputRepository(session))
+    trace_recorder = trace_recorder or RepositoryLLMTraceRecorder(LLMRawOutputRepository(session))
     try:
         compiled = TypeAdapter(PersonaCompilation).validate_python(raw)
     except ValidationError as exc:

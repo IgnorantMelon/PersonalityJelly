@@ -16,7 +16,11 @@ from personality_jelly.domain import (
     SourceChunk,
 )
 from personality_jelly.llm import ChatMessage, LLMProvider, ModelConfig
-from personality_jelly.llm.tracing import RepositoryLLMTraceRecorder, record_structured_output
+from personality_jelly.llm.tracing import (
+    LLMTraceRecorder,
+    RepositoryLLMTraceRecorder,
+    record_structured_output,
+)
 from personality_jelly.storage import (
     CanonClaimRepository,
     ClaimConflictRepository,
@@ -50,6 +54,7 @@ def verify_candidate_claims(
     provider: LLMProvider,
     model_config: ModelConfig,
     character: Character,
+    trace_recorder: LLMTraceRecorder | None = None,
 ) -> CanonVerificationResult:
     claim_repository = CanonClaimRepository(session)
     candidate_claims = claim_repository.list_by_character(
@@ -78,7 +83,7 @@ def verify_candidate_claims(
         schema=schema,
         model_config=model_config,
     )
-    trace_recorder = RepositoryLLMTraceRecorder(LLMRawOutputRepository(session))
+    trace_recorder = trace_recorder or RepositoryLLMTraceRecorder(LLMRawOutputRepository(session))
     try:
         verifier_result = TypeAdapter(VerifierResult).validate_python(raw)
     except ValidationError as exc:
