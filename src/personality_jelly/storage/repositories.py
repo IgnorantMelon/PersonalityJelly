@@ -544,6 +544,7 @@ class LLMRawOutputRepository(Repository[LLMRawOutput, orm.LLMRawOutputORM]):
                 traces = traces[:limit]
         return traces
 
+
 class WorkflowRunRepository(Repository[WorkflowRun, orm.WorkflowRunORM]):
     def __init__(self, session: Session) -> None:
         super().__init__(
@@ -586,6 +587,31 @@ class WorkflowRunRepository(Repository[WorkflowRun, orm.WorkflowRunORM]):
             .where(orm.WorkflowRunORM.request_id == request_id)
             .order_by(orm.WorkflowRunORM.started_at.asc())
         )
+        return self._all(statement)
+
+    def list_recent(
+        self,
+        limit: int | None = None,
+        *,
+        workflow_id: str | None = None,
+        request_id: str | None = None,
+        workflow_type: str | None = None,
+        status: str | None = None,
+    ) -> list[WorkflowRun]:
+        statement = select(orm.WorkflowRunORM).order_by(
+            orm.WorkflowRunORM.started_at.desc(),
+            orm.WorkflowRunORM.workflow_id.desc(),
+        )
+        if workflow_id is not None:
+            statement = statement.where(orm.WorkflowRunORM.workflow_id == workflow_id)
+        if request_id is not None:
+            statement = statement.where(orm.WorkflowRunORM.request_id == request_id)
+        if workflow_type is not None:
+            statement = statement.where(orm.WorkflowRunORM.workflow_type == workflow_type)
+        if status is not None:
+            statement = statement.where(orm.WorkflowRunORM.status == status)
+        if limit is not None:
+            statement = statement.limit(limit)
         return self._all(statement)
 
 
@@ -634,6 +660,7 @@ class AuditEventRepository(Repository[AuditEvent, orm.AuditEventORM]):
         *,
         operation: str | None = None,
         result: str | None = None,
+        workflow_type: str | None = None,
         actor_type: str | None = None,
         actor_id: str | None = None,
         entity_type: str | None = None,
@@ -655,6 +682,7 @@ class AuditEventRepository(Repository[AuditEvent, orm.AuditEventORM]):
         for column, value in (
             (orm.AuditEventORM.operation, operation),
             (orm.AuditEventORM.result, result),
+            (orm.AuditEventORM.workflow_type, workflow_type),
             (orm.AuditEventORM.actor_type, actor_type),
             (orm.AuditEventORM.actor_id, actor_id),
             (orm.AuditEventORM.entity_type, entity_type),

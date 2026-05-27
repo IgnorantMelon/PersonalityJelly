@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
 from sqlalchemy.orm import Session
 
 from personality_jelly.domain import (
+    AuditEvent,
     CanonClaim,
     Character,
     ClaimStatus,
@@ -35,6 +36,8 @@ from personality_jelly.domain import (
     PersonaVersion,
     SourceChunk,
     SourceWork,
+    WorkflowRun,
+    WorkflowRunLink,
 )
 from personality_jelly.evaluation import (
     build_retrieval_case_diagnostics,
@@ -42,6 +45,7 @@ from personality_jelly.evaluation import (
     summarize_retrieval_benchmark,
 )
 from personality_jelly.storage import (
+    AuditEventRepository,
     CanonClaimRepository,
     CharacterRepository,
     ConversationRepository,
@@ -60,7 +64,13 @@ from personality_jelly.storage import (
     SourceChunkRepository,
     SourceWorkRepository,
     UserRepository,
+    WorkflowRunLinkRepository,
+    WorkflowRunRepository,
 )
+
+
+DEFAULT_INSPECTION_LIMIT = 50
+MAX_INSPECTION_LIMIT = 200
 
 
 class InspectionModel(BaseModel):
@@ -280,6 +290,64 @@ class LLMTraceDetail(LLMTraceSummary):
     response_schema: dict[str, Any] = Field(default_factory=dict)
     parsed_output: dict[str, Any] | None = None
     validation_errors: list[str] = Field(default_factory=list)
+
+
+class AuditEventSummary(InspectionModel):
+    id: str
+    created_at: datetime
+    operation: str
+    status: str
+    actor_type: str
+    actor_id: str
+    entity_type: str
+    entity_id: str
+    request_id: str | None = None
+    workflow_id: str | None = None
+    workflow_type: str | None = None
+    user_id: str | None = None
+    character_id: str | None = None
+    conversation_id: str | None = None
+    memory_id: str | None = None
+    llm_trace_id: str | None = None
+    evaluation_run_id: str | None = None
+    retrieval_evaluation_run_id: str | None = None
+    persistence: str
+    schema_version: int = Field(ge=1)
+
+
+class AuditEventDetail(AuditEventSummary):
+    reason: str
+    related_ids: dict[str, Any] = Field(default_factory=dict)
+    before: dict[str, Any] | None = None
+    after: dict[str, Any] | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowRunLinkSummary(InspectionModel):
+    id: str
+    workflow_id: str
+    entity_type: str
+    entity_id: str
+    relation: str
+    created_at: datetime
+
+
+class WorkflowRunSummary(InspectionModel):
+    workflow_id: str
+    request_id: str
+    workflow_type: str
+    status: str
+    started_at: datetime
+    completed_at: datetime | None = None
+    error_code: str | None = None
+    failed_step: str | None = None
+
+
+class WorkflowRunDetail(WorkflowRunSummary):
+    error_details: dict[str, Any] | None = None
+    warnings: list[dict[str, Any]] = Field(default_factory=list)
+    persisted_ids: dict[str, Any] = Field(default_factory=dict)
+    links: list[WorkflowRunLinkSummary] = Field(default_factory=list)
 
 
 class BenchmarkModeDiagnostics(InspectionModel):
@@ -705,6 +773,96 @@ def get_llm_trace_detail(session: Session, trace_id: str) -> LLMTraceDetail:
     )
 
 
+def list_audit_events(
+    session: Session,
+    *,
+    limit: int | None = None,
+    request_id: str | None = None,
+    workflow_id: str | None = None,
+    workflow_type: str | None = None,
+    operation: str | None = None,
+    actor_id: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    status: str | None = None,
+    user_id: str | None = None,
+    character_id: str | None = None,
+    conversation_id: str | None = None,
+) -> InspectionListResult:
+    effective_limit = _inspection_limit(limit)
+    events = AuditEventRepository(session).list_recent(
+        limit=effective_limit,
+        request_id=request_id,
+        workflow_id=workflow_id,
+        workflow_type=workflow_type,
+        operation=operation,
+        actor_id=actor_id,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        result=status,
+        user_id=user_id,
+        character_id=character_id,
+        conversation_id=conversation_id,
+    )
+    return InspectionListResult(
+        items=[_audit_event_summary(event) for event in events],
+        total_count=len(events),
+        limit=effective_limit,
+        expansion=ExpansionState(mode="summary"),
+    )
+
+
+def get_audit_event_detail(session: Session, audit_event_id: str) -> AuditEventDetail:
+    event = AuditEventRepository(session).require(audit_event_id)
+    return _audit_event_detail(event)
+
+
+def list_workflow_runs(
+    session: Session,
+    *,
+    limit: int | None = None,
+    workflow_id: str | None = None,
+    request_id: str | None = None,
+    workflow_type: str | None = None,
+    status: str | None = None,
+    user_id: str | None = None,
+    character_id: str | None = None,
+    conversation_id: str | None = None,
+) -> InspectionListResult:
+    effective_limit = _inspection_limit(limit)
+    link_repository = WorkflowRunLinkRepository(session)
+    runs = WorkflowRunRepository(session).list_recent(
+        limit=(
+            None
+            if _has_workflow_link_filters(user_id, character_id, conversation_id)
+            else effective_limit
+        ),
+        workflow_id=workflow_id,
+        request_id=request_id,
+        workflow_type=workflow_type,
+        status=status,
+    )
+    runs = _filter_workflow_runs_by_links(
+        runs,
+        link_repository=link_repository,
+        user_id=user_id,
+        character_id=character_id,
+        conversation_id=conversation_id,
+    )[:effective_limit]
+    return InspectionListResult(
+        items=[_workflow_run_summary(run) for run in runs],
+        total_count=len(runs),
+        limit=effective_limit,
+        expansion=ExpansionState(mode="summary"),
+    )
+
+
+def get_workflow_run_detail(session: Session, workflow_id: str) -> WorkflowRunDetail:
+    run = WorkflowRunRepository(session).require(workflow_id)
+    links = WorkflowRunLinkRepository(session).list_by_workflow(workflow_id)
+    return _workflow_run_detail(run, links=links)
+
+
 def list_evaluation_runs(
     session: Session,
     *,
@@ -862,6 +1020,80 @@ def _llm_trace_summary(trace) -> LLMTraceSummary:
         model_name=trace.model_name,
         validation_error_count=len(trace.validation_errors),
         created_at=trace.created_at,
+    )
+
+
+def _audit_event_summary(event: AuditEvent) -> AuditEventSummary:
+    return AuditEventSummary(
+        id=event.id,
+        created_at=event.created_at,
+        operation=event.operation,
+        status=event.result,
+        actor_type=event.actor_type,
+        actor_id=event.actor_id,
+        entity_type=event.entity_type,
+        entity_id=event.entity_id,
+        request_id=event.request_id,
+        workflow_id=event.workflow_id,
+        workflow_type=event.workflow_type,
+        user_id=event.user_id,
+        character_id=event.character_id,
+        conversation_id=event.conversation_id,
+        memory_id=event.memory_id,
+        llm_trace_id=event.llm_trace_id,
+        evaluation_run_id=event.evaluation_run_id,
+        retrieval_evaluation_run_id=event.retrieval_evaluation_run_id,
+        persistence=event.persistence,
+        schema_version=event.schema_version,
+    )
+
+
+def _audit_event_detail(event: AuditEvent) -> AuditEventDetail:
+    return AuditEventDetail(
+        **_audit_event_summary(event).model_dump(),
+        reason=event.reason,
+        related_ids=event.related_ids,
+        before=event.before,
+        after=event.after,
+        metadata=event.metadata,
+    )
+
+
+def _workflow_run_summary(run: WorkflowRun) -> WorkflowRunSummary:
+    return WorkflowRunSummary(
+        workflow_id=run.workflow_id,
+        request_id=run.request_id,
+        workflow_type=run.workflow_type,
+        status=run.status,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        error_code=run.error_code,
+        failed_step=run.failed_step,
+    )
+
+
+def _workflow_run_detail(
+    run: WorkflowRun,
+    *,
+    links: list[WorkflowRunLink],
+) -> WorkflowRunDetail:
+    return WorkflowRunDetail(
+        **_workflow_run_summary(run).model_dump(),
+        error_details=run.error_details,
+        warnings=run.warnings,
+        persisted_ids=run.persisted_ids,
+        links=[_workflow_run_link_summary(link) for link in links],
+    )
+
+
+def _workflow_run_link_summary(link: WorkflowRunLink) -> WorkflowRunLinkSummary:
+    return WorkflowRunLinkSummary(
+        id=link.id,
+        workflow_id=link.workflow_id,
+        entity_type=link.entity_type,
+        entity_id=link.entity_id,
+        relation=link.relation,
+        created_at=link.created_at,
     )
 
 
@@ -1222,6 +1454,56 @@ def _filter_failed(case_results, *, failed_only: bool):
         for case_result in case_results
         if case_result.status == EvaluationCaseStatus.FAILED
     ]
+
+
+def _inspection_limit(limit: int | None) -> int:
+    if limit is None:
+        return DEFAULT_INSPECTION_LIMIT
+    if limit < 1:
+        raise ValueError("limit must be greater than 0")
+    if limit > MAX_INSPECTION_LIMIT:
+        raise ValueError(f"limit must be at most {MAX_INSPECTION_LIMIT}")
+    return limit
+
+
+def _has_workflow_link_filters(
+    user_id: str | None,
+    character_id: str | None,
+    conversation_id: str | None,
+) -> bool:
+    return user_id is not None or character_id is not None or conversation_id is not None
+
+
+def _filter_workflow_runs_by_links(
+    runs: list[WorkflowRun],
+    *,
+    link_repository: WorkflowRunLinkRepository,
+    user_id: str | None,
+    character_id: str | None,
+    conversation_id: str | None,
+) -> list[WorkflowRun]:
+    workflow_id_sets: list[set[str]] = []
+    for entity_type, entity_id in (
+        ("user", user_id),
+        ("character", character_id),
+        ("conversation", conversation_id),
+    ):
+        if entity_id is None:
+            continue
+        workflow_id_sets.append(
+            {
+                link.workflow_id
+                for link in link_repository.list_by_entity(
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                )
+            }
+        )
+
+    if not workflow_id_sets:
+        return runs
+    matching_workflow_ids = set.intersection(*workflow_id_sets)
+    return [run for run in runs if run.workflow_id in matching_workflow_ids]
 
 
 def _load_messages_by_id(session: Session, message_ids: list[str]):
