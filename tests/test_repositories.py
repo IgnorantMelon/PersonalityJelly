@@ -427,6 +427,14 @@ def test_llm_trace_recorder_preserves_default_correlation_context() -> None:
     session_factory = create_session_factory(engine)
 
     with session_factory() as session:
+        WorkflowRunRepository(session).add(
+            WorkflowRun(
+                workflow_id="wf_bound",
+                request_id="req_bound",
+                workflow_type="conversation.turn",
+                status="running",
+            )
+        )
         recorder = RepositoryLLMTraceRecorder(
             LLMRawOutputRepository(session),
             request_id="req_bound",
@@ -448,11 +456,18 @@ def test_llm_trace_recorder_preserves_default_correlation_context() -> None:
 
     with session_factory() as session:
         stored = LLMRawOutputRepository(session).require(trace.id)
+        trace_links = WorkflowRunLinkRepository(session).list_by_entity(
+            entity_type="llm_raw_output",
+            entity_id=trace.id,
+        )
 
     assert stored.request_id == "req_bound"
     assert stored.workflow_id == "wf_bound"
     assert stored.workflow_step == "memory_guard"
     assert stored.related_ids == {"memory_id": "mem_001"}
+    assert len(trace_links) == 1
+    assert trace_links[0].workflow_id == "wf_bound"
+    assert trace_links[0].relation == "trace"
 
 
 def test_workflow_run_repositories_transition_status_and_create_links() -> None:

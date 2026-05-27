@@ -11,7 +11,15 @@ from personality_jelly.application import (
     build_error_correlation,
     build_workflow_response,
     dump_error_correlation,
+    fail_persisted_workflow,
+    start_persisted_workflow,
     start_workflow,
+)
+from personality_jelly.storage import (
+    WorkflowRunRepository,
+    create_all,
+    create_database_engine,
+    create_session_factory,
 )
 
 
@@ -134,3 +142,37 @@ def test_error_correlation_dump_is_bounded_to_safe_correlation_fields() -> None:
         },
         "failed_step": "critic_evaluate",
     }
+
+
+def test_persisted_workflow_can_be_marked_failed_with_safe_error_details() -> None:
+    engine = create_database_engine("sqlite:///:memory:")
+    create_all(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        workflow = start_persisted_workflow(
+            session,
+            CorrelationContext(request_id="req_failed"),
+            workflow_type="memory.archive",
+            related_ids=WorkflowRelatedIds(memory_id="mem_001"),
+        )
+        failed = fail_persisted_workflow(
+            session,
+            workflow,
+            error_code="invalid_status_transition",
+            error_details={"reason": "memory is already archived"},
+            failed_step="memory.archive",
+            ids=WorkflowRelatedIds(memory_id="mem_001", memory_ids=["mem_001"]),
+        )
+        session.commit()
+
+    with session_factory() as session:
+        stored = WorkflowRunRepository(session).require(failed.workflow_id)
+
+    assert failed.status == "failed"
+    assert stored.status == "failed"
+    assert stored.completed_at is not None
+    assert stored.error_code == "invalid_status_transition"
+    assert stored.error_details == {"reason": "memory is already archived"}
+    assert stored.failed_step == "memory.archive"
+    assert stored.persisted_ids == {"memory_id": "mem_001", "memory_ids": ["mem_001"]}

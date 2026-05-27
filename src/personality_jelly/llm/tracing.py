@@ -139,7 +139,9 @@ class RepositoryLLMTraceRecorder:
             parsed_output=parsed_output,
             validation_errors=validation_errors,
         )
-        return self.repository.add(trace)
+        trace = self.repository.add(trace)
+        self._link_trace_to_workflow(trace)
+        return trace
 
     def with_correlation(
         self,
@@ -155,4 +157,23 @@ class RepositoryLLMTraceRecorder:
             workflow_id=workflow_id,
             workflow_step=workflow_step,
             related_ids=related_ids,
+        )
+
+    def _link_trace_to_workflow(self, trace: LLMRawOutput) -> None:
+        if trace.workflow_id is None or not hasattr(self.repository, "session"):
+            return
+        from personality_jelly.domain import WorkflowRunLink
+        from personality_jelly.storage import WorkflowRunLinkRepository, WorkflowRunRepository
+
+        session = self.repository.session
+        if WorkflowRunRepository(session).get(trace.workflow_id) is None:
+            return
+        WorkflowRunLinkRepository(session).add(
+            WorkflowRunLink(
+                id=generate_id(EntityKind.WORKFLOW_RUN_LINK),
+                workflow_id=trace.workflow_id,
+                entity_type="llm_raw_output",
+                entity_id=trace.id,
+                relation="trace",
+            )
         )
