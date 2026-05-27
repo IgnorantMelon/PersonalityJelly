@@ -13,6 +13,7 @@ from personality_jelly.domain.enums import (
     MessageRole,
 )
 from personality_jelly.domain.models import (
+    AuditEvent,
     CanonClaim,
     Character,
     ClaimConflict,
@@ -39,6 +40,7 @@ from personality_jelly.domain.models import (
 )
 
 __all__ = [
+    "AuditEvent",
     "CanonClaim",
     "Character",
     "ClaimConflict",

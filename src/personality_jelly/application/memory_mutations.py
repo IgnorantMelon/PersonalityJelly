@@ -13,6 +13,7 @@ from personality_jelly.application.audit import (
     build_memory_archive_audit_event,
     build_memory_edit_audit_event,
     build_memory_review_audit_event,
+    persist_audit_event,
     require_local_actor_context,
     require_operation_reason,
 )
@@ -99,6 +100,7 @@ def review_memory_workflow(
             metadata={**request.metadata, "decision": str(request.decision)},
             correlation=_completed_workflow(workflow, _related_ids(after)),
         )
+        persist_audit_event(session, audit_event)
         return _build_result(
             session,
             workflow=workflow,
@@ -136,6 +138,7 @@ def edit_memory_workflow(
             metadata=request.metadata,
             correlation=_completed_workflow(workflow, _related_ids(after)),
         )
+        persist_audit_event(session, audit_event)
         return _build_result(
             session,
             workflow=workflow,
@@ -172,14 +175,13 @@ def archive_memory_workflow(
             metadata=request.metadata,
             correlation=_completed_workflow(workflow, _related_ids(after)),
         )
+        persist_audit_event(session, audit_event)
         return _build_result(
             session,
             workflow=workflow,
             memory=after,
             audit_event=audit_event,
         )
-
-
 def _build_result(
     session: Session,
     *,
@@ -192,7 +194,7 @@ def _build_result(
         session,
         workflow,
         ids=ids,
-        links=_memory_links(memory),
+        links=_memory_links(memory, audit_event=audit_event),
     )
     return ManualMemoryMutationResult(
         request_id=completed.request_id,
@@ -244,12 +246,24 @@ def _related_ids(
     )
 
 
-def _memory_links(memory: Memory) -> list[WorkflowLinkSpec]:
+def _memory_links(
+    memory: Memory,
+    *,
+    audit_event: AuditEventPayload | None = None,
+) -> list[WorkflowLinkSpec]:
     links = [
         WorkflowLinkSpec(entity_type="memory", entity_id=memory.id, relation="updated"),
         WorkflowLinkSpec(entity_type="user", entity_id=memory.user_id, relation="input"),
         WorkflowLinkSpec(entity_type="character", entity_id=memory.character_id, relation="input"),
     ]
+    if audit_event is not None:
+        links.append(
+            WorkflowLinkSpec(
+                entity_type="audit_event",
+                entity_id=audit_event.id,
+                relation="audit",
+            )
+        )
     if memory.conversation_id is not None:
         links.append(
             WorkflowLinkSpec(

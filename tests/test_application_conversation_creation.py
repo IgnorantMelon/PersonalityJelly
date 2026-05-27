@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+import personality_jelly.application.conversations as conversation_application
 from personality_jelly.application import (
     CONVERSATION_CREATE_WORKFLOW_TYPE,
     ConflictError,
@@ -18,6 +19,7 @@ from personality_jelly.domain import (
     User,
 )
 from personality_jelly.storage import (
+    AuditEventRepository,
     CharacterRepository,
     ConversationRepository,
     LLMRawOutputRepository,
@@ -50,6 +52,7 @@ def test_create_conversation_workflow_creates_conversation_with_actor_correlatio
         )
 
         stored = ConversationRepository(session).require("conv_created")
+        stored_audit = AuditEventRepository(session).require(result.audit_event.id)
         messages = MessageRepository(session).list_by_conversation("conv_created")
         traces = LLMRawOutputRepository(session).list_recent()
         workflow_run = WorkflowRunRepository(session).require(result.workflow_id)
@@ -65,6 +68,8 @@ def test_create_conversation_workflow_creates_conversation_with_actor_correlatio
     assert result.ids.user_id == "user_001"
     assert result.ids.character_id == "char_001"
     assert result.ids.persona_version_id == "pv_latest"
+    assert result.ids.audit_event_id == result.audit_event.id
+    assert result.ids.audit_event_ids == [result.audit_event.id]
     assert result.conversation.conversation_id == "conv_created"
     assert result.conversation.current_mode == "reality_chat"
     assert stored.persona_version_id == "pv_latest"
@@ -90,7 +95,20 @@ def test_create_conversation_workflow_creates_conversation_with_actor_correlatio
     assert audit.related_ids.persona_version_id == "pv_latest"
     assert audit.metadata["request_id"] == "req_create"
     assert audit.metadata["workflow_id"] == result.workflow_id
+    assert audit.metadata["workflow_status"] == "completed"
     assert audit.metadata["result"] == "succeeded"
+    assert stored_audit.operation == "conversation.create"
+    assert stored_audit.result == "succeeded"
+    assert stored_audit.entity_type == "conversation"
+    assert stored_audit.entity_id == "conv_created"
+    assert stored_audit.request_id == "req_create"
+    assert stored_audit.workflow_id == result.workflow_id
+    assert stored_audit.workflow_type == "conversation.create"
+    assert stored_audit.user_id == "user_001"
+    assert stored_audit.character_id == "char_001"
+    assert stored_audit.conversation_id == "conv_created"
+    assert stored_audit.after is not None
+    assert stored_audit.after["conversation_id"] == "conv_created"
 
 
 def test_create_conversation_workflow_accepts_explicit_persona_and_mode() -> None:
@@ -150,6 +168,7 @@ def test_create_conversation_workflow_rejects_missing_required_ids(
             )
 
         assert ConversationRepository(session).list_all() == []
+        assert AuditEventRepository(session).list_all() == []
 
 
 def test_create_conversation_workflow_rejects_persona_from_another_character() -> None:
@@ -170,6 +189,7 @@ def test_create_conversation_workflow_rejects_persona_from_another_character() -
             )
 
         assert ConversationRepository(session).list_all() == []
+        assert AuditEventRepository(session).list_all() == []
 
 
 def test_create_conversation_workflow_requires_actor_user_to_match_domain_user() -> None:
@@ -219,6 +239,39 @@ def test_create_conversation_workflow_maps_explicit_id_collision_to_conflict() -
         assert [conversation.id for conversation in ConversationRepository(session).list_all()] == [
             "conv_existing"
         ]
+        assert AuditEventRepository(session).list_all() == []
+
+
+def test_create_conversation_workflow_rolls_back_when_audit_persistence_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_factory = _session_factory()
+
+    def fail_audit_persistence(*args, **kwargs):
+        raise RuntimeError("audit persistence failed")
+
+    monkeypatch.setattr(
+        conversation_application,
+        "persist_audit_event",
+        fail_audit_persistence,
+    )
+
+    with session_factory() as session:
+        _seed_conversation_prerequisites(session)
+        session.commit()
+
+        with pytest.raises(RuntimeError, match="audit persistence failed"):
+            create_conversation_workflow(
+                session,
+                user_id="user_001",
+                character_id="char_001",
+                conversation_id="conv_rollback",
+                actor_context=_actor(),
+                correlation_context=CorrelationContext(request_id="req_audit_fail"),
+            )
+
+        assert ConversationRepository(session).get("conv_rollback") is None
+        assert AuditEventRepository(session).list_all() == []
 
 
 def _session_factory():

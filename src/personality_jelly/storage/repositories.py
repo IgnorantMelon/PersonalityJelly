@@ -8,6 +8,7 @@ from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
 from personality_jelly.domain import (
+    AuditEvent,
     CanonClaim,
     Character,
     ClaimConflict,
@@ -653,6 +654,66 @@ class IdempotencyRecordRepository(
             .where(orm.IdempotencyRecordORM.workflow_id == workflow_id)
             .order_by(orm.IdempotencyRecordORM.created_at.asc())
         )
+        return self._all(statement)
+
+
+class AuditEventRepository(Repository[AuditEvent, orm.AuditEventORM]):
+    def __init__(self, session: Session) -> None:
+        super().__init__(
+            session,
+            orm.AuditEventORM,
+            mappers.audit_event_to_orm,
+            mappers.audit_event_from_orm,
+        )
+
+    def list_recent(
+        self,
+        limit: int | None = None,
+        *,
+        operation: str | None = None,
+        result: str | None = None,
+        actor_type: str | None = None,
+        actor_id: str | None = None,
+        entity_type: str | None = None,
+        entity_id: str | None = None,
+        request_id: str | None = None,
+        workflow_id: str | None = None,
+        user_id: str | None = None,
+        character_id: str | None = None,
+        conversation_id: str | None = None,
+        memory_id: str | None = None,
+        llm_trace_id: str | None = None,
+        evaluation_run_id: str | None = None,
+        retrieval_evaluation_run_id: str | None = None,
+    ) -> list[AuditEvent]:
+        statement = select(orm.AuditEventORM).order_by(
+            orm.AuditEventORM.created_at.desc(),
+            orm.AuditEventORM.id.desc(),
+        )
+        for column, value in (
+            (orm.AuditEventORM.operation, operation),
+            (orm.AuditEventORM.result, result),
+            (orm.AuditEventORM.actor_type, actor_type),
+            (orm.AuditEventORM.actor_id, actor_id),
+            (orm.AuditEventORM.entity_type, entity_type),
+            (orm.AuditEventORM.entity_id, entity_id),
+            (orm.AuditEventORM.request_id, request_id),
+            (orm.AuditEventORM.workflow_id, workflow_id),
+            (orm.AuditEventORM.user_id, user_id),
+            (orm.AuditEventORM.character_id, character_id),
+            (orm.AuditEventORM.conversation_id, conversation_id),
+            (orm.AuditEventORM.memory_id, memory_id),
+            (orm.AuditEventORM.llm_trace_id, llm_trace_id),
+            (orm.AuditEventORM.evaluation_run_id, evaluation_run_id),
+            (
+                orm.AuditEventORM.retrieval_evaluation_run_id,
+                retrieval_evaluation_run_id,
+            ),
+        ):
+            if value is not None:
+                statement = statement.where(column == value)
+        if limit is not None:
+            statement = statement.limit(limit)
         return self._all(statement)
 
 
