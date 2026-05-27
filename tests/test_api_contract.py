@@ -19,6 +19,7 @@ def test_openapi_contract_exposes_expected_route_set(tmp_path) -> None:
 
     expected_path_methods = {
         "/health": {"get"},
+        "/source-works": {"post"},
         "/conversations": {"get", "post"},
         "/conversations/{conversation_id}": {"get"},
         "/context-packages/{context_package_id}": {"get"},
@@ -51,7 +52,11 @@ def test_openapi_contract_exposes_expected_route_set(tmp_path) -> None:
         assert set(path_item) == expected_path_methods[path], path
         for method in expected_path_methods[path]:
             operation = path_item[method]
-            expected_status = "201" if path == "/conversations" and method == "post" else "200"
+            expected_status = (
+                "201"
+                if path in {"/conversations", "/source-works"} and method == "post"
+                else "200"
+            )
             assert expected_status in operation["responses"], path
             assert (
                 "application/json"
@@ -62,6 +67,11 @@ def test_openapi_contract_exposes_expected_route_set(tmp_path) -> None:
     assert conversation_create["tags"] == ["conversation-context"]
     assert "201" in conversation_create["responses"]
     assert "application/json" in conversation_create["responses"]["201"]["content"]
+
+    source_create = paths["/source-works"]["post"]
+    assert source_create["tags"] == ["sources"]
+    assert "201" in source_create["responses"]
+    assert "application/json" in source_create["responses"]["201"]["content"]
 
 
 def test_openapi_contract_keeps_route_tags_and_query_params_stable(tmp_path) -> None:
@@ -171,3 +181,82 @@ def test_openapi_contract_keeps_route_tags_and_query_params_stable(tmp_path) -> 
             if parameter["in"] == "query"
         ]
         assert actual_query_params == query_params
+
+
+def test_openapi_source_ingest_schema_excludes_deferred_and_sensitive_fields(tmp_path) -> None:
+    app = create_app(
+        settings=_settings(),
+        database_url=f"sqlite:///{tmp_path / 'api-contract.db'}",
+    )
+
+    openapi = app.openapi()
+    source_operation = openapi["paths"]["/source-works"]["post"]
+    request_schema_ref = source_operation["requestBody"]["content"]["application/json"][
+        "schema"
+    ]["$ref"]
+    response_schema_ref = source_operation["responses"]["201"]["content"]["application/json"][
+        "schema"
+    ]["$ref"]
+
+    request_schema_name = request_schema_ref.rsplit("/", 1)[-1]
+    response_schema_name = response_schema_ref.rsplit("/", 1)[-1]
+    request_schema = openapi["components"]["schemas"][request_schema_name]
+    response_schema = openapi["components"]["schemas"][response_schema_name]
+    schema_text = str(request_schema) + str(response_schema)
+
+    request_properties = set(request_schema["properties"])
+    assert {
+        "title",
+        "source_type",
+        "content",
+        "actor",
+        "request_id",
+        "idempotency_key",
+        "source_work_id",
+        "author",
+        "language",
+        "content_encoding",
+        "chunking",
+        "metadata",
+    }.issubset(request_properties)
+
+    forbidden_fragments = [
+        "local_path",
+        "file_path",
+        "'path'",
+        "'uri'",
+        "remote_url",
+        "multipart",
+        "upload",
+        "base64",
+        "binary",
+        "provider_config",
+        "llm_config",
+        "embedding_config",
+        "prompt",
+        "raw_output",
+        "debug",
+    ]
+    for fragment in forbidden_fragments:
+        assert fragment not in schema_text
+
+    response_properties = set(response_schema["properties"])
+    assert {"request_id", "workflow_id", "workflow_type", "status", "ids", "result"}.issubset(
+        response_properties
+    )
+    result_ref = response_schema["properties"]["result"]["$ref"]
+    result_schema = openapi["components"]["schemas"][result_ref.rsplit("/", 1)[-1]]
+    result_properties = set(result_schema["properties"])
+    assert {
+        "source_work",
+        "persisted_ids",
+        "chunk_count",
+        "chunk_ids",
+        "first_chunk_id",
+        "last_chunk_id",
+        "text_redacted",
+        "source_preview_redacted",
+    }.issubset(result_properties)
+    assert "content" not in result_properties
+    assert "text" not in result_properties
+    assert "source_text" not in result_properties

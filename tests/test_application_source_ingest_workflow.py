@@ -119,8 +119,8 @@ def test_inline_markdown_persists_source_chunks_audit_workflow_and_replay() -> N
     assert replay.idempotency_key == "source-retry-key"
     assert replay.request_hash != request.content
     assert replay.response_status_code == 201
-    assert replay.replay_payload["text_redacted"] is True
-    assert replay.replay_payload["source_preview_redacted"] is True
+    assert replay.replay_payload["result"]["text_redacted"] is True
+    assert replay.replay_payload["result"]["source_preview_redacted"] is True
     assert replay.related_ids["source_work_id"] == "sw_inline"
     assert replay.related_ids["source_chunk_ids"] == result.source_chunk_ids
     assert "Lin Shuang observed first." not in str(replay.replay_payload)

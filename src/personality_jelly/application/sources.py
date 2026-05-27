@@ -511,15 +511,18 @@ def _default_replay_payload(result: SourceWorkIngestResult) -> dict[str, Any]:
         "workflow_id": result.workflow_id,
         "workflow_type": result.workflow_type,
         "status": result.status,
-        "ids": result.ids.model_dump(mode="json", exclude_none=True, exclude_defaults=True),
-        "source_work": result.source_work.model_dump(mode="json"),
-        "chunk_count": result.chunk_count,
-        "source_chunk_ids": result.source_chunk_ids,
-        "first_chunk_id": result.first_chunk_id,
-        "last_chunk_id": result.last_chunk_id,
-        "text_redacted": True,
-        "source_preview_redacted": True,
-        "llm_trace_ids": [],
+        "ids": result.ids.model_dump(mode="json"),
+        "result": {
+            "source_work": result.source_work.model_dump(mode="json"),
+            "persisted_ids": {"source_chunk_ids": result.source_chunk_ids},
+            "chunk_count": result.chunk_count,
+            "chunk_ids": result.source_chunk_ids,
+            "first_chunk_id": result.first_chunk_id,
+            "last_chunk_id": result.last_chunk_id,
+            "text_redacted": True,
+            "source_preview_redacted": True,
+        },
+        "warnings": [warning.model_dump(mode="json") for warning in result.warnings],
     }
 
 
