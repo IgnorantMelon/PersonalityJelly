@@ -46,6 +46,10 @@ All coding agents and task prompts must follow this baseline:
 - Do not introduce keyword, regex, fixed-vocabulary, or string-containment semantic judgments.
 - Add or update tests for behavior changes, run focused tests first, and run the full suite when
   shared behavior is touched.
+- Implementation batch task prompts should describe development work only. Do not include
+  coordinator-only management tasks such as closeout, branch integration, release status updates, or
+  pure verification as numbered batch task prompts; keep those as coordinator acceptance criteria or
+  post-batch status work.
 - Final reports should include files changed, tests run and results, and any task-specific caveats.
 - Current phase direction is post-Batch 09 Provider-Backed API Planning closeout. Batch 09 selected
   Batch 10 as the next accepted implementation scope: implement `POST /source-works` first, then
@@ -200,7 +204,6 @@ Current Batch 10 implementation plan lives under
 - `01_source_ingest_application_workflow_prompt.md`
 - `02_source_ingest_api_route_prompt.md`
 - `03_character_creation_workflow_route_prompt.md`
-- `04_batch_10_closeout_verification_prompt.md`
 
 Accepted Batch 10 scope:
 

@@ -15,6 +15,10 @@ scope. It must not implement provider-backed persona setup, turn execution, summ
 benchmark execution, auth/workspace features, UI, deployment, queues, cursor migration, or semantic
 behavior changes.
 
+Batch 10 development task prompts are development tasks only. Coordinator integration, route
+audit, final regression runs, docs/status updates, and post-batch handoff notes are batch
+acceptance work, not numbered task prompts inside this batch.
+
 ## Scope Decision
 
 Batch 10 should implement:
@@ -56,16 +60,15 @@ merged or integrated onto the selected base. If the coordinator chooses dependen
 | 01 Source Ingest Application Workflow | `feature/api-source-ingest-application-workflow` | accepted Batch 09/10 planning base, normally clean `dev` after Batch 09 closeout | Batch 08 foundations and Batch 09 source ingest contract | `personality_jelly.application.sources` service, workflow/audit/link/idempotency-ready result models, focused application tests. |
 | 02 Source Ingest API Route | `feature/api-source-ingest-route` | completed Task 01 branch | 01 | `POST /source-works` schemas, thin route, redaction, idempotency replay/conflict, route/OpenAPI tests. |
 | 03 Character Creation Workflow And Route | `feature/api-character-create-route` | completed Task 02 branch | 01, 02 | `create_character_workflow`, `POST /characters`, deterministic bridge tests using source ingest prerequisites. |
-| 04 Batch 10 Closeout Verification | `chore/batch-10-source-character-api-closeout` | clean `dev` after coordinator merges Tasks 01-03, or `integration/batch-10-source-character-api` before final merge | 01, 02, 03 | Regression run, route audit, docs/status closeout, and Batch 11 persona setup handoff. |
 
 Recommended integration branch:
 
 - `integration/batch-10-source-character-api`
 
 The coordinator should create the integration branch from clean `dev`, merge accepted Tasks 01, 02,
-and 03 in order, run focused validation, then either close out from that integration branch or merge
-to `dev` before Task 04. Sequential dependency branches are preferred for implementation work, so
-no intermediate integration branch is required before Task 03 unless conflicts appear.
+and 03 in order, then run the batch-level acceptance checks listed below before final `dev`
+integration. Sequential dependency branches are preferred for implementation work, so no
+intermediate integration branch is required before Task 03 unless conflicts appear.
 
 ## Expected Route Scope
 
@@ -216,7 +219,7 @@ OpenAPI contract tests may update:
 
 - `tests/test_api_contract.py`
 
-Existing regression tests to include during closeout:
+Batch-level regression tests to run after accepted development tasks are integrated:
 
 - `tests/test_storage_migrations.py`
 - `tests/test_storage_schema.py`
@@ -228,12 +231,13 @@ Existing regression tests to include during closeout:
 - `tests/test_api_audit_workflow_inspection.py`
 - `tests/test_api_contract.py`
 
-Full pytest is required before Batch 10 closeout because the batch adds new API write routes and
+Full pytest is required before accepting Batch 10 because the batch adds new API write routes and
 application services over shared audit/workflow/idempotency helpers.
 
-## Closeout Verification Plan
+## Batch Acceptance Requirements
 
-Task 04 must verify:
+The coordinator must verify these after the development task branches are integrated. These are
+batch acceptance criteria, not standalone Batch 10 task prompts:
 
 - route audit confirms Batch 10 added only `POST /source-works` and `POST /characters`;
 - route handlers are thin adapters over `personality_jelly.application`;
@@ -249,12 +253,12 @@ Task 04 must verify:
   debug-only payloads;
 - focused tests pass;
 - full pytest passes;
-- `README.md`, `VIBE_CODING_GUIDE.md`, and a new Batch 10 closeout artifact accurately describe
+- `README.md`, `VIBE_CODING_GUIDE.md`, and any post-batch status artifact accurately describe
   implemented and deferred scope.
 
 ## Deferred Batch 11 Handoff
 
-After Batch 10 closeout, the recommended next batch is provider-backed persona setup only:
+After Batch 10 acceptance, the recommended next batch is provider-backed persona setup only:
 
 - `POST /characters/{character_id}/persona-setup-runs`
 

@@ -5,8 +5,7 @@ Follow `VIBE_CODING_GUIDE.md` and
 
 ## Branch
 
-Create the implementation branch from the accepted Batch 09/10 planning base, normally clean `dev`
-after Batch 09 closeout:
+Create the implementation branch from the accepted Batch 09/10 planning base, normally clean `dev`:
 
 ```powershell
 git switch dev
@@ -115,8 +114,8 @@ Audit event requirements:
   This route is deterministic.
 
 If the existing `get_write_session` dependency or idempotency helper makes atomic replay storage
-awkward, keep the service transaction-safe and document the remaining route-layer boundary in the
-Task 02 handoff. Do not create partial commits to work around it.
+awkward, keep the service transaction-safe and keep the remaining route-layer boundary explicit in
+the implementation notes. Do not create partial commits to work around it.
 
 ## Tests
 
@@ -167,4 +166,4 @@ git status --short --branch
 ```
 
 Commit only Task 01 changes and push the branch. Report branch, commit hash, tests run, and any
-handoff notes for Task 02.
+implementation notes relevant to Task 02.
