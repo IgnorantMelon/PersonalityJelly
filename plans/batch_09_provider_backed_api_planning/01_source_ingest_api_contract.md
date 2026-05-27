@@ -11,6 +11,17 @@ Recommended route:
 
 - `POST /source-works`
 
+Route choice:
+
+- Choose `POST /source-works`, not `POST /source-ingestions`, for the first implementation because
+  the route synchronously creates the durable `SourceWork` resource that clients need for the next
+  character/persona setup step.
+- Do not introduce a separate `source_ingestion` domain resource for this deterministic route.
+  Batch 08 `workflow_runs`, `workflow_run_links`, audit events, and idempotency records already
+  provide the diagnostic run surface.
+- Reserve `POST /source-ingestions` for a later design only if source ingest becomes asynchronous,
+  accepts multipart/upload references, or stages provider-backed enrichment such as embeddings.
+
 Recommended workflow type and audit operation:
 
 - workflow type: `source_work.ingest`
@@ -53,6 +64,16 @@ Application-service gaps for implementation:
 
 Purpose: create a source work and its source chunks from inline TXT/Markdown content.
 
+Accepted source payload forms:
+
+| Form | Accepted in first implementation | Contract |
+| --- | --- | --- |
+| Inline UTF-8 TXT content | Yes | `source_type=txt`, `content` contains the full text. |
+| Inline UTF-8 Markdown content | Yes | `source_type=markdown`, `content` contains the full text. |
+| Server-local file path/reference | No | Reject before workflow start. Never read the path and never echo it in errors, audit metadata, workflow metadata, idempotency records, or replay payloads. |
+| Client file name or provenance label | Metadata only | May be a bounded non-sensitive label inside `metadata` if it is not path-like. It is not dereferenced and must not control loading. |
+| Multipart upload, remote URL, binary/base64 blob | No | Deferred until a separate file/upload contract is accepted. |
+
 Request headers:
 
 | Header | Required | Notes |
@@ -80,10 +101,16 @@ Request body:
 Rejected input forms:
 
 - `local_path`, `file_path`, `path`, `uri`, or any server-local filesystem reference.
+- path-like values in `metadata` or `actor.metadata`, including absolute Windows paths, POSIX paths,
+  database URLs, provider URLs with credentials, or config-file paths.
 - remote URL fetches.
 - multipart file upload.
 - binary/base64 payloads.
 - provider config, embedding config, or prompt overrides.
+
+Rejected file/path fields are validation errors, not redaction-only events. The error response may
+name the rejected field family, but it must not echo the supplied path, URL, file name with
+directories, or raw source text.
 
 Initial limits to set in implementation:
 
@@ -179,7 +206,7 @@ Status and code mapping:
 | 404 | `not_found` | Not expected in the first inline-only create route. Reserved for future source references. |
 | 409 | `conflict` | Explicit `source_work_id` already exists, or an idempotency key was reused with a different request hash. |
 | 413 | `validation_error` | Content exceeds accepted size limit. If the shared mapper cannot emit 413 yet, use 422 and record this as a follow-up. |
-| 422 | `validation_error` | Blank title/content, unsupported `source_type`, invalid chunking values, missing actor, missing idempotency key, or header/body ID mismatch. |
+| 422 | `validation_error` | Blank title/content, unsupported `source_type`, invalid chunking values, zero chunks after chunking, missing actor, missing idempotency key, header/body ID mismatch, or forbidden file/path/reference fields. |
 | 500 | `unexpected_error` | Storage defects after sanitization. Must not leak local paths, SQL, source text, or stack traces. |
 
 Provider failure codes are not expected for the first source ingest implementation. Do not return
@@ -207,12 +234,15 @@ The implementation should parse and chunk before the durable write when possible
 Atomicity policy:
 
 - If request validation fails, persist nothing.
+- If content is oversized, a forbidden file/path field is present, or chunking produces zero chunks,
+  fail before creating workflow, audit, domain, or idempotency rows.
 - If chunking fails before the transaction, persist nothing.
 - If source work insert, chunk insert, audit persistence, workflow completion, or idempotency replay
   storage fails, roll back the whole transaction.
 - Do not claim partial success for this deterministic route.
 - Do not create a source work without chunks unless a later implementation explicitly accepts empty
   source works.
+- Do not store an idempotency replay record for validation failures in the first implementation.
 
 If current helper layering makes idempotency replay storage occur after an inner service commit,
 Batch 10 must first adjust the source ingest workflow so the replay record and domain rows share one
@@ -303,6 +333,22 @@ Request hash should exclude:
 - `idempotency_key`;
 - generated IDs and timestamps.
 
+Persisted idempotency record shape:
+
+- `workflow_type=source_work.ingest`
+- normalized `idempotency_key`
+- `request_hash` as a SHA-256 digest only; do not store the canonical request body
+- original successful `request_id` and `workflow_id`
+- terminal `status=completed`
+- `response_status_code=201`
+- `replay_payload` equal to the redacted success response envelope
+- `related_ids` limited to source work, audit, workflow, and chunk IDs
+
+The idempotency record, replay payload, and `409 conflict` details must not store or return raw
+source content, chunk text, source previews, local paths, provider config, secrets, or the conflicting
+request body. Conflict details may include `workflow_type`, `idempotency_record_id`, and
+`conflict=request_hash_mismatch`.
+
 ## Redaction Contract
 
 Never expose:
@@ -324,6 +370,18 @@ Default write response exposes:
 
 Local debug is deferred for this route. If a future local debug profile exposes chunk text, it must
 do so through a targeted read route, not by echoing ingest response content.
+
+Diagnostic persistence redaction:
+
+- Audit `after` and `metadata` store only source metadata, chunk counts, IDs, result status, and
+  redaction markers.
+- Workflow `persisted_ids`, links, warnings, and error details store IDs/status only, not text.
+- Idempotency `request_hash` stores only a digest; `replay_payload` stores the redacted response
+  body only.
+- Error details for validation, conflict, and unexpected failures must run through the shared
+  sanitizer and should prefer stable field names over caller-supplied values.
+- Absolute paths and path-like values are rejected at validation when possible and scrubbed from any
+  residual diagnostics with `[redacted:path]`.
 
 ## Provider Failure And Partial Persistence
 
@@ -354,6 +412,9 @@ Focused application tests:
 - Audit event persists with operation `source_work.ingest`, source metadata, chunk count, and no raw
   source content.
 - Workflow run and links persist for the source work, every chunk, and the audit event.
+- Zero-chunk content is rejected before workflow/audit/idempotency rows are written.
+- Idempotency records store a request hash digest and redacted replay payload only; raw `content`,
+  chunk text, local paths, and forbidden metadata values are absent.
 - Domain rows, audit event, workflow run, and idempotency replay roll back together when a forced
   storage failure occurs before commit.
 
@@ -367,7 +428,11 @@ Focused API route tests:
   rows.
 - Same idempotency key and different body returns `409 conflict`.
 - Local path fields are rejected and redacted in error output.
+- Path-like values in `metadata` and `actor.metadata` return `422 validation_error` and are never
+  persisted raw.
 - Oversized content maps to the accepted status/code.
+- Zero-chunk content returns `422 validation_error` and leaves source/audit/workflow/idempotency
+  tables unchanged.
 - `GET /workflow-runs/{workflow_id}` and `GET /audit-events/{audit_event_id}` can inspect the
   created diagnostic records without raw source text.
 
@@ -402,4 +467,6 @@ Contract tests:
 - Whether to add `source_chunk_ids` to `WorkflowRelatedIds` or keep chunk IDs route-specific.
 - Whether a future read route should expose source work details before character/persona setup.
 - Whether multipart upload is needed after the local-first API contract proves useful.
+- Whether to introduce `POST /source-ingestions` later for asynchronous uploads, file references, or
+  staged enrichment instead of overloading `POST /source-works`.
 - Whether source ingest should eventually support embeddings as a separate provider-backed route.
