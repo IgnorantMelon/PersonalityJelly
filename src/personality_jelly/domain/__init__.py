@@ -33,6 +33,8 @@ from personality_jelly.domain.models import (
     SourceChunkEmbedding,
     SourceWork,
     User,
+    WorkflowRun,
+    WorkflowRunLink,
 )
 
 __all__ = [
@@ -66,5 +68,7 @@ __all__ = [
     "SourceChunkEmbedding",
     "SourceWork",
     "User",
+    "WorkflowRun",
+    "WorkflowRunLink",
 ]
 

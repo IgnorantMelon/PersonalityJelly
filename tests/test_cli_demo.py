@@ -400,12 +400,12 @@ def test_cli_db_status_and_migrate_report_schema_versions(tmp_path: Path, capsys
 
     assert status_exit_code == 0
     assert "current_version=none" in status_output
-    assert "pending_count=3" in status_output
+    assert "pending_count=4" in status_output
     assert migrate_exit_code == 0
-    assert "applied_count=3" in migrate_output
+    assert "applied_count=4" in migrate_output
     assert "pending_count=0" in migrate_output
     assert migrated_status_exit_code == 0
-    assert "current_version=0003_retrieval_evaluation" in migrated_status_output
+    assert "current_version=0005_workflow_persistence" in migrated_status_output
     assert "pending_count=0" in migrated_status_output
 
 
@@ -482,7 +482,7 @@ def test_cli_demo_auto_migrates_configured_database(
     status = get_migration_status(engine)
 
     assert exit_code == 0
-    assert status.current_version == "0003_retrieval_evaluation"
+    assert status.current_version == "0005_workflow_persistence"
     assert status.pending == ()
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from enum import StrEnum
 from typing import Any
 
@@ -18,10 +19,12 @@ from personality_jelly.application.audit import (
 from personality_jelly.application.correlation import (
     CorrelationContext,
     WorkflowContext,
+    WorkflowLinkSpec,
     WorkflowRelatedIds,
     WorkflowResponseSummary,
     WorkflowStatus,
-    start_workflow,
+    complete_persisted_workflow,
+    start_persisted_workflow,
 )
 from personality_jelly.application.inspection import (
     InspectionModel,
@@ -69,103 +72,112 @@ def review_memory_workflow(
     session: Session,
     request: ManualMemoryReviewRequest,
 ) -> ManualMemoryMutationResult:
-    workflow = start_workflow(
-        request.correlation,
-        workflow_type="memory.review",
-        related_ids=WorkflowRelatedIds(memory_id=request.memory_id),
-    )
     actor = require_local_actor_context(request.actor, require_user_id=True)
     reason = require_operation_reason(request.reason)
-    repository = MemoryRepository(session)
-    before = repository.require(request.memory_id)
-    _validate_memory_related_ids(before, actor=actor, request=request)
+    with _memory_mutation_transaction(session):
+        workflow = start_persisted_workflow(
+            session,
+            request.correlation,
+            workflow_type="memory.review",
+            related_ids=WorkflowRelatedIds(memory_id=request.memory_id),
+        )
+        repository = MemoryRepository(session)
+        before = repository.require(request.memory_id)
+        _validate_memory_related_ids(before, actor=actor, request=request)
 
-    target_status = (
-        MemoryStatus.ACCEPTED
-        if request.decision == MemoryReviewDecision.ACCEPT
-        else MemoryStatus.REJECTED
-    )
-    after = repository.review_candidate(before.id, status=target_status, reason=reason)
-    return _build_result(
-        session,
-        workflow=workflow,
-        memory=after,
-        audit_event=build_memory_review_audit_event(
+        target_status = (
+            MemoryStatus.ACCEPTED
+            if request.decision == MemoryReviewDecision.ACCEPT
+            else MemoryStatus.REJECTED
+        )
+        after = repository.review_candidate(before.id, status=target_status, reason=reason)
+        audit_event = build_memory_review_audit_event(
             actor=actor,
             before=before,
             after=after,
             reason=reason,
             metadata={**request.metadata, "decision": str(request.decision)},
             correlation=_completed_workflow(workflow, _related_ids(after)),
-        ),
-    )
+        )
+        return _build_result(
+            session,
+            workflow=workflow,
+            memory=after,
+            audit_event=audit_event,
+        )
 
 
 def edit_memory_workflow(
     session: Session,
     request: ManualMemoryEditRequest,
 ) -> ManualMemoryMutationResult:
-    workflow = start_workflow(
-        request.correlation,
-        workflow_type="memory.edit",
-        related_ids=WorkflowRelatedIds(memory_id=request.memory_id),
-    )
     actor = require_local_actor_context(request.actor, require_user_id=True)
     reason = require_operation_reason(request.reason)
     content = _require_text(request.content, field_name="content")
-    repository = MemoryRepository(session)
-    before = repository.require(request.memory_id)
-    _validate_memory_related_ids(before, actor=actor, request=request)
-    if before.status == MemoryStatus.ARCHIVED:
-        raise ValueError("archived memories cannot be edited")
+    with _memory_mutation_transaction(session):
+        workflow = start_persisted_workflow(
+            session,
+            request.correlation,
+            workflow_type="memory.edit",
+            related_ids=WorkflowRelatedIds(memory_id=request.memory_id),
+        )
+        repository = MemoryRepository(session)
+        before = repository.require(request.memory_id)
+        _validate_memory_related_ids(before, actor=actor, request=request)
+        if before.status == MemoryStatus.ARCHIVED:
+            raise ValueError("archived memories cannot be edited")
 
-    after = repository.update_content(before.id, content=content, reason=reason)
-    return _build_result(
-        session,
-        workflow=workflow,
-        memory=after,
-        audit_event=build_memory_edit_audit_event(
+        after = repository.update_content(before.id, content=content, reason=reason)
+        audit_event = build_memory_edit_audit_event(
             actor=actor,
             before=before,
             after=after,
             reason=reason,
             metadata=request.metadata,
             correlation=_completed_workflow(workflow, _related_ids(after)),
-        ),
-    )
+        )
+        return _build_result(
+            session,
+            workflow=workflow,
+            memory=after,
+            audit_event=audit_event,
+        )
 
 
 def archive_memory_workflow(
     session: Session,
     request: ManualMemoryArchiveRequest,
 ) -> ManualMemoryMutationResult:
-    workflow = start_workflow(
-        request.correlation,
-        workflow_type="memory.archive",
-        related_ids=WorkflowRelatedIds(memory_id=request.memory_id),
-    )
     actor = require_local_actor_context(request.actor, require_user_id=True)
     reason = require_operation_reason(request.reason)
-    repository = MemoryRepository(session)
-    before = repository.require(request.memory_id)
-    _validate_memory_related_ids(before, actor=actor, request=request)
-    if before.status == MemoryStatus.ARCHIVED:
-        raise ValueError("memory is already archived")
+    with _memory_mutation_transaction(session):
+        workflow = start_persisted_workflow(
+            session,
+            request.correlation,
+            workflow_type="memory.archive",
+            related_ids=WorkflowRelatedIds(memory_id=request.memory_id),
+        )
+        repository = MemoryRepository(session)
+        before = repository.require(request.memory_id)
+        _validate_memory_related_ids(before, actor=actor, request=request)
+        if before.status == MemoryStatus.ARCHIVED:
+            raise ValueError("memory is already archived")
 
-    after = repository.update_status(before.id, status=MemoryStatus.ARCHIVED)
-    return _build_result(
-        session,
-        workflow=workflow,
-        memory=after,
-        audit_event=build_memory_archive_audit_event(
+        after = repository.update_status(before.id, status=MemoryStatus.ARCHIVED)
+        audit_event = build_memory_archive_audit_event(
             actor=actor,
             before=before,
             after=after,
             reason=reason,
             metadata=request.metadata,
             correlation=_completed_workflow(workflow, _related_ids(after)),
-        ),
-    )
+        )
+        return _build_result(
+            session,
+            workflow=workflow,
+            memory=after,
+            audit_event=audit_event,
+        )
 
 
 def _build_result(
@@ -176,7 +188,12 @@ def _build_result(
     audit_event: AuditEventPayload,
 ) -> ManualMemoryMutationResult:
     ids = _related_ids(memory, audit_event=audit_event)
-    completed = _completed_workflow(workflow, ids)
+    completed = complete_persisted_workflow(
+        session,
+        workflow,
+        ids=ids,
+        links=_memory_links(memory),
+    )
     return ManualMemoryMutationResult(
         request_id=completed.request_id,
         workflow_id=completed.workflow_id,
@@ -186,6 +203,17 @@ def _build_result(
         memory=get_memory_detail(session, memory.id),
         audit_event=audit_event,
     )
+
+
+@contextmanager
+def _memory_mutation_transaction(session: Session):
+    if session.in_transaction():
+        with session.begin_nested():
+            yield
+        return
+
+    with session.begin():
+        yield
 
 
 def _completed_workflow(
@@ -214,6 +242,23 @@ def _related_ids(
         audit_event_id=audit_event.id if audit_event is not None else None,
         audit_event_ids=[audit_event.id] if audit_event is not None else [],
     )
+
+
+def _memory_links(memory: Memory) -> list[WorkflowLinkSpec]:
+    links = [
+        WorkflowLinkSpec(entity_type="memory", entity_id=memory.id, relation="updated"),
+        WorkflowLinkSpec(entity_type="user", entity_id=memory.user_id, relation="input"),
+        WorkflowLinkSpec(entity_type="character", entity_id=memory.character_id, relation="input"),
+    ]
+    if memory.conversation_id is not None:
+        links.append(
+            WorkflowLinkSpec(
+                entity_type="conversation",
+                entity_id=memory.conversation_id,
+                relation="input",
+            )
+        )
+    return links
 
 
 def _validate_memory_related_ids(

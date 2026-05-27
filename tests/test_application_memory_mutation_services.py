@@ -36,6 +36,8 @@ from personality_jelly.storage import (
     PersonaVersionRepository,
     SourceWorkRepository,
     UserRepository,
+    WorkflowRunLinkRepository,
+    WorkflowRunRepository,
     create_all,
     create_database_engine,
     create_session_factory,
@@ -65,6 +67,10 @@ def test_review_memory_workflow_accepts_candidate_with_audit_and_canon_boundary(
 
         stored_memory = MemoryRepository(session).require("mem_candidate")
         stored_claim = CanonClaimRepository(session).require("claim_001")
+        workflow_run = WorkflowRunRepository(session).require(result.workflow_id)
+        workflow_links = WorkflowRunLinkRepository(session).list_by_workflow(
+            result.workflow_id,
+        )
 
     assert result.request_id == "req_review"
     assert result.workflow_id.startswith("wf_")
@@ -86,6 +92,17 @@ def test_review_memory_workflow_accepts_candidate_with_audit_and_canon_boundary(
     assert "Review decision accepted" in stored_memory.reason
     assert stored_claim.status == "verified"
     assert stored_claim.content == "Lin Shuang observes before acting."
+    assert workflow_run.request_id == "req_review"
+    assert workflow_run.workflow_type == "memory.review"
+    assert workflow_run.status == "completed"
+    assert workflow_run.persisted_ids["memory_id"] == "mem_candidate"
+    assert workflow_run.persisted_ids["audit_event_id"] == result.audit_event.id
+    assert {(link.entity_type, link.entity_id, link.relation) for link in workflow_links} == {
+        ("memory", "mem_candidate", "updated"),
+        ("user", "user_001", "input"),
+        ("character", "char_001", "input"),
+        ("conversation", "conv_001", "input"),
+    }
 
 
 def test_edit_memory_workflow_updates_content_reason_and_payload_audit() -> None:
@@ -105,6 +122,7 @@ def test_edit_memory_workflow_updates_content_reason_and_payload_audit() -> None
         )
 
         stored_memory = MemoryRepository(session).require("mem_accepted")
+        workflow_run = WorkflowRunRepository(session).require(result.workflow_id)
 
     assert result.workflow_type == "memory.edit"
     assert result.memory.content == "User prefers writing after midnight."
@@ -117,6 +135,8 @@ def test_edit_memory_workflow_updates_content_reason_and_payload_audit() -> None
     assert result.audit_event.metadata["source"] == "local-test"
     assert stored_memory.content == "User prefers writing after midnight."
     assert stored_memory.reason == "Manual correction after user clarification."
+    assert workflow_run.workflow_type == "memory.edit"
+    assert workflow_run.status == "completed"
 
 
 def test_archive_memory_workflow_requires_reason_and_archives_without_rewriting_content() -> None:
@@ -134,6 +154,7 @@ def test_archive_memory_workflow_requires_reason_and_archives_without_rewriting_
         )
 
         stored_memory = MemoryRepository(session).require("mem_accepted")
+        workflow_run = WorkflowRunRepository(session).require(result.workflow_id)
 
     assert result.workflow_type == "memory.archive"
     assert result.memory.status == "archived"
@@ -144,6 +165,8 @@ def test_archive_memory_workflow_requires_reason_and_archives_without_rewriting_
     assert result.audit_event.after["status"] == "archived"
     assert stored_memory.status == "archived"
     assert stored_memory.content == "User likes night writing."
+    assert workflow_run.workflow_type == "memory.archive"
+    assert workflow_run.status == "completed"
 
 
 def test_manual_memory_workflows_reject_missing_actor_reason_and_related_mismatch() -> None:

@@ -25,6 +25,8 @@ from personality_jelly.storage import (
     PersonaVersionRepository,
     SourceWorkRepository,
     UserRepository,
+    WorkflowRunLinkRepository,
+    WorkflowRunRepository,
     create_all,
     create_database_engine,
     create_session_factory,
@@ -50,6 +52,10 @@ def test_create_conversation_workflow_creates_conversation_with_actor_correlatio
         stored = ConversationRepository(session).require("conv_created")
         messages = MessageRepository(session).list_by_conversation("conv_created")
         traces = LLMRawOutputRepository(session).list_recent()
+        workflow_run = WorkflowRunRepository(session).require(result.workflow_id)
+        workflow_links = WorkflowRunLinkRepository(session).list_by_workflow(
+            result.workflow_id,
+        )
 
     assert result.request_id == "req_create"
     assert result.workflow_id.startswith("wf_")
@@ -64,6 +70,16 @@ def test_create_conversation_workflow_creates_conversation_with_actor_correlatio
     assert stored.persona_version_id == "pv_latest"
     assert messages == []
     assert traces == []
+    assert workflow_run.request_id == "req_create"
+    assert workflow_run.workflow_type == CONVERSATION_CREATE_WORKFLOW_TYPE
+    assert workflow_run.status == "completed"
+    assert workflow_run.persisted_ids["conversation_id"] == "conv_created"
+    assert {(link.entity_type, link.entity_id, link.relation) for link in workflow_links} == {
+        ("conversation", "conv_created", "created"),
+        ("user", "user_001", "input"),
+        ("character", "char_001", "input"),
+        ("persona_version", "pv_latest", "input"),
+    }
 
     audit = result.audit_event
     assert audit.persistence == "payload_only"

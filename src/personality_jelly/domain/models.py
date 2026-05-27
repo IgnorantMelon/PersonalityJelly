@@ -191,10 +191,37 @@ class LLMRawOutput(DomainModel):
     schema_name: str
     model_name: str | None = None
     provider_name: str
+    request_id: str | None = None
+    workflow_id: str | None = None
+    workflow_step: str | None = None
+    related_ids: dict[str, Any] | None = None
     raw_output: str
     response_schema: dict[str, Any] = Field(default_factory=dict)
     parsed_output: dict[str, Any] | None = None
     validation_errors: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class WorkflowRun(DomainModel):
+    workflow_id: str
+    request_id: str
+    workflow_type: str
+    status: str
+    started_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = None
+    error_code: str | None = None
+    error_details: dict[str, Any] | None = None
+    failed_step: str | None = None
+    warnings: list[dict[str, Any]] = Field(default_factory=list)
+    persisted_ids: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowRunLink(DomainModel):
+    id: str
+    workflow_id: str
+    entity_type: str
+    entity_id: str
+    relation: str
     created_at: datetime = Field(default_factory=utc_now)
 
 

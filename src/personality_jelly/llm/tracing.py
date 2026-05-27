@@ -20,6 +20,10 @@ class LLMTraceRecorder(Protocol):
         schema_name: str,
         provider_name: str,
         model_name: str | None,
+        request_id: str | None = None,
+        workflow_id: str | None = None,
+        workflow_step: str | None = None,
+        related_ids: dict[str, Any] | None = None,
         response_schema: dict[str, Any],
         raw_output: str,
         parsed_output: dict[str, Any] | None,
@@ -35,6 +39,10 @@ def record_structured_output(
     schema_name: str,
     provider: LLMProvider,
     model_config: ModelConfig,
+    request_id: str | None = None,
+    workflow_id: str | None = None,
+    workflow_step: str | None = None,
+    related_ids: Mapping[str, Any] | None = None,
     response_schema: dict[str, Any],
     raw_output: Mapping[str, Any],
     parsed_output: BaseModel | Mapping[str, Any] | None = None,
@@ -47,6 +55,10 @@ def record_structured_output(
         schema_name=schema_name,
         provider_name=provider.name,
         model_name=model_config.model,
+        request_id=request_id,
+        workflow_id=workflow_id,
+        workflow_step=workflow_step,
+        related_ids=dict(related_ids) if related_ids is not None else None,
         response_schema=response_schema,
         raw_output=json.dumps(raw_output, ensure_ascii=False, sort_keys=True, default=str),
         parsed_output=_dump_parsed_output(parsed_output),
@@ -81,8 +93,20 @@ def _serializable_error(error_details: ErrorDetails) -> dict[str, Any]:
 
 
 class RepositoryLLMTraceRecorder:
-    def __init__(self, repository) -> None:
+    def __init__(
+        self,
+        repository,
+        *,
+        request_id: str | None = None,
+        workflow_id: str | None = None,
+        workflow_step: str | None = None,
+        related_ids: Mapping[str, Any] | None = None,
+    ) -> None:
         self.repository = repository
+        self.request_id = request_id
+        self.workflow_id = workflow_id
+        self.workflow_step = workflow_step
+        self.related_ids = dict(related_ids) if related_ids is not None else None
 
     def record(
         self,
@@ -91,6 +115,10 @@ class RepositoryLLMTraceRecorder:
         schema_name: str,
         provider_name: str,
         model_name: str | None,
+        request_id: str | None = None,
+        workflow_id: str | None = None,
+        workflow_step: str | None = None,
+        related_ids: dict[str, Any] | None = None,
         response_schema: dict[str, Any],
         raw_output: str,
         parsed_output: dict[str, Any] | None,
@@ -102,9 +130,29 @@ class RepositoryLLMTraceRecorder:
             schema_name=schema_name,
             provider_name=provider_name,
             model_name=model_name,
+            request_id=request_id or self.request_id,
+            workflow_id=workflow_id or self.workflow_id,
+            workflow_step=workflow_step or self.workflow_step,
+            related_ids=related_ids or self.related_ids,
             response_schema=response_schema,
             raw_output=raw_output,
             parsed_output=parsed_output,
             validation_errors=validation_errors,
         )
         return self.repository.add(trace)
+
+    def with_correlation(
+        self,
+        *,
+        request_id: str,
+        workflow_id: str,
+        workflow_step: str | None = None,
+        related_ids: Mapping[str, Any] | None = None,
+    ) -> RepositoryLLMTraceRecorder:
+        return RepositoryLLMTraceRecorder(
+            self.repository,
+            request_id=request_id,
+            workflow_id=workflow_id,
+            workflow_step=workflow_step,
+            related_ids=related_ids,
+        )
