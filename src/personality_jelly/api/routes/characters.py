@@ -174,6 +174,12 @@ def post_character_persona_setup_run(
             character_id=normalized_character_id,
             header_idempotency_key=header_idempotency_key,
         )
+        replay = load_idempotency_replay(session, idempotency)
+        if replay is not None:
+            return JSONResponse(
+                status_code=replay.response_status_code,
+                content=replay.replay_payload,
+            )
         provider_roles, model_roles = _resolve_persona_setup_role_bundles(
             request.provider,
             settings=settings,

@@ -123,6 +123,10 @@ class ExplodingProvider(SetupRouteProvider):
         raise AssertionError("provider should not be called during replay or conflict")
 
 
+def _raise_provider_resolution(*args, **kwargs):
+    raise AssertionError("provider resolution should not run during replay")
+
+
 class TransportFailureProvider(SetupRouteProvider):
     def __init__(self, fail_schema_title: str) -> None:
         super().__init__()
@@ -354,6 +358,11 @@ def test_post_persona_setup_replays_without_provider_calls_or_duplicate_rows(
         )
         counts_after_first = _setup_counts(resources)
         monkeypatch.setattr(character_routes, "StubProvider", lambda: exploding_provider)
+        monkeypatch.setattr(
+            character_routes,
+            "_resolve_persona_setup_role_bundles",
+            _raise_provider_resolution,
+        )
         second = client.post(
             "/characters/char_replay/persona-setup-runs",
             headers={"Idempotency-Key": "setup-replay-key"},
