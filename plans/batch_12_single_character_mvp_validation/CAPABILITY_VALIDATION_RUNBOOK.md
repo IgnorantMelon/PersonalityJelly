@@ -1,83 +1,68 @@
-# Batch 12 单角色 MVP API 能力验证操作手顺
+# Batch 12 单角色 MVP 能力验证操作手顺
 
-## 目标
+## 验证目标
 
-本手顺用于验证 Batch 11 合入后的单角色 API 写链是否已经具备可用闭环。它是能力验证与证据采集流程，不是开发任务清单。
+本手顺只围绕 5 个产品问题验收：
 
-必验闭环包括：
+1. 如何导入文本
+2. 是否获得角色提取结果，在哪能看到
+3. 结果是否符合要求
+4. 如何运用这个产出进行对话
+5. 对话相关所有特性如何体验
 
-- API 内联源文本摄入：`POST /source-works`
-- API 确定性角色创建：`POST /characters`
-- API provider-backed persona setup：`POST /characters/{character_id}/persona-setup-runs`
-- API workflow、audit、diagnostics、redaction 与 idempotency 检查
+当前真实边界：
 
-CLI 不是 API 验收硬门槛。只有在需要确认当前 CLI 产品面仍可端到端工作，或需要覆盖尚未 HTTP API 化的 turn、summary、benchmark 能力时，才执行后面的可选 CLI 深度验证。
-
-## 禁止范围
-
-执行本手顺时不要新增或临时修改平台能力。发现问题只记录证据并归类，后续再拆成修复批次。
-
-- 不做多作品、多角色扩展
-- 不做 auth、workspace、UI、部署、队列、异步轮询、恢复或清理流程
-- 不做上传、URL/path 摄入、embedding/source enrichment 路由
-- 不新增 turn、summary、benchmark 的 HTTP 写接口
-- 不把验证过程中的临时补丁混入 `dev`
+- 文本导入、角色创建、persona setup、结果检查已经有 API。
+- 对话创建和对话检查有 API。
+- 真正执行一轮角色对话，也就是生成 assistant reply 的 turn workflow，目前还没有 HTTP API；现阶段要通过 `pjelly turn` 或 `pjelly demo` 体验。
+- 因此本手顺的验收口径是：API 验证产出是否成立；CLI 验证这些产出是否能驱动当前对话产品面。
 
 ## 前置条件
 
-从干净的 `dev` 根检出执行：
+从干净的 `dev` 执行：
 
 ```powershell
 git switch dev
 git pull --ff-only
 git status --short --branch
 uv sync
-.\.venv\Scripts\python -m pytest tests/test_api_character_persona_setup_route.py -q
 ```
 
-通过标准：
-
-- `git status` 显示 `dev...origin/dev` 且无未提交源码变更
-- persona setup route focused test 通过
-- 当前阶段是能力验证，不启动 worker 开发分支
-
-## 证据目录
-
-所有输出统一写入 `tmp/capability-validation/<RunId>`。该目录应保持为临时证据，不提交。
+创建本次证据目录和共用数据库：
 
 ```powershell
 $RunId = Get-Date -Format "yyyyMMdd-HHmmss"
 $EvidenceDir = Join-Path (Resolve-Path .) "tmp\capability-validation\$RunId"
 New-Item -ItemType Directory -Force -Path $EvidenceDir | Out-Null
 
+$DbPath = Join-Path $EvidenceDir "single-character-mvp.db"
+$DbUrl = "sqlite:///" + ($DbPath -replace "\\", "/")
+
 git rev-parse HEAD | Tee-Object -FilePath "$EvidenceDir\git-head.txt"
 git status --short --branch | Tee-Object -FilePath "$EvidenceDir\git-status.txt"
-.\.venv\Scripts\python --version | Tee-Object -FilePath "$EvidenceDir\python-version.txt"
 ```
 
-## 阶段 1：API 写链回归
+## 1. 如何导入文本
 
-先跑已有回归，覆盖 contract、幂等 replay/conflict、安全响应和 redaction。
+准备一个最小源文本。文件名会作为 API source title，后续 CLI `--reuse-existing` 会靠它复用同一个 source work。
 
 ```powershell
-.\.venv\Scripts\python -m pytest `
-  tests/test_api_source_ingest_route.py `
-  tests/test_api_character_creation_route.py `
-  tests/test_api_character_persona_setup_route.py `
-  tests/test_api_contract.py `
-  | Tee-Object -FilePath "$EvidenceDir\api-write-chain-tests.txt"
+$SourcePath = Join-Path $EvidenceDir "single-character-source.md"
+Set-Content -LiteralPath $SourcePath -Encoding UTF8 -Value @"
+# 第一章
+
+林霜总是先观察，再行动。她不会轻易相信陌生人，但会保护同伴。
+"@
 ```
 
-再跑一次 TestClient 级别的串联 smoke。这里不要求启动常驻 HTTP server，直接验证 FastAPI adapter 到 application 层的真实路由链。
+用 API 导入文本、创建角色、运行 persona setup，并把每个 API 结果写到证据目录：
 
 ```powershell
-$ApiDbPath = Join-Path $EvidenceDir "api-write-chain.db"
-$ApiDbUrl = "sqlite:///" + ($ApiDbPath -replace "\\", "/")
 $env:PJ_CAPABILITY_EVIDENCE_DIR = $EvidenceDir
-$env:PJ_CAPABILITY_API_DB_URL = $ApiDbUrl
-$ApiSmokePath = Join-Path $EvidenceDir "api-write-chain-smoke.py"
+$env:PJ_CAPABILITY_DB_URL = $DbUrl
+$ApiFlowPath = Join-Path $EvidenceDir "api-product-flow.py"
 
-Set-Content -LiteralPath $ApiSmokePath -Encoding UTF8 -Value @'
+Set-Content -LiteralPath $ApiFlowPath -Encoding UTF8 -Value @'
 from __future__ import annotations
 
 import json
@@ -92,21 +77,18 @@ from personality_jelly.core import Settings
 
 
 evidence_dir = Path(os.environ["PJ_CAPABILITY_EVIDENCE_DIR"])
-db_url = os.environ["PJ_CAPABILITY_API_DB_URL"]
+db_url = os.environ["PJ_CAPABILITY_DB_URL"]
 resources = create_database_resources(db_url)
 app = create_app(
     settings=Settings(config_file="missing-test-pjelly.toml", _env_file=None),
     database_resources=resources,
 )
 
-source_content = "# 第一章\n\n林霜总是先观察，再行动。\n\n她不会把陌生人的话直接当作事实。"
+source_content = "# 第一章\n\n林霜总是先观察，再行动。她不会轻易相信陌生人，但会保护同伴。"
 
 
-def save_response(name: str, response) -> dict:
-    payload = {
-        "status_code": response.status_code,
-        "body": response.json(),
-    }
+def save(name: str, response) -> dict:
+    payload = {"status_code": response.status_code, "body": response.json()}
     (evidence_dir / f"{name}.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -114,27 +96,25 @@ def save_response(name: str, response) -> dict:
     return payload
 
 
-def assert_success(name: str, response, expected_status: int = 201) -> dict:
-    payload = save_response(name, response)
+def require_success(name: str, response, expected_status: int = 201) -> dict:
+    payload = save(name, response)
     if response.status_code != expected_status:
         raise AssertionError(f"{name} expected {expected_status}, got {response.status_code}: {response.text}")
-    if source_content in response.text:
-        raise AssertionError(f"{name} leaked raw source text")
     return payload["body"]
 
 
 with TestClient(app) as client:
-    source = assert_success(
-        "api-source-work",
+    source = require_success(
+        "01-source-work",
         client.post(
             "/source-works",
             headers={
-                "X-Request-ID": "req_capability_source",
-                "Idempotency-Key": "capability-source-key",
+                "X-Request-ID": "req_product_source",
+                "Idempotency-Key": "product-source-key",
             },
             json={
-                "source_work_id": "sw_capability",
-                "title": "能力验证源文本",
+                "source_work_id": "sw_product_lins_huang",
+                "title": "single-character-source",
                 "author": "Validation",
                 "language": "zh-CN",
                 "source_type": "markdown",
@@ -145,136 +125,180 @@ with TestClient(app) as client:
                     "actor_id": "api-local:capability",
                     "actor_label": "Capability validation",
                     "user_id": "user_001",
-                    "operation_reason": "capability validation source ingest",
-                    "metadata": {"entrypoint": "capability-validation"},
+                    "operation_reason": "import source text for product validation",
+                    "metadata": {"entrypoint": "batch-12-product-flow"},
                 },
-                "metadata": {"client_label": "capability-validation"},
+                "metadata": {"client_label": "batch-12-product-flow"},
             },
         ),
     )
 
-    character = assert_success(
-        "api-character",
+    character = require_success(
+        "02-character-create",
         client.post(
             "/characters",
-            headers={"X-Request-ID": "req_capability_character"},
+            headers={"X-Request-ID": "req_product_character"},
             json={
                 "source_work_id": source["ids"]["source_work_id"],
-                "character_id": "char_capability_lins_huang",
+                "character_id": "char_product_lins_huang",
                 "canonical_name": "林霜",
                 "aliases": ["阿霜"],
                 "actor": {
                     "actor_id": "api-local:capability",
                     "actor_label": "Capability validation",
                     "user_id": "user_001",
-                    "operation_reason": "capability validation character create",
-                    "metadata": {"entrypoint": "capability-validation"},
+                    "operation_reason": "create character for product validation",
+                    "metadata": {"entrypoint": "batch-12-product-flow"},
                 },
-                "metadata": {"client_label": "capability-validation"},
+                "metadata": {"client_label": "batch-12-product-flow"},
             },
         ),
     )
 
-    setup_body = {
-        "source_work_id": source["ids"]["source_work_id"],
-        "provider": {
-            "source": "stub",
-            "model": "capability-setup-model",
-            "roles": {
-                "reader": {"model": "capability-reader-model"},
-                "verifier": {"model": "capability-verifier-model"},
-                "persona_compiler": {"model": "capability-compiler-model"},
-            },
-        },
-        "workflow_options": {"max_chunks": 2},
-        "actor": {
-            "actor_id": "api-local:capability",
-            "actor_label": "Capability validation",
-            "user_id": "user_001",
-            "operation_reason": "capability validation persona setup",
-            "metadata": {"entrypoint": "capability-validation"},
-        },
-        "metadata": {"client_label": "capability-validation"},
-    }
-    setup = assert_success(
-        "api-persona-setup",
+    setup = require_success(
+        "03-persona-setup",
         client.post(
-            "/characters/char_capability_lins_huang/persona-setup-runs",
+            "/characters/char_product_lins_huang/persona-setup-runs",
             headers={
-                "X-Request-ID": "req_capability_setup",
-                "Idempotency-Key": "capability-setup-key",
+                "X-Request-ID": "req_product_setup",
+                "Idempotency-Key": "product-persona-setup-key",
             },
-            json=setup_body,
+            json={
+                "source_work_id": source["ids"]["source_work_id"],
+                "character_id": character["ids"]["character_id"],
+                "provider": {
+                    "source": "stub",
+                    "model": "product-setup-model",
+                    "roles": {
+                        "reader": {"model": "product-reader-model"},
+                        "verifier": {"model": "product-verifier-model"},
+                        "persona_compiler": {"model": "product-compiler-model"},
+                    },
+                },
+                "workflow_options": {"max_chunks": 2},
+                "actor": {
+                    "actor_id": "api-local:capability",
+                    "actor_label": "Capability validation",
+                    "user_id": "user_001",
+                    "operation_reason": "extract role persona for product validation",
+                    "metadata": {"entrypoint": "batch-12-product-flow"},
+                },
+                "metadata": {"client_label": "batch-12-product-flow"},
+            },
         ),
     )
 
-    replay = assert_success(
-        "api-persona-setup-replay",
-        client.post(
-            "/characters/char_capability_lins_huang/persona-setup-runs",
-            headers={
-                "X-Request-ID": "req_capability_setup_replay",
-                "Idempotency-Key": "capability-setup-key",
-            },
-            json=setup_body,
-        ),
+    character_detail = require_success(
+        "04-character-detail",
+        client.get(f"/characters/{character['ids']['character_id']}"),
+        expected_status=200,
     )
-    if replay != setup:
-        raise AssertionError("persona setup replay payload changed")
-
-    conflict_response = client.post(
-        "/characters/char_capability_lins_huang/persona-setup-runs",
-        headers={"Idempotency-Key": "capability-setup-key"},
-        json={**setup_body, "metadata": {"client_label": "changed"}},
+    claims = require_success(
+        "05-claims",
+        client.get("/claims", params={"character_id": character["ids"]["character_id"]}),
+        expected_status=200,
     )
-    conflict = save_response("api-persona-setup-conflict", conflict_response)
-    if conflict_response.status_code != 409:
-        raise AssertionError(f"expected idempotency conflict 409, got {conflict_response.status_code}")
-    if "capability-setup-key" in conflict_response.text or source_content in conflict_response.text:
-        raise AssertionError("conflict response leaked idempotency key or source text")
+    first_chunk_id = source["result"]["first_chunk_id"]
+    if first_chunk_id:
+        require_success(
+            "06-source-chunk",
+            client.get(f"/source-chunks/{first_chunk_id}"),
+            expected_status=200,
+        )
+    require_success(
+        "07-workflow-persona-setup",
+        client.get(f"/workflow-runs/{setup['workflow_id']}"),
+        expected_status=200,
+    )
+    require_success(
+        "08-audit-persona-setup",
+        client.get(f"/audit-events/{setup['ids']['audit_event_id']}"),
+        expected_status=200,
+    )
+    require_success(
+        "09-llm-traces",
+        client.get("/llm-traces", params={"limit": 20}),
+        expected_status=200,
+    )
 
-    workflow = client.get(f"/workflow-runs/{setup['workflow_id']}")
-    save_response("api-persona-setup-workflow", workflow)
-    audit = client.get(f"/audit-events/{setup['ids']['audit_event_id']}")
-    save_response("api-persona-setup-audit", audit)
-
-print(f"api_db_url={db_url}")
+print(f"database_url={db_url}")
 print(f"source_work_id={source['ids']['source_work_id']}")
+print(f"chunk_count={source['result']['chunk_count']}")
 print(f"character_id={character['ids']['character_id']}")
 print(f"persona_version_id={setup['ids']['persona_version_id']}")
-print(f"workflow_id={setup['workflow_id']}")
-print(f"audit_event_id={setup['ids']['audit_event_id']}")
+print(f"claim_count={character_detail['claim_count']}")
+print(f"evidence_count={character_detail['evidence_count']}")
 print(f"llm_trace_count={len(setup['ids']['llm_trace_ids'])}")
+print(f"character_detail_file={evidence_dir / '04-character-detail.json'}")
+print(f"claims_file={evidence_dir / '05-claims.json'}")
+print(f"source_chunk_file={evidence_dir / '06-source-chunk.json'}")
 '@
 
-.\.venv\Scripts\python $ApiSmokePath | Tee-Object -FilePath "$EvidenceDir\api-write-chain-smoke.txt"
+.\.venv\Scripts\python $ApiFlowPath | Tee-Object -FilePath "$EvidenceDir\api-product-flow.txt"
 ```
 
-通过标准：
+导入成功的判断：
 
-- route tests 与 contract tests 全部通过
-- smoke 输出 `source_work_id`、`character_id`、`persona_version_id`、`workflow_id`、`audit_event_id`
-- persona setup replay 返回完全相同 payload，变更 body 后返回 409 conflict
-- response、workflow、audit 证据中不包含原始源文本、prompt、provider payload、raw output、密钥、路径或 stack trace
-- 本次能力链只验证 `POST /source-works`、`POST /characters`、`POST /characters/{character_id}/persona-setup-runs`，不引入 turn/summary/benchmark HTTP 写路由
+- `01-source-work.json` 的 `status_code` 是 `201`
+- `api-product-flow.txt` 中有 `source_work_id`
+- `chunk_count` 大于 `0`
+- `01-source-work.json` 中有 `result.chunk_ids`
+- 写接口响应不直接回显原始 source text，只返回 source/chunk IDs、计数和 redaction flags
 
-## 阶段 2：可选 CLI 端到端单角色 smoke
+## 2. 是否获得角色提取结果，在哪能看到
 
-本阶段不是 API 验收硬门槛。执行它的目的，是确认 API 写链产出的同类数据仍能支撑当前 CLI 产品面里的对话 runtime。创建一个最小源文件与独立 SQLite 数据库。默认使用 `stub` provider，避免网络与外部模型不稳定性影响能力判断。
+角色提取结果分三层看：
 
-```powershell
-$SourcePath = Join-Path $EvidenceDir "single-character-source.md"
-Set-Content -LiteralPath $SourcePath -Encoding UTF8 -Value @"
-# 第一章
+- 角色壳：`02-character-create.json`
+- persona setup 产物索引：`03-persona-setup.json`
+- 可读详情：`04-character-detail.json`、`05-claims.json`、`06-source-chunk.json`
 
-林霜总是先观察，再行动。她不会轻易相信陌生人，但会保护同伴。
-"@
+重点看这些字段：
 
-$CliDbPath = Join-Path $EvidenceDir "cli-capability.db"
-$CliDbUrl = "sqlite:///" + ($CliDbPath -replace "\\", "/")
-```
+- `03-persona-setup.json`
+  - `body.status`
+  - `body.ids.persona_version_id`
+  - `body.result.counts.candidate_claims`
+  - `body.result.counts.verified_claims`
+  - `body.result.counts.evidence_refs`
+  - `body.result.redaction`
+- `04-character-detail.json`
+  - `body.latest_persona_version_id`
+  - `body.latest_persona_version.core_self`
+  - `body.claim_count`
+  - `body.evidence_count`
+  - `body.claims`
+- `05-claims.json`
+  - `body.items[*].claim_type`
+  - `body.items[*].status`
+  - `body.items[*].confidence`
+  - `body.items[*].content`
+  - `body.items[*].evidence`
+- `06-source-chunk.json`
+  - `body.text`
 
-运行 deterministic demo：
+`06-source-chunk.json` 是刻意用来人工核对 claim 是否有原文依据的详情接口；写接口、workflow、audit 和 error 响应不应泄露原始全文。
+
+## 3. 结果是否符合要求
+
+按下面标准验收，不需要主观猜测：
+
+| 项目 | 合格标准 |
+| --- | --- |
+| 文本导入 | `chunk_count > 0`，有 `source_work_id` 和 `chunk_ids` |
+| 角色创建 | `character_id` 存在，`canonical_name` 是目标角色，`latest_persona_version_id` 在 persona setup 前可为空 |
+| persona setup | `status=completed`，有 `persona_version_id`，`llm_trace_count >= 3` |
+| claim | `claim_count > 0`，至少有 candidate 或 verified claim |
+| evidence | `evidence_count > 0`，claim 里有 `evidence.chunk_id`、`excerpt`、`support_score` |
+| persona | `latest_persona_version.core_self` 非空 |
+| 溯源 | claim 能通过 `evidence.chunk_id` 对应到 source chunk |
+| 脱敏 | 写接口、workflow、audit 不出现 source全文、prompt、provider payload、raw output、密钥、路径 |
+
+如果用 `stub` provider，结果只验证链路和数据形态，不验证语义质量。如果要判断真实角色抽取质量，把 `provider.source` 改成 `env` 并配置真实模型后重跑；语义质量验收仍看 claim、evidence、persona 是否能被原文支撑。
+
+## 4. 如何运用这个产出进行对话
+
+当前真正执行对话 turn 的入口是 CLI。为了复用前面 API 已导入的 source、character、persona，必须使用同一个 `$DbUrl`，并加 `--reuse-existing`。
 
 ```powershell
 .\.venv\Scripts\pjelly.exe demo $SourcePath `
@@ -282,235 +306,248 @@ $CliDbUrl = "sqlite:///" + ($CliDbPath -replace "\\", "/")
   --alias 阿霜 `
   --user "验证用户" `
   --user-message "请记住，我喜欢在夜里写作。" `
-  --database-url $CliDbUrl `
+  --database-url $DbUrl `
   --provider stub `
-  | Tee-Object -FilePath "$EvidenceDir\demo.txt"
+  --reuse-existing `
+  | Tee-Object -FilePath "$EvidenceDir\10-dialogue-first-turn.txt"
 ```
 
-提取关键 ID：
+提取对话相关 ID：
 
 ```powershell
-$Demo = Get-Content "$EvidenceDir\demo.txt"
-$SourceWorkId = (($Demo | Select-String "^source_work_id=").Line -split "=", 2)[1]
-$CharacterId = (($Demo | Select-String "^character_id=").Line -split "=", 2)[1]
-$PersonaVersionId = (($Demo | Select-String "^persona_version_id=").Line -split "=", 2)[1]
-$ConversationId = (($Demo | Select-String "^conversation_id=").Line -split "=", 2)[1]
-$ContextPackageId = (($Demo | Select-String "^context_package_id=").Line -split "=", 2)[1]
+$FirstTurn = Get-Content "$EvidenceDir\10-dialogue-first-turn.txt"
+$ConversationId = (($FirstTurn | Select-String "^conversation_id=").Line -split "=", 2)[1]
+$ContextPackageId = (($FirstTurn | Select-String "^context_package_id=").Line -split "=", 2)[1]
+$CriticReportId = (($FirstTurn | Select-String "^critic_report_id=").Line -split "=", 2)[1]
 ```
 
-通过标准：
+成功判断：
 
-- `source_work_id`、`character_id`、`persona_version_id`、`conversation_id`、`context_package_id` 均存在
+- `conversation_id` 存在
+- `assistant=` 有回复
+- `context_package_id` 存在
+- `critic_report_id` 存在
 - `critic_action=accept`
 - `failure_case_count=0`
-- `memory_count` 存在且为非负数
+- `memory_count` 存在
 
-## 阶段 3：可选对话连续性
+如果只使用 API，目前只能创建和查看 conversation，不能通过 HTTP 生成 assistant reply：
 
-对同一 conversation 执行第二轮：
+```text
+POST /conversations
+GET /conversations/{conversation_id}
+GET /context-packages/{context_package_id}
+```
+
+注意：`POST /conversations` 还要求 user 已存在；当前也没有独立 user create API。上面的 `pjelly demo --reuse-existing` 会复用 API 产出的 source/character/persona，并创建本地 user 和 conversation。
+
+缺口：`POST /conversations/{conversation_id}/turns` 或等价 turn API 尚未实现。
+
+## 5. 对话相关所有特性如何体验
+
+### 5.1 连续对话
 
 ```powershell
 .\.venv\Scripts\pjelly.exe turn $ConversationId `
   --message "如果我要独自去调查，你会怎么提醒我？" `
-  --database-url $CliDbUrl `
+  --database-url $DbUrl `
   --provider stub `
-  | Tee-Object -FilePath "$EvidenceDir\turn-2.txt"
+  | Tee-Object -FilePath "$EvidenceDir\11-dialogue-second-turn.txt"
 ```
 
-查看角色与会话：
+看点：
+
+- 第二轮继续使用同一个 `conversation_id`
+- 输出新的 `assistant_message_id`
+- 输出新的 `context_package_id`
+- `critic_action=accept`
+
+### 5.2 查看会话记录
 
 ```powershell
-.\.venv\Scripts\pjelly.exe show character $CharacterId --database-url $CliDbUrl `
-  | Tee-Object -FilePath "$EvidenceDir\show-character.txt"
-
-.\.venv\Scripts\pjelly.exe show conversation $ConversationId --database-url $CliDbUrl --messages 10 `
-  | Tee-Object -FilePath "$EvidenceDir\show-conversation.txt"
+.\.venv\Scripts\pjelly.exe show conversation $ConversationId --database-url $DbUrl --messages 10 `
+  | Tee-Object -FilePath "$EvidenceDir\12-show-conversation.txt"
 ```
 
-通过标准：
-
-- 第二轮输出 assistant message、context package、critic report，且 critic action 为 accept
-- character 仍挂载最新 persona version
-- character 检查中 claim/evidence 数量非零
-- conversation 检查中可见两轮 user message 与 assistant reply
-- 用户记忆没有被写回 source canon
-
-## 阶段 4：诊断、边界与脱敏
-
-API 验收必须运行 diagnostics/API redaction 回归片段。下面的 CLI list 命令是可选证据采集，用于检查尚未完全 HTTP API 化的本地产品面。
-
-可选列出 trace、claim、memory：
+提取真实 user id，后面的 memory 检查要用它：
 
 ```powershell
-.\.venv\Scripts\pjelly.exe list llm-traces --database-url $CliDbUrl `
-  | Tee-Object -FilePath "$EvidenceDir\llm-traces.txt"
+$Conversation = Get-Content "$EvidenceDir\12-show-conversation.txt"
+$UserId = (($Conversation | Select-String "^user_id=").Line -split "=", 2)[1]
+```
 
-.\.venv\Scripts\pjelly.exe list claims --character-id $CharacterId --database-url $CliDbUrl `
-  | Tee-Object -FilePath "$EvidenceDir\claims.txt"
+看点：
 
+- 能看到 user/assistant 交替消息
+- `persona_version_id` 是前面 persona setup 产出的版本
+- `mode` 正常
+
+### 5.3 查看本轮上下文组装
+
+```powershell
+.\.venv\Scripts\pjelly.exe show context-package $ContextPackageId --database-url $DbUrl `
+  | Tee-Object -FilePath "$EvidenceDir\13-show-context-package.txt"
+```
+
+看点：
+
+- `claim_ids` 包含角色 canon claim
+- `memory_ids` 包含本轮可用记忆
+- `retrieved_chunk_ids` 包含检索到的原文 chunk
+- `assembled_prompt` 能看到 persona、canon、memory、retrieved context 如何组装
+
+### 5.4 查看 critic 审查
+
+```powershell
+.\.venv\Scripts\pjelly.exe show critic-report $CriticReportId --database-url $DbUrl `
+  | Tee-Object -FilePath "$EvidenceDir\14-show-critic-report.txt"
+```
+
+看点：
+
+- `ooc_risk`
+- `fact_risk`
+- `memory_risk`
+- `mode_risk`
+- `suggested_action`
+- `reasons`
+
+### 5.5 查看失败案例
+
+```powershell
+.\.venv\Scripts\pjelly.exe list failure-cases --conversation-id $ConversationId --database-url $DbUrl `
+  | Tee-Object -FilePath "$EvidenceDir\15-list-failure-cases.txt"
+```
+
+看点：
+
+- 正常 smoke 下 `failure_case_count=0`
+- 如果有失败，记录 `failure_case.id`，再用 `show failure-case` 查看上下文、critic reason、消息内容
+
+### 5.6 查看和管理记忆
+
+```powershell
 .\.venv\Scripts\pjelly.exe list memories `
-  --user-id user_001 `
-  --character-id $CharacterId `
-  --database-url $CliDbUrl `
-  | Tee-Object -FilePath "$EvidenceDir\memories.txt"
+  --user-id $UserId `
+  --character-id char_product_lins_huang `
+  --database-url $DbUrl `
+  | Tee-Object -FilePath "$EvidenceDir\16-list-memories.txt"
 ```
 
-运行 diagnostics/API redaction 回归片段：
+看点：
+
+- 用户偏好应该进入 user/relationship memory
+- 用户输入不应该变成 source canon
+- 如果产生 candidate memory，可以用 `review memory` 接受或拒绝
+- 如果记忆内容不准，可以用 `edit memory`
+- 如果记忆不应继续使用，可以用 `archive memory`
+
+操作模板：
 
 ```powershell
-.\.venv\Scripts\python -m pytest `
-  tests/test_api_audit_workflow_inspection.py `
-  tests/test_api_diagnostics.py `
-  tests/test_api_correlation_error_envelope.py `
-  tests/test_application_audit_workflow_inspection.py `
-  | Tee-Object -FilePath "$EvidenceDir\diagnostics-tests.txt"
+.\.venv\Scripts\pjelly.exe review memory <memory_id> --decision accept --reason "人工确认" --database-url $DbUrl
+.\.venv\Scripts\pjelly.exe edit memory <memory_id> --content "修正后的记忆" --reason "人工修正" --database-url $DbUrl
+.\.venv\Scripts\pjelly.exe archive memory <memory_id> --database-url $DbUrl
 ```
 
-通过标准：
-
-- LLM trace 至少覆盖 reader、verifier、compiler 与 conversation runtime 调用
-- claim list 中有该角色的 candidate 或 verified canon rows
-- memory list 中只有 user/relationship memory，不出现重写 source canon 的条目
-- diagnostics tests 全部通过
-- workflow/audit/diagnostic HTTP 输出只暴露安全 ID、状态、计数、错误码、retry hint、redaction flags，不暴露原始文本或 provider 细节
-
-## 阶段 5：可选 Benchmark 可运行性
-
-Benchmark 执行尚不是 HTTP 写接口。本阶段只在需要确认完整 MVP 质量工具链时执行，不作为 API 化验收硬门槛。先跑 dry-run，确认输入与 case resolution 可用：
+### 5.7 生成会话摘要
 
 ```powershell
-.\.venv\Scripts\pjelly.exe eval ooc-benchmark `
-  --character-id $CharacterId `
-  --database-url $CliDbUrl `
+.\.venv\Scripts\pjelly.exe summarize conversation $ConversationId `
+  --messages 20 `
+  --database-url $DbUrl `
   --provider stub `
-  --dry-run `
-  | Tee-Object -FilePath "$EvidenceDir\ooc-dry-run.txt"
-
-.\.venv\Scripts\pjelly.exe eval retrieval-benchmark `
-  --character-id $CharacterId `
-  --database-url $CliDbUrl `
-  --provider stub `
-  --dry-run `
-  --max-cases 3 `
-  | Tee-Object -FilePath "$EvidenceDir\retrieval-dry-run.txt"
+  | Tee-Object -FilePath "$EvidenceDir\17-summarize-conversation.txt"
 ```
 
-dry-run 通过后，跑持久化 smoke：
+看点：
+
+- `summary` 存在
+- `short_term_scene_state`
+- `user_memory_candidates`
+- `relationship_memory_notes`
+- `reflective_notes`
+
+### 5.8 查看 LLM trace
 
 ```powershell
-.\.venv\Scripts\pjelly.exe eval ooc-benchmark `
-  --character-id $CharacterId `
-  --database-url $CliDbUrl `
-  --provider stub `
-  --test-suite "capability_ooc_$RunId" `
-  | Tee-Object -FilePath "$EvidenceDir\ooc-run.txt"
-
-.\.venv\Scripts\pjelly.exe eval retrieval-benchmark `
-  --character-id $CharacterId `
-  --database-url $CliDbUrl `
-  --provider stub `
-  --test-suite "capability_retrieval_$RunId" `
-  --max-cases 3 `
-  | Tee-Object -FilePath "$EvidenceDir\retrieval-run.txt"
+.\.venv\Scripts\pjelly.exe list llm-traces --database-url $DbUrl `
+  | Tee-Object -FilePath "$EvidenceDir\18-list-llm-traces.txt"
 ```
 
-通过标准：
+看点：
 
-- dry-run 显示不会创建 run
-- 持久化 run 返回 run id
-- totals 非零
-- pass/fail metrics 被记录
-- 如有 benchmark failure，按能力缺陷记录，不在验证现场扩 scope 修复
+- persona setup 阶段应有 reader、verifier、compiler trace
+- 对话阶段应有 mode、roleplay、critic、memory 相关 trace
+- `validation_error_count` 应为 0
 
-## 阶段 6：最终回归门
-
-能力检查完成后再跑 focused regression 与 full pytest：
+### 5.9 角色产出复查
 
 ```powershell
-.\.venv\Scripts\python -m pytest `
-  tests/test_api_source_ingest_route.py `
-  tests/test_api_character_creation_route.py `
-  tests/test_api_character_persona_setup_route.py `
-  tests/test_application_source_ingest_workflow.py `
-  tests/test_application_character_creation_workflow.py `
-  tests/test_application_character_persona_setup_workflow.py `
-  tests/test_persona_setup_provider_trace_foundation.py `
-  tests/test_turn_workflow_service.py `
-  tests/test_roleplay_runtime.py `
-  tests/test_memory_curator.py `
-  tests/test_retrieval_benchmark.py `
-  tests/test_evaluation_benchmark.py `
-  | Tee-Object -FilePath "$EvidenceDir\focused-regression.txt"
+.\.venv\Scripts\pjelly.exe show character char_product_lins_huang --database-url $DbUrl `
+  | Tee-Object -FilePath "$EvidenceDir\19-show-character.txt"
 
-.\.venv\Scripts\python -m pytest `
-  | Tee-Object -FilePath "$EvidenceDir\full-pytest.txt"
-
-git diff --check | Tee-Object -FilePath "$EvidenceDir\git-diff-check.txt"
-git status --short --branch | Tee-Object -FilePath "$EvidenceDir\final-git-status.txt"
+.\.venv\Scripts\pjelly.exe list claims --character-id char_product_lins_huang --database-url $DbUrl `
+  | Tee-Object -FilePath "$EvidenceDir\20-list-claims.txt"
 ```
 
-通过标准：
+看点：
 
-- focused regression 通过
-- full pytest 通过
-- `git diff --check` 无 whitespace error
-- final status 干净，或只剩被忽略的 `tmp/` 验证证据
+- `latest_persona_version_id` 仍然存在
+- `claim_count` 和 `evidence_count` 非零
+- `core_self` 可读
+- 对话产生的用户记忆没有污染 canon claim
 
-## 失败归类
-
-| 类别 | 示例 | 处理方式 |
-| --- | --- | --- |
-| 能力缺陷 | route 链成功但 persona 不可用、claim 缺失、memory/canon 边界错误 | 建立后续 focused fix task |
-| 契约回归 | 状态码错误、幂等 replay/conflict 错误、原始数据泄露、workflow/audit 链断裂 | 阻塞验收并修复 |
-| 手顺或样本问题 | 样本文本无有效 chunk、ID 提取失败、dry-run 参数错误 | 修正手顺或样本后重跑 |
-| provider/config 问题 | `env` provider 缺 key/model、网络 provider 失败 | 先用 `stub` 复验；`env` 问题单独记录 |
-| 已知质量差距 | benchmark failure 但诊断稳定、可解释 | 记录为能力发现，不扩成平台开发 |
-
-## 验收记录模板
+## 最终记录模板
 
 ```text
-Batch 12 单角色 MVP API 能力验证
+Batch 12 单角色 MVP 产品能力验证
 
 Commit:
 Evidence directory:
-API DB URL:
-Optional CLI DB URL:
+Database URL:
 
-API 写链:
-- source ingest:
-- character create:
-- persona setup:
-- replay/conflict:
-- redaction:
-
-Optional CLI 端到端:
+1. 文本导入:
 - source_work_id:
+- chunk_count:
+- evidence file:
+
+2. 角色提取结果:
 - character_id:
 - persona_version_id:
-- conversation_id:
-- second turn:
-- memory boundary:
-- canon boundary:
+- claim_count:
+- evidence_count:
+- character detail file:
+- claims file:
 
-Diagnostics:
-- workflow/audit inspection:
-- LLM traces:
+3. 结果合格性:
+- source/chunk:
 - claims/evidence:
-- raw text/provider payload leakage:
+- persona/core_self:
+- trace:
+- redaction:
+- semantic quality with stub/env:
 
-Optional benchmarks:
-- OOC dry-run:
-- OOC persisted run:
-- retrieval dry-run:
-- retrieval persisted run:
+4. 运用产出对话:
+- conversation_id:
+- first assistant:
+- context_package_id:
+- critic_report_id:
+- critic_action:
 
-Regression:
-- focused:
-- full pytest:
-- git diff/status:
+5. 对话特性体验:
+- multi-turn:
+- conversation inspection:
+- context package:
+- critic:
+- failure cases:
+- memories:
+- summary:
+- llm traces:
+- canon/memory boundary:
 
 Decision:
 - accepted / blocked
-- defects filed:
-- deferred scope unchanged:
+- defects:
+- missing API surface:
 ```
