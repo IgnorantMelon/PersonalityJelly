@@ -1,17 +1,17 @@
-# Batch 12 单角色 MVP 能力验证操作手顺
+# Batch 12 单角色 MVP API 能力验证操作手顺
 
 ## 目标
 
-本手顺用于验证 Batch 11 合入后的单角色 MVP 是否已经具备可用闭环。它是能力验证与证据采集流程，不是开发任务清单。
+本手顺用于验证 Batch 11 合入后的单角色 API 写链是否已经具备可用闭环。它是能力验证与证据采集流程，不是开发任务清单。
 
-验证闭环包括：
+必验闭环包括：
 
 - API 内联源文本摄入：`POST /source-works`
 - API 确定性角色创建：`POST /characters`
 - API provider-backed persona setup：`POST /characters/{character_id}/persona-setup-runs`
-- CLI 单角色对话与连续第二轮
-- canon、memory、workflow、audit、diagnostics、LLM trace 检查
-- OOC benchmark 与 retrieval benchmark 的可运行性
+- API workflow、audit、diagnostics、redaction 与 idempotency 检查
+
+CLI 不是 API 验收硬门槛。只有在需要确认当前 CLI 产品面仍可端到端工作，或需要覆盖尚未 HTTP API 化的 turn、summary、benchmark 能力时，才执行后面的可选 CLI 深度验证。
 
 ## 禁止范围
 
@@ -258,9 +258,9 @@ print(f"llm_trace_count={len(setup['ids']['llm_trace_ids'])}")
 - response、workflow、audit 证据中不包含原始源文本、prompt、provider payload、raw output、密钥、路径或 stack trace
 - 本次能力链只验证 `POST /source-works`、`POST /characters`、`POST /characters/{character_id}/persona-setup-runs`，不引入 turn/summary/benchmark HTTP 写路由
 
-## 阶段 2：CLI 端到端单角色 smoke
+## 阶段 2：可选 CLI 端到端单角色 smoke
 
-创建一个最小源文件与独立 SQLite 数据库。默认使用 `stub` provider，避免网络与外部模型不稳定性影响能力判断。
+本阶段不是 API 验收硬门槛。执行它的目的，是确认 API 写链产出的同类数据仍能支撑当前 CLI 产品面里的对话 runtime。创建一个最小源文件与独立 SQLite 数据库。默认使用 `stub` provider，避免网络与外部模型不稳定性影响能力判断。
 
 ```powershell
 $SourcePath = Join-Path $EvidenceDir "single-character-source.md"
@@ -305,7 +305,7 @@ $ContextPackageId = (($Demo | Select-String "^context_package_id=").Line -split 
 - `failure_case_count=0`
 - `memory_count` 存在且为非负数
 
-## 阶段 3：对话连续性
+## 阶段 3：可选对话连续性
 
 对同一 conversation 执行第二轮：
 
@@ -337,7 +337,9 @@ $ContextPackageId = (($Demo | Select-String "^context_package_id=").Line -split 
 
 ## 阶段 4：诊断、边界与脱敏
 
-列出 trace、claim、memory：
+API 验收必须运行 diagnostics/API redaction 回归片段。下面的 CLI list 命令是可选证据采集，用于检查尚未完全 HTTP API 化的本地产品面。
+
+可选列出 trace、claim、memory：
 
 ```powershell
 .\.venv\Scripts\pjelly.exe list llm-traces --database-url $CliDbUrl `
@@ -372,9 +374,9 @@ $ContextPackageId = (($Demo | Select-String "^context_package_id=").Line -split 
 - diagnostics tests 全部通过
 - workflow/audit/diagnostic HTTP 输出只暴露安全 ID、状态、计数、错误码、retry hint、redaction flags，不暴露原始文本或 provider 细节
 
-## 阶段 5：Benchmark 可运行性
+## 阶段 5：可选 Benchmark 可运行性
 
-先跑 dry-run，确认输入与 case resolution 可用：
+Benchmark 执行尚不是 HTTP 写接口。本阶段只在需要确认完整 MVP 质量工具链时执行，不作为 API 化验收硬门槛。先跑 dry-run，确认输入与 case resolution 可用：
 
 ```powershell
 .\.venv\Scripts\pjelly.exe eval ooc-benchmark `
@@ -467,12 +469,12 @@ git status --short --branch | Tee-Object -FilePath "$EvidenceDir\final-git-statu
 ## 验收记录模板
 
 ```text
-Batch 12 单角色 MVP 能力验证
+Batch 12 单角色 MVP API 能力验证
 
 Commit:
 Evidence directory:
 API DB URL:
-CLI DB URL:
+Optional CLI DB URL:
 
 API 写链:
 - source ingest:
@@ -481,7 +483,7 @@ API 写链:
 - replay/conflict:
 - redaction:
 
-CLI 端到端:
+Optional CLI 端到端:
 - source_work_id:
 - character_id:
 - persona_version_id:
@@ -496,7 +498,7 @@ Diagnostics:
 - claims/evidence:
 - raw text/provider payload leakage:
 
-Benchmarks:
+Optional benchmarks:
 - OOC dry-run:
 - OOC persisted run:
 - retrieval dry-run:
