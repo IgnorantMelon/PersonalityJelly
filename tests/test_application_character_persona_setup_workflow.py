@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 import pytest
@@ -131,6 +132,74 @@ class ExplodingProvider(SetupWorkflowProvider):
         raise AssertionError("provider should not be called during idempotency replay")
 
 
+class TransportFailureProvider(SetupWorkflowProvider):
+    def __init__(self, fail_schema_title: str) -> None:
+        super().__init__()
+        self.fail_schema_title = fail_schema_title
+
+    def generate_json(self, messages, schema, model_config):
+        schema_title = schema.get("title")
+        if schema_title == self.fail_schema_title:
+            self.schema_titles.append(schema_title)
+            raise RuntimeError(
+                "provider transport failed with api_key=sk-raw-secret "
+                r"and path C:\Users\figna\provider.log"
+            )
+        return super().generate_json(messages, schema, model_config)
+
+
+class ValidationFailureProvider(SetupWorkflowProvider):
+    def __init__(self, fail_schema_title: str) -> None:
+        super().__init__()
+        self.fail_schema_title = fail_schema_title
+
+    def generate_json(self, messages, schema, model_config):
+        schema_title = schema.get("title")
+        if schema_title == self.fail_schema_title:
+            self.schema_titles.append(schema_title)
+            return {
+                "raw_provider_output": "RAW_PROVIDER_OUTPUT_SHOULD_NOT_LEAK",
+                "source_text": "Lin Shuang observes before acting.",
+                "claims": "not-a-list",
+                "decisions": "not-a-list",
+                "core_self": 123,
+            }
+        return super().generate_json(messages, schema, model_config)
+
+
+class NoVerifiedProvider(SetupWorkflowProvider):
+    def generate_json(self, messages, schema, model_config):
+        schema_title = schema.get("title")
+        if schema_title == "VerifierResult":
+            self.schema_titles.append(schema_title)
+            careful_claim_id, reckless_claim_id = _claim_ids_from_prompt(messages[-1].content)
+            return {
+                "decisions": [
+                    {
+                        "claim_id": careful_claim_id,
+                        "status": "rejected",
+                        "confidence": 0.2,
+                        "reasoning": "The evidence was too weak.",
+                    },
+                    {
+                        "claim_id": reckless_claim_id,
+                        "status": "conflicted",
+                        "confidence": 0.25,
+                        "reasoning": "The evidence conflicts with the claim.",
+                    },
+                ],
+                "conflicts": [
+                    {
+                        "claim_a_id": careful_claim_id,
+                        "claim_b_id": reckless_claim_id,
+                        "description": "No claim is verified.",
+                        "resolution": "Review the source and aliases.",
+                    }
+                ],
+            }
+        return super().generate_json(messages, schema, model_config)
+
+
 def test_successful_setup_persists_domain_rows_workflow_links_audit_and_replay() -> None:
     session_factory = _session_factory()
 
@@ -247,6 +316,306 @@ def test_successful_setup_persists_domain_rows_workflow_links_audit_and_replay()
     )
     assert replay.related_ids["candidate_claim_ids"] == result.persisted_ids.candidate_claim_ids
     assert "Lin Shuang observes before acting." not in str(replay.replay_payload)
+
+
+def test_reader_transport_failure_marks_workflow_failed_without_business_rows() -> None:
+    session_factory = _session_factory()
+
+    with session_factory() as session:
+        _seed_source_and_character(session)
+        provider = TransportFailureProvider("ReaderExtraction")
+
+        result = run_character_persona_setup_workflow(session, _request(provider=provider))
+
+        workflow = WorkflowRunRepository(session).require(result.workflow_id)
+        audit = AuditEventRepository(session).require(result.persisted_ids.audit_event_ids[0])
+        replay = IdempotencyRecordRepository(session).list_all()[0]
+
+        assert result.status == "failed"
+        assert result.failure.error_family == "provider_failure"
+        assert result.failure.error_code == "provider_failure"
+        assert result.failure.failed_step == "reader_extract"
+        assert result.failure.retry_hint == "inspect_workflow_and_retry_with_new_idempotency_key"
+        assert result.counts.model_dump(mode="json") == {
+            "candidate_claims": 0,
+            "evidence_refs": 0,
+            "verified_claims": 0,
+            "conflicts": 0,
+            "llm_traces": 0,
+            "audit_events": 1,
+        }
+        assert workflow.status == "failed"
+        assert workflow.error_code == "provider_failure"
+        assert workflow.failed_step == "reader_extract"
+        assert audit.result == "failed"
+        assert replay.status == "failed"
+        assert replay.response_status_code == 502
+        assert replay.replay_payload["error"]["code"] == "provider_failure"
+        assert provider.schema_titles == ["ReaderExtraction"]
+        assert _counts(session) == {
+            "claims": 0,
+            "evidence": 0,
+            "conflicts": 0,
+            "personas": 0,
+            "traces": 0,
+            "audits": 1,
+            "workflows": 1,
+            "idempotency_records": 1,
+        }
+
+
+def test_reader_validation_failure_returns_safe_trace_id_without_raw_output() -> None:
+    session_factory = _session_factory()
+
+    with session_factory() as session:
+        _seed_source_and_character(session)
+        provider = ValidationFailureProvider("ReaderExtraction")
+
+        result = run_character_persona_setup_workflow(session, _request(provider=provider))
+
+        traces = LLMRawOutputRepository(session).list_all()
+        workflow = WorkflowRunRepository(session).require(result.workflow_id)
+        replay = IdempotencyRecordRepository(session).list_all()[0]
+
+        assert result.status == "failed"
+        assert result.failure.error_family == "provider_validation_error"
+        assert result.failure.error_code == "provider_validation_error"
+        assert result.failure.failed_step == "reader_extract"
+        assert result.failure.llm_trace_ids == [traces[0].id]
+        assert workflow.status == "failed"
+        assert workflow.error_code == "provider_validation_error"
+        assert workflow.persisted_ids["llm_trace_ids"] == [traces[0].id]
+        assert replay.replay_payload["error"]["details"]["llm_trace_ids"] == [traces[0].id]
+        assert "RAW_PROVIDER_OUTPUT_SHOULD_NOT_LEAK" not in _serialized(
+            {
+                "result": result.model_dump(mode="json"),
+                "workflow_error": workflow.error_details,
+                "replay": replay.model_dump(mode="json"),
+            }
+        )
+        assert _counts(session) == {
+            "claims": 0,
+            "evidence": 0,
+            "conflicts": 0,
+            "personas": 0,
+            "traces": 1,
+            "audits": 1,
+            "workflows": 1,
+            "idempotency_records": 1,
+        }
+
+
+def test_verifier_validation_failure_after_reader_persistence_marks_partial() -> None:
+    session_factory = _session_factory()
+
+    with session_factory() as session:
+        _seed_source_and_character(session)
+        provider = ValidationFailureProvider("VerifierResult")
+
+        result = run_character_persona_setup_workflow(session, _request(provider=provider))
+
+        workflow = WorkflowRunRepository(session).require(result.workflow_id)
+        replay = IdempotencyRecordRepository(session).list_all()[0]
+
+        assert result.status == "partial"
+        assert result.failure.error_family == "partial_persistence"
+        assert result.failure.error_code == "provider_validation_error"
+        assert result.failure.failed_step == "verifier_validate"
+        assert result.persisted_ids.candidate_claim_ids
+        assert result.persisted_ids.evidence_ref_ids
+        assert result.persisted_ids.persona_version_id is None
+        assert result.counts.candidate_claims == 2
+        assert result.counts.evidence_refs == 2
+        assert result.counts.llm_traces == 2
+        assert workflow.status == "partial"
+        assert workflow.error_code == "partial_persistence"
+        assert replay.status == "partial"
+        assert replay.response_status_code == 500
+        assert replay.replay_payload["error"]["code"] == "partial_persistence"
+        assert provider.schema_titles == ["ReaderExtraction", "VerifierResult"]
+        assert _counts(session) == {
+            "claims": 2,
+            "evidence": 2,
+            "conflicts": 0,
+            "personas": 0,
+            "traces": 2,
+            "audits": 1,
+            "workflows": 1,
+            "idempotency_records": 1,
+        }
+
+
+def test_no_verified_claims_after_verifier_marks_partial_without_compiling() -> None:
+    session_factory = _session_factory()
+
+    with session_factory() as session:
+        _seed_source_and_character(session)
+        provider = NoVerifiedProvider()
+
+        result = run_character_persona_setup_workflow(session, _request(provider=provider))
+
+        claims = CanonClaimRepository(session).list_by_character("char_setup")
+        workflow = WorkflowRunRepository(session).require(result.workflow_id)
+
+        assert result.status == "partial"
+        assert result.failure.error_family == "partial_persistence"
+        assert result.failure.error_code == "no_verified_claims"
+        assert result.failure.failed_step == "persona_compile"
+        assert result.persisted_ids.verified_claim_ids == []
+        assert result.persisted_ids.conflict_ids
+        assert result.persisted_ids.persona_version_id is None
+        assert workflow.status == "partial"
+        assert all(claim.status != "verified" for claim in claims)
+        assert "PersonaCompilation" not in provider.schema_titles
+        assert _counts(session)["personas"] == 0
+
+
+def test_compiler_validation_failure_after_verification_marks_partial() -> None:
+    session_factory = _session_factory()
+
+    with session_factory() as session:
+        _seed_source_and_character(session)
+        provider = ValidationFailureProvider("PersonaCompilation")
+
+        result = run_character_persona_setup_workflow(session, _request(provider=provider))
+
+        workflow = WorkflowRunRepository(session).require(result.workflow_id)
+
+        assert result.status == "partial"
+        assert result.failure.error_family == "partial_persistence"
+        assert result.failure.error_code == "provider_validation_error"
+        assert result.failure.failed_step == "persona_compile"
+        assert result.persisted_ids.verified_claim_ids
+        assert result.persisted_ids.persona_version_id is None
+        assert result.counts.llm_traces == 3
+        assert workflow.status == "partial"
+        assert workflow.error_code == "partial_persistence"
+        assert provider.schema_titles == [
+            "ReaderExtraction",
+            "VerifierResult",
+            "PersonaCompilation",
+        ]
+        assert _counts(session)["personas"] == 0
+
+
+def test_terminal_failed_replay_returns_stored_payload_without_provider_calls() -> None:
+    session_factory = _session_factory()
+
+    with session_factory() as session:
+        _seed_source_and_character(session)
+        first = run_character_persona_setup_workflow(
+            session,
+            _request(provider=TransportFailureProvider("ReaderExtraction")),
+        )
+        replay_payload = IdempotencyRecordRepository(session).list_all()[0].replay_payload
+
+        replay = run_character_persona_setup_workflow(
+            session,
+            _request(
+                provider=ExplodingProvider(),
+                correlation=CorrelationContext(request_id="req_failed_replay_attempt"),
+            ),
+        )
+
+        assert isinstance(replay, CharacterPersonaSetupReplay)
+        assert first.status == "failed"
+        assert replay.response_status_code == 502
+        assert replay.replay_payload == replay_payload
+        assert replay.replay_payload["error"]["code"] == "provider_failure"
+        assert _counts(session) == {
+            "claims": 0,
+            "evidence": 0,
+            "conflicts": 0,
+            "personas": 0,
+            "traces": 0,
+            "audits": 1,
+            "workflows": 1,
+            "idempotency_records": 1,
+        }
+
+
+def test_terminal_partial_replay_returns_stored_payload_without_resuming() -> None:
+    session_factory = _session_factory()
+
+    with session_factory() as session:
+        _seed_source_and_character(session)
+        first = run_character_persona_setup_workflow(
+            session,
+            _request(provider=ValidationFailureProvider("VerifierResult")),
+        )
+        replay_payload = IdempotencyRecordRepository(session).list_all()[0].replay_payload
+
+        replay = run_character_persona_setup_workflow(
+            session,
+            _request(
+                provider=ExplodingProvider(),
+                correlation=CorrelationContext(request_id="req_partial_replay_attempt"),
+            ),
+        )
+
+        assert isinstance(replay, CharacterPersonaSetupReplay)
+        assert first.status == "partial"
+        assert replay.response_status_code == 500
+        assert replay.replay_payload == replay_payload
+        assert replay.replay_payload["error"]["code"] == "partial_persistence"
+        assert _counts(session) == {
+            "claims": 2,
+            "evidence": 2,
+            "conflicts": 0,
+            "personas": 0,
+            "traces": 2,
+            "audits": 1,
+            "workflows": 1,
+            "idempotency_records": 1,
+        }
+
+
+def test_terminal_failure_partial_payloads_are_recursively_redacted() -> None:
+    session_factory = _session_factory()
+
+    with session_factory() as session:
+        _seed_source_and_character(session)
+        result = run_character_persona_setup_workflow(
+            session,
+            _request(provider=ValidationFailureProvider("ReaderExtraction")),
+        )
+
+        trace = LLMRawOutputRepository(session).list_all()[0]
+        workflow = WorkflowRunRepository(session).require(result.workflow_id)
+        audit = AuditEventRepository(session).require(result.persisted_ids.audit_event_ids[0])
+        replay = IdempotencyRecordRepository(session).list_all()[0]
+        payload = {
+            "result": result.model_dump(mode="json"),
+            "workflow_error": workflow.error_details,
+            "audit_metadata": audit.metadata,
+            "idempotency": replay.model_dump(mode="json"),
+            "trace_reference": {
+                "id": trace.id,
+                "request_id": trace.request_id,
+                "workflow_id": trace.workflow_id,
+                "workflow_step": trace.workflow_step,
+                "related_ids": trace.related_ids,
+            },
+        }
+        serialized = _serialized(payload)
+
+        assert result.failure.llm_trace_ids == [trace.id]
+        for forbidden in [
+            "RAW_PROVIDER_OUTPUT_SHOULD_NOT_LEAK",
+            "Lin Shuang observes before acting.",
+            '"raw_output"',
+            '"parsed_output"',
+            '"response_schema"',
+            '"validation_errors"',
+            '"provider_payload"',
+            '"provider_config"',
+            "api_key",
+            "authorization",
+            "Traceback",
+            "C:\\Users",
+            "SELECT ",
+        ]:
+            assert forbidden not in serialized
 
 
 def test_terminal_success_replay_returns_stored_payload_without_provider_calls() -> None:
@@ -494,3 +863,7 @@ def _counts(session) -> dict[str, int]:
         "workflows": len(WorkflowRunRepository(session).list_all()),
         "idempotency_records": len(IdempotencyRecordRepository(session).list_all()),
     }
+
+
+def _serialized(value: object) -> str:
+    return json.dumps(value, ensure_ascii=True, sort_keys=True)
