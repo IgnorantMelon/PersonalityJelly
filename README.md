@@ -101,12 +101,24 @@ timeout_seconds = 60
 - Batch 07：已实现最小安全的本地写入基础：redaction/correlation/actor context、`POST /conversations`，以及 manual memory review/edit/archive；不包含 provider-backed 写流程、persistent audit、auth/workspace、部署或 UI。
 - Batch 08：已实现 API workflow persistence foundation：persistent audit events、workflow_runs/workflow_run_links、LLM trace correlation fields、idempotency replay/conflict、provider failure/partial-persistence contracts，以及只读 audit/workflow inspection routes；仍不包含 provider-backed 写流程、source ingest/character/persona/turn/summary/benchmark 写接口、auth/workspace、部署或 UI。
 - Batch 09：已完成 provider-backed API planning，明确 source ingest、character/persona setup 契约、共享 write contract matrix 与 Batch 10 实施计划；未新增 provider-backed 路由或 source 行为变更。
-- Batch 10：下一实施批次先实现 `POST /source-works`，再实现确定性 `POST /characters`；provider-backed persona setup 延后。任何 provider-backed route 都必须继续复用 Batch 08 的 audit/workflow/idempotency/failure contract。
+- Batch 10: implemented `POST /source-works` and deterministic `POST /characters` on top of
+  the Batch 08 audit/workflow/idempotency/failure contract.
+- Batch 11: implemented provider-backed `POST /characters/{character_id}/persona-setup-runs`
+  with staged Reader/Verifier/persona-compiler persistence, trace correlation, audit events,
+  idempotency replay/conflict, and sanitized failed/partial diagnostics.
 
 ## 开发指南
 
 所有面向编码智能体的指引、实现规则、已采纳架构选择、工作流约束和当前非目标，都集中维护在 [VIBE_CODING_GUIDE.md](./VIBE_CODING_GUIDE.md)。本 README 只用于项目介绍、快速开始和简要开发计划展示。
-## Batch 10 Update
+## Batch 11 Update
 
-Batch 10 source/character API has been implemented and verified on `dev`. The next staged batch is
-provider-backed persona setup only (`POST /characters/{character_id}/persona-setup-runs`).
+Batch 11 adds the first provider-backed write route:
+`POST /characters/{character_id}/persona-setup-runs`.
+
+The route is synchronous and thin over `personality_jelly.application`. It accepts only safe
+provider source/model labels (`stub` or `env`), requires idempotency, stores workflow/audit/LLM
+trace links, and returns only safe IDs, counts, statuses, retry hints, and redaction flags.
+
+Deferred scope remains: resume/repair/cleanup runs, async queues/polling, uploads, URL ingest,
+embeddings/source enrichment, turn/summary/benchmark write routes, auth/workspace/platform, UI,
+deployment, and prompt controls over HTTP.

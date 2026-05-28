@@ -51,12 +51,13 @@ All coding agents and task prompts must follow this baseline:
   pure verification as numbered batch task prompts; keep those as coordinator acceptance criteria or
   post-batch status work.
 - Final reports should include files changed, tests run and results, and any task-specific caveats.
-- Current phase direction is post-Batch 09 Provider-Backed API Planning closeout. Batch 09 selected
-  Batch 10 as the next accepted implementation scope: implement `POST /source-works` first, then
-  deterministic `POST /characters`. Provider-backed persona setup remains deferred. Do not add
-  provider-backed persona setup, other provider-backed HTTP write routes, platform/auth/workspace
-  features, or semantic behavior in API handlers outside the accepted Batch 10 plan, and keep
-  handlers thin over `personality_jelly.application`.
+- Current phase direction is post-Batch 11 provider-backed persona setup API closeout. Implemented
+  single-character write routes are `POST /source-works`, `POST /characters`, and
+  `POST /characters/{character_id}/persona-setup-runs`. Keep handlers thin over
+  `personality_jelly.application`; do not add turn/summary/benchmark write routes,
+  resume/repair/cleanup routes, async queues, uploads, URL fetches, embeddings/source enrichment,
+  platform/auth/workspace features, deployment, UI, or semantic behavior in API handlers without a
+  newly accepted batch plan.
 
 ## Multi-Agent Orchestration Mode
 
@@ -145,11 +146,14 @@ After Batch 06 closeout, future development should stay incremental and evidence
 
 - API implementation path:
   - Batch 08 API Workflow Persistence Foundation is closeout verified;
-  - Batch 09 Provider-Backed API Planning is closeout accepted and selected Batch 10 to implement
-    `POST /source-works` first, then deterministic `POST /characters`;
-  - provider-backed `POST /characters/{character_id}/persona-setup-runs` is deferred until a later
-    staged setup batch; turn execution, summary, benchmark execution, and cursor migration remain
-    later candidates;
+  - Batch 09 Provider-Backed API Planning is closeout accepted;
+  - Batch 10 implemented `POST /source-works` and deterministic `POST /characters`;
+  - Batch 11 implemented provider-backed
+    `POST /characters/{character_id}/persona-setup-runs` as a staged application workflow with
+    trace correlation, audit/workflow links, idempotency replay, and sanitized failed/partial
+    diagnostics;
+  - turn execution, summary, benchmark execution, resume/repair/cleanup, async queues, and cursor
+    migration remain later candidates;
   - every provider-backed route must reuse Batch 08 persistent audit, workflow-run/link,
     idempotency/replay, and provider failure/partial-persistence contracts;
   - keep write handlers as adapters over `application` services rather than moving workflow logic
@@ -197,7 +201,7 @@ Accepted Batch 09 planning artifacts live under `plans/batch_09_provider_backed_
 - `03_provider_backed_write_contract_matrix.md`
 - `BATCH_09_CLOSEOUT.md`
 
-Current Batch 10 implementation plan lives under
+Batch 10 implementation artifacts live under
 `plans/batch_10_provider_backed_source_character_api/`:
 
 - `BATCH_10_PROVIDER_BACKED_SOURCE_CHARACTER_API.md`
@@ -205,15 +209,30 @@ Current Batch 10 implementation plan lives under
 - `02_source_ingest_api_route_prompt.md`
 - `03_character_creation_workflow_route_prompt.md`
 
-Accepted Batch 10 scope:
+Implemented Batch 10 scope:
 
 1. Implement the source ingest application workflow and `POST /source-works`.
 2. Implement deterministic character creation and `POST /characters`.
-3. Defer provider-backed `POST /characters/{character_id}/persona-setup-runs` until a later batch.
+
+Batch 11 implementation artifacts live under
+`plans/batch_11_provider_backed_persona_setup/`:
+
+- `BATCH_11_PROVIDER_BACKED_PERSONA_SETUP.md`
+- `01_persona_setup_provider_trace_foundation_prompt.md`
+- `02_persona_setup_application_workflow_prompt.md`
+- `03_persona_setup_api_route_prompt.md`
+
+Implemented Batch 11 scope:
+
+1. Add persona-setup provider/model role bundles and step-correlated LLM trace plumbing.
+2. Add staged provider-backed persona setup application workflow with completed, failed, and
+   partial terminal outcomes.
+3. Expose thin `POST /characters/{character_id}/persona-setup-runs` API adapter.
 
 Do not add auth/workspace/platform features, cursor migrations, CORS, deployment, UI, queues,
-external observability, uploads, URL fetches, embeddings, provider-backed persona setup, or other
-provider-backed routes outside the accepted Batch 10 scope.
+external observability, uploads, URL fetches, embeddings/source enrichment, turn/summary/benchmark
+write routes, resume/repair/cleanup routes, or provider prompt controls outside a newly accepted
+batch scope.
 
 Batch 08 task prompts and closeout artifact live under `plans/batch_08_api_workflow_persistence/`:
 
@@ -253,9 +272,9 @@ Current Batch 07 task prompts live under `plans/batch_07_api_write_foundation/`:
 - `06_batch_07_closeout_verification_prompt.md`
 - `BATCH_07_CLOSEOUT.md`
 
-Do not add provider-backed HTTP write routes outside the next accepted batch scope. Provider-backed
-workflows require additional durable workflow correlation, redaction, partial-persistence, retry,
-idempotency, and audit decisions before HTTP exposure.
+Do not add further provider-backed HTTP write routes outside the next accepted batch scope. New
+provider-backed workflows must reuse the Batch 08 and Batch 11 durable workflow correlation,
+redaction, partial-persistence, retry, idempotency, and audit decisions before HTTP exposure.
 
 ## Current Adopted Stack
 
@@ -574,5 +593,8 @@ Do not build these unless the task explicitly changes phase:
 
 The immediate project value is a reliable, inspectable character brain, not platform breadth.
 
-Batch 10 closeout note: the source/character API is now implemented and merged on `dev`. Batch 11
-should start from that accepted state and add only staged provider-backed persona setup.
+Batch 11 closeout note: source ingest, deterministic character creation, and provider-backed
+persona setup are now implemented as thin API adapters over `personality_jelly.application`. The
+next major milestone should be explicit single-character MVP capability validation across ingest,
+character creation, persona setup, conversation turns, memory boundaries, diagnostics, and
+benchmarks before expanding into multi-work, multi-character, workspace, UI, or platform scope.
