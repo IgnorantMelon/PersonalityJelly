@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, Path, Query
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -11,12 +11,17 @@ from personality_jelly.api.character_schemas import (
     CharacterCreateRequestBody,
     CharacterCreateResponse,
 )
-from personality_jelly.api.dependencies import get_session, get_write_session
+from personality_jelly.api.dependencies import get_session, get_settings, get_write_session
 from personality_jelly.api.errors import build_error_envelope
 from personality_jelly.api.memory_mutation_schemas import (
     MemoryArchiveRequestBody,
     MemoryEditRequestBody,
     MemoryReviewRequestBody,
+)
+from personality_jelly.api.persona_setup_schemas import (
+    PersonaSetupProviderRequest,
+    PersonaSetupRunRequestBody,
+    PersonaSetupRunResponse,
 )
 from personality_jelly.api.redaction import redact_payload
 from personality_jelly.api.schemas import (
@@ -27,8 +32,12 @@ from personality_jelly.api.schemas import (
     resolve_write_request_idempotency,
 )
 from personality_jelly.application import (
+    CHARACTER_PERSONA_SETUP_SUCCESS_STATUS_CODE,
+    CHARACTER_PERSONA_SETUP_WORKFLOW_TYPE,
     CHARACTER_CREATE_SUCCESS_STATUS_CODE,
     CHARACTER_CREATE_WORKFLOW_TYPE,
+    CharacterPersonaSetupReplay,
+    CharacterPersonaSetupWorkflowResult,
     CharacterDetail,
     ClaimSummary,
     ConflictError,
@@ -40,8 +49,14 @@ from personality_jelly.application import (
     ManualMemoryMutationResult,
     ManualMemoryReviewRequest,
     MemorySummary,
+    PartialPersistenceError,
+    PersonaSetupModelRoleBundle,
+    ProviderFailureError,
+    ProviderValidationFailureError,
     NormalizedError,
     SourceChunkDetail,
+    WorkflowFailureCode,
+    WorkflowFailureError,
     WorkflowStatus,
     archive_memory_workflow,
     build_error_correlation,
@@ -57,10 +72,14 @@ from personality_jelly.application import (
     list_memories,
     load_idempotency_replay,
     normalize_error,
+    resolve_persona_setup_provider,
     review_memory_workflow,
+    run_character_persona_setup_workflow,
     store_idempotency_replay,
 )
+from personality_jelly.core import Settings
 from personality_jelly.domain import ClaimStatus, ClaimType, MemoryScope, MemoryStatus
+from personality_jelly.testing import StubProvider
 
 router = APIRouter(tags=["characters"])
 
@@ -123,6 +142,67 @@ def get_character(
     session: Annotated[Session, Depends(get_session)],
 ) -> CharacterDetail:
     return get_character_detail(session, character_id, expand_evidence_chunks=True)
+
+
+@router.post(
+    "/characters/{character_id}/persona-setup-runs",
+    response_model=PersonaSetupRunResponse,
+    status_code=CHARACTER_PERSONA_SETUP_SUCCESS_STATUS_CODE,
+)
+def post_character_persona_setup_run(
+    character_id: Annotated[str, Path(min_length=1)],
+    request: PersonaSetupRunRequestBody,
+    session: Annotated[Session, Depends(get_write_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    header_request_id: Annotated[str | None, Header(alias=REQUEST_ID_HEADER)] = None,
+    header_idempotency_key: Annotated[
+        str | None,
+        Header(alias=IDEMPOTENCY_KEY_HEADER),
+    ] = None,
+) -> PersonaSetupRunResponse | JSONResponse:
+    correlation: CorrelationContext | None = None
+    try:
+        normalized_character_id = _normalize_path_character_id(character_id)
+        request.validate_path_character_id(normalized_character_id)
+        write_correlation = resolve_write_request_correlation(
+            header_request_id=header_request_id,
+            body_request_id=request.request_id,
+        )
+        correlation = write_correlation.to_application_context()
+        idempotency = _required_persona_setup_idempotency_context(
+            request,
+            character_id=normalized_character_id,
+            header_idempotency_key=header_idempotency_key,
+        )
+        provider_roles, model_roles = _resolve_persona_setup_role_bundles(
+            request.provider,
+            settings=settings,
+        )
+        result = run_character_persona_setup_workflow(
+            session,
+            request.to_application_request(
+                character_id=normalized_character_id,
+                correlation=correlation,
+                idempotency=idempotency,
+                provider_roles=provider_roles,
+                model_roles=model_roles,
+            ),
+        )
+    except Exception as error:
+        return _persona_setup_exception_response(error, correlation=correlation)
+
+    if isinstance(result, CharacterPersonaSetupReplay):
+        return JSONResponse(
+            status_code=result.response_status_code,
+            content=result.replay_payload,
+        )
+
+    if result.failure is not None or result.status != WorkflowStatus.COMPLETED:
+        return _persona_setup_result_error_response(result)
+
+    return PersonaSetupRunResponse.model_validate(
+        redact_payload(PersonaSetupRunResponse.from_application_result(result))
+    )
 
 
 @router.get("/claims", response_model=InspectionListResult)
@@ -312,6 +392,213 @@ def get_source_chunk(
     session: Annotated[Session, Depends(get_session)],
 ) -> SourceChunkDetail:
     return get_source_chunk_detail(session, chunk_id)
+
+
+def _required_persona_setup_idempotency_context(
+    request: PersonaSetupRunRequestBody,
+    *,
+    character_id: str,
+    header_idempotency_key: object | None,
+) -> IdempotencyContext:
+    if header_idempotency_key is None:
+        raise ValueError(f"{IDEMPOTENCY_KEY_HEADER} is required")
+
+    idempotency_key = resolve_write_request_idempotency(
+        header_idempotency_key=header_idempotency_key,
+        body_idempotency_key=request.idempotency_key,
+    )
+    if idempotency_key is None:
+        raise ValueError(f"{IDEMPOTENCY_KEY_HEADER} is required")
+
+    idempotency = build_idempotency_context(
+        workflow_type=CHARACTER_PERSONA_SETUP_WORKFLOW_TYPE,
+        idempotency_key=idempotency_key,
+        request_payload=request.idempotency_payload(character_id=character_id),
+    )
+    if idempotency is None:
+        raise ValueError(f"{IDEMPOTENCY_KEY_HEADER} is required")
+    return idempotency
+
+
+def _resolve_persona_setup_role_bundles(
+    provider_request: PersonaSetupProviderRequest,
+    *,
+    settings: Settings,
+):
+    effective_settings = (
+        settings.model_copy(update={"llm_model": provider_request.model})
+        if provider_request.model is not None
+        else settings
+    )
+    provider_roles, model_roles = resolve_persona_setup_provider(
+        provider_request.source,
+        settings=effective_settings,
+        stub_provider_factory=StubProvider,
+    )
+    return provider_roles, _apply_persona_setup_model_labels(
+        model_roles,
+        provider_request=provider_request,
+    )
+
+
+def _apply_persona_setup_model_labels(
+    model_roles: PersonaSetupModelRoleBundle,
+    *,
+    provider_request: PersonaSetupProviderRequest,
+) -> PersonaSetupModelRoleBundle:
+    role_models = provider_request.roles.model_labels()
+    bundle_model = provider_request.model
+
+    def _model_for_role(role_name: str, current_model: str) -> str:
+        return role_models.get(role_name) or bundle_model or current_model
+
+    return PersonaSetupModelRoleBundle(
+        reader=model_roles.reader.model_copy(
+            update={"model": _model_for_role("reader", model_roles.reader.model)}
+        ),
+        verifier=model_roles.verifier.model_copy(
+            update={"model": _model_for_role("verifier", model_roles.verifier.model)}
+        ),
+        persona_compiler=model_roles.persona_compiler.model_copy(
+            update={
+                "model": _model_for_role(
+                    "persona_compiler",
+                    model_roles.persona_compiler.model,
+                )
+            }
+        ),
+    )
+
+
+def _normalize_path_character_id(character_id: str) -> str:
+    normalized = character_id.strip()
+    if not normalized:
+        raise ValueError("path character_id must not be blank")
+    return normalized
+
+
+def _persona_setup_result_error_response(
+    result: CharacterPersonaSetupWorkflowResult,
+) -> JSONResponse:
+    status_code = _persona_setup_result_status_code(result)
+    envelope = build_error_envelope(
+        _normalize_persona_setup_failure_result(result),
+        correlation=build_error_correlation(
+            CorrelationContext(
+                request_id=result.request_id,
+                workflow_id=result.workflow_id,
+                workflow_type=result.workflow_type,
+                status=result.status,
+                related_ids=result.ids,
+            ),
+            status=result.status,
+            ids=result.ids,
+            failed_step=result.failure.failed_step if result.failure is not None else None,
+        ),
+        trace_id=_persona_setup_trace_id(result),
+    )
+    return JSONResponse(
+        status_code=status_code,
+        content=redact_payload(envelope),
+    )
+
+
+def _persona_setup_result_status_code(result: CharacterPersonaSetupWorkflowResult) -> int:
+    if result.failure is None:
+        return 500
+    if str(result.failure.error_family) == str(WorkflowFailureCode.PARTIAL_PERSISTENCE):
+        return 500
+    if str(result.failure.error_family) == str(WorkflowFailureCode.PROVIDER_FAILURE):
+        return 502
+    if str(result.failure.error_family) == str(WorkflowFailureCode.PROVIDER_VALIDATION_ERROR):
+        return 502
+    return 500
+
+
+def _normalize_persona_setup_failure_result(
+    result: CharacterPersonaSetupWorkflowResult,
+) -> NormalizedError:
+    failure = result.failure
+    if failure is None:
+        return normalize_error(RuntimeError("persona setup did not complete"))
+    if str(failure.error_family) == str(WorkflowFailureCode.PARTIAL_PERSISTENCE):
+        return normalize_error(PartialPersistenceError(details=failure))
+    if str(failure.error_family) == str(WorkflowFailureCode.PROVIDER_VALIDATION_ERROR):
+        return normalize_error(ProviderValidationFailureError(details=failure))
+    return normalize_error(ProviderFailureError(details=failure))
+
+
+def _persona_setup_trace_id(
+    result: CharacterPersonaSetupWorkflowResult,
+) -> str | None:
+    if result.failure is None or not result.failure.llm_trace_ids:
+        return None
+    return result.failure.llm_trace_ids[-1]
+
+
+def _persona_setup_exception_response(
+    error: Exception,
+    *,
+    correlation: CorrelationContext | None,
+) -> JSONResponse:
+    status_code = _persona_setup_exception_status_code(error)
+    error_correlation = (
+        build_error_correlation(
+            correlation,
+            status=WorkflowStatus.FAILED,
+            failed_step=CHARACTER_PERSONA_SETUP_WORKFLOW_TYPE,
+        )
+        if correlation is not None
+        else None
+    )
+    envelope = build_error_envelope(
+        _normalize_persona_setup_exception(error),
+        correlation=error_correlation,
+    )
+    return JSONResponse(
+        status_code=status_code,
+        content=redact_payload(envelope),
+    )
+
+
+def _persona_setup_exception_status_code(error: Exception) -> int:
+    if isinstance(error, ConflictError):
+        return 409
+    if isinstance(error, LookupError):
+        return 404
+    if isinstance(error, WorkflowFailureError):
+        if error.normalized_code == WorkflowFailureCode.RETRYABLE_CONFLICT:
+            return 409
+        if error.normalized_code == WorkflowFailureCode.PARTIAL_PERSISTENCE:
+            return 500
+        return 502
+    if isinstance(error, ValueError):
+        return 422
+    if isinstance(error, ValidationError):
+        return 422
+    return 500
+
+
+def _normalize_persona_setup_exception(error: Exception) -> NormalizedError:
+    if not isinstance(error, ValidationError):
+        return normalize_error(error)
+    details = []
+    for item in error.errors(include_input=False, include_context=False):
+        details.append(
+            {
+                "loc": list(item.get("loc", [])),
+                "msg": str(item.get("msg", "")),
+                "type": str(item.get("type", "")),
+            }
+        )
+    message = details[0]["msg"] if details else "Request validation failed"
+    if message.startswith("Value error, "):
+        message = message.removeprefix("Value error, ")
+    return NormalizedError(
+        code="validation_error",
+        message=message,
+        details={"errors": details},
+    )
 
 
 def _application_actor(

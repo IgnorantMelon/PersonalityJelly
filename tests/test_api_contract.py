@@ -25,6 +25,7 @@ def test_openapi_contract_exposes_expected_route_set(tmp_path) -> None:
         "/context-packages/{context_package_id}": {"get"},
         "/characters": {"get", "post"},
         "/characters/{character_id}": {"get"},
+        "/characters/{character_id}/persona-setup-runs": {"post"},
         "/claims": {"get"},
         "/claims/{claim_id}": {"get"},
         "/memories": {"get"},
@@ -54,7 +55,13 @@ def test_openapi_contract_exposes_expected_route_set(tmp_path) -> None:
             operation = path_item[method]
             expected_status = (
                 "201"
-                if path in {"/conversations", "/source-works", "/characters"}
+                if path
+                in {
+                    "/conversations",
+                    "/source-works",
+                    "/characters",
+                    "/characters/{character_id}/persona-setup-runs",
+                }
                 and method == "post"
                 else "200"
             )
@@ -78,6 +85,11 @@ def test_openapi_contract_exposes_expected_route_set(tmp_path) -> None:
     assert character_create["tags"] == ["characters"]
     assert "201" in character_create["responses"]
     assert "application/json" in character_create["responses"]["201"]["content"]
+
+    persona_setup = paths["/characters/{character_id}/persona-setup-runs"]["post"]
+    assert persona_setup["tags"] == ["characters"]
+    assert "201" in persona_setup["responses"]
+    assert "application/json" in persona_setup["responses"]["201"]["content"]
 
 
 def test_openapi_contract_keeps_route_tags_and_query_params_stable(tmp_path) -> None:
