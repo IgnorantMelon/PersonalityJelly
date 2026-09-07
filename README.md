@@ -1,26 +1,16 @@
 # Personality Jelly
 
-最后更新：2026-05-27
+最后更新：2026-09-07
 
-Personality Jelly 是一个 CLI 优先的小说角色大脑 MVP。项目目标是把小说原文转化为有证据支撑的角色 canon，将这些 canon 编译为可运行的人格版本，并在对话中严格区分原作设定、用户记忆、关系记忆和临时剧情。
+> **项目已废弃：本项目因架构设计不合理而废弃，后续将尝试重新设计。**
 
-## 项目目标
+本仓库保留现有代码与文档，供历史参考。
 
-项目最终希望实现一套角色大脑系统，能够：
+Personality Jelly 是一个 CLI 优先的小说角色大脑 MVP，用于将小说原文转化为有证据支撑的角色 canon，将这些 canon 编译为可运行的人格版本，并在对话中区分原作设定、用户记忆、关系记忆和临时剧情。
 
-- 导入 TXT/Markdown 小说文本；
-- 提取角色事实、人物关系、关键事件、语气特征和行为边界；
-- 用原文证据校验重要 canon claim；
-- 从 verified canon 编译可版本化的 persona；
-- 让角色以稳定身份、语气和价值观与现实用户自然对话；
-- 保存用户记忆和关系记忆，同时避免污染原作 canon；
-- 暴露 critic report、LLM trace 和 benchmark 结果，用于质量控制。
+## 废弃前实现
 
-长期路线是“方案三优先，方案五演进”：先做可靠的高价值角色大脑，再保留足够的数据边界，逐步演进到多作品、多角色、多用户的平台形态。
-
-## 当前状态
-
-当前实现是一个本地 MVP，P1 加固、Batch 04 service foundation 与 Batch 05 read-only API adapter closeout 已完成验证，主要能力包括：
+废弃前的实现是一个本地 MVP，P1 加固、Batch 04 service foundation 与 Batch 05 read-only API adapter closeout 已完成验证，主要能力包括：
 
 - Python `>=3.12,<3.14`、`uv`、Pydantic v2、SQLAlchemy 2 和 SQLite；
 - 可替换的 LLM 与 embedding provider 抽象；
@@ -90,26 +80,10 @@ timeout_seconds = 60
 .\.venv\Scripts\pjelly.exe eval retrieval-benchmark --character-id char_... --dry-run
 ```
 
-## 开发计划
+## 历史开发文档
 
-当前阶段：方案三 MVP 的 P2 service foundation、Batch 05 read-only API adapter、Batch 06 API write readiness、Batch 07 API Write Foundation、Batch 08 API Workflow Persistence Foundation 与 Batch 09 provider-backed API planning 已完成 closeout 验证。
+原有开发指引保留在 [VIBE_CODING_GUIDE.md](./VIBE_CODING_GUIDE.md)，仅作为历史参考，其中的规划不再作为本项目的后续开发安排。
 
-- P1：已完成 semantic tracing、benchmark cases、layered summary 消费、retrieval diagnostics 和 CLI diagnostics 加固。
-- P2：已完成 FastAPI/service boundary 规划、多作品/多角色数据边界审计、user/workspace/audit 概念设计，以及 CLI/API shared service foundation。
-- Batch 05：已引入只读 API adapter，让 FastAPI 作为 `personality_jelly.application` 之上的薄 HTTP 层，暴露 conversation、context package、character、claim、memory、critic report、failure case、LLM trace 和 eval run 等检查接口，并通过 API/CLI focused 与 full pytest closeout。
-- Batch 06：已收束延期 API 议题的实现前契约，包括写流程边界、actor/auth/audit、API redaction、分页/filter 约定、trace/workflow correlation，以及下一批次实施建议；该批次不实现写接口。
-- Batch 07：已实现最小安全的本地写入基础：redaction/correlation/actor context、`POST /conversations`，以及 manual memory review/edit/archive；不包含 provider-backed 写流程、persistent audit、auth/workspace、部署或 UI。
-- Batch 08：已实现 API workflow persistence foundation：persistent audit events、workflow_runs/workflow_run_links、LLM trace correlation fields、idempotency replay/conflict、provider failure/partial-persistence contracts，以及只读 audit/workflow inspection routes；仍不包含 provider-backed 写流程、source ingest/character/persona/turn/summary/benchmark 写接口、auth/workspace、部署或 UI。
-- Batch 09：已完成 provider-backed API planning，明确 source ingest、character/persona setup 契约、共享 write contract matrix 与 Batch 10 实施计划；未新增 provider-backed 路由或 source 行为变更。
-- Batch 10: implemented `POST /source-works` and deterministic `POST /characters` on top of
-  the Batch 08 audit/workflow/idempotency/failure contract.
-- Batch 11: implemented provider-backed `POST /characters/{character_id}/persona-setup-runs`
-  with staged Reader/Verifier/persona-compiler persistence, trace correlation, audit events,
-  idempotency replay/conflict, and sanitized failed/partial diagnostics.
-
-## 开发指南
-
-所有面向编码智能体的指引、实现规则、已采纳架构选择、工作流约束和当前非目标，都集中维护在 [VIBE_CODING_GUIDE.md](./VIBE_CODING_GUIDE.md)。本 README 只用于项目介绍、快速开始和简要开发计划展示。
 ## Batch 11 Update
 
 Batch 11 adds the first provider-backed write route:
@@ -118,7 +92,3 @@ Batch 11 adds the first provider-backed write route:
 The route is synchronous and thin over `personality_jelly.application`. It accepts only safe
 provider source/model labels (`stub` or `env`), requires idempotency, stores workflow/audit/LLM
 trace links, and returns only safe IDs, counts, statuses, retry hints, and redaction flags.
-
-Deferred scope remains: resume/repair/cleanup runs, async queues/polling, uploads, URL ingest,
-embeddings/source enrichment, turn/summary/benchmark write routes, auth/workspace/platform, UI,
-deployment, and prompt controls over HTTP.
