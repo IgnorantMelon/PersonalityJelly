@@ -1,0 +1,43 @@
+{
+  "cases": [
+    {
+      "id": "quality_single_expected_observation",
+      "query": "How does Lin Shuang decide before acting?",
+      "expected_chunk_ids": [
+        "quality_chunk_observation"
+      ],
+      "limit": 1
+    },
+    {
+      "id": "quality_multi_expected_observation_rain",
+      "query": "Which details show how Lin Shuang observes before acting?",
+      "expected_chunk_ids": [
+        "quality_chunk_observation",
+        "quality_chunk_rain"
+      ],
+      "limit": 2
+    },
+    {
+      "id": "quality_empty_out_of_scope",
+      "query": "Out-of-scope retrieval probe with no expected source evidence.",
+      "expected_chunk_ids": [],
+      "limit": 3
+    },
+    {
+      "id": "quality_missing_expected_chunk",
+      "query": "Which scene mentions missing archive evidence?",
+      "expected_chunk_ids": [
+        "quality_chunk_missing"
+      ],
+      "limit": 1
+    },
+    {
+      "id": "quality_top_wrong_ranking",
+      "query": "Which detail should rank the rain-shadow evidence below the window evidence?",
+      "expected_chunk_ids": [
+        "quality_chunk_rain"
+      ],
+      "limit": 2
+    }
+  ]
+}

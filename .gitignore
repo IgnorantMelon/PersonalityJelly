@@ -1,5 +1,20 @@
-/docs/
-/handoff/
-/plans/
 /references/
-/solutions/
+
+/pjelly.toml
+
+# Python
+/.venv/
+__pycache__/
+*.py[cod]
+/.pytest_cache/
+/.ruff_cache/
+/.mypy_cache/
+/.coverage
+/htmlcov/
+
+# env
+.env
+
+# local runtime data
+/personality_jelly.db
+/tmp/

@@ -1,0 +1,2657 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+from personality_jelly.application import (
+    ContextPackageInspectionOptions,
+    ConversationInspectionOptions,
+    build_character_persona,
+    build_turn_role_bundles,
+    create_database_resources,
+    get_character_detail,
+    get_critic_report_detail,
+    get_evaluation_run_detail,
+    get_failure_case_detail,
+    get_llm_trace_detail,
+    get_retrieval_evaluation_run_detail,
+    inspect_context_package,
+    inspect_conversation,
+    list_claims,
+    list_conversations,
+    list_evaluation_runs,
+    list_failure_cases,
+    list_llm_traces,
+    list_memories,
+    list_retrieval_evaluation_runs,
+    resolve_database_url,
+    resolve_embedding_config,
+    resolve_embedding_provider,
+    resolve_roleplay_provider,
+    run_turn_workflow,
+)
+from personality_jelly.characters import create_character
+from personality_jelly.core import Settings
+from personality_jelly.domain import (
+    Character,
+    ClaimStatus,
+    ClaimType,
+    Conversation,
+    EvaluationCaseResult,
+    InteractionMode,
+    Message,
+    MemoryScope,
+    MemoryStatus,
+    PersonaVersion,
+    RetrievalEvaluationCaseResult,
+    SourceWork,
+    User,
+)
+from personality_jelly.evaluation import (
+    BENCHMARK_CASE_SUITES,
+    BenchmarkCase,
+    RetrievalBenchmarkCase,
+    build_ooc_benchmark_cases_from_results,
+    build_default_retrieval_benchmark_cases,
+    build_retrieval_case_diagnostics,
+    build_retrieval_benchmark_cases_from_results,
+    export_ooc_benchmark_cases_file,
+    export_retrieval_benchmark_cases_file,
+    get_benchmark_cases,
+    load_ooc_benchmark_cases_file,
+    load_retrieval_benchmark_cases_file,
+    run_ooc_benchmark,
+    run_retrieval_benchmark,
+    summarize_ooc_benchmark,
+    summarize_retrieval_benchmark_cases,
+    summarize_retrieval_benchmark,
+)
+from personality_jelly.ingestion import SourceIngestionResult, ingest_text_file
+from personality_jelly.llm import (
+    EmbeddingConfig,
+    LLMProvider,
+    ModelConfig,
+    build_embedding_provider,
+    build_llm_provider,
+)
+from personality_jelly.runtime import (
+    create_conversation,
+    create_user,
+    parse_layered_summary,
+    summarize_conversation,
+)
+from personality_jelly.storage import (
+    create_database_engine,
+    create_session_factory,
+    ensure_database_ready,
+    get_migration_status,
+    migrate_database,
+)
+from personality_jelly.storage.repositories import (
+    CharacterRepository,
+    CanonClaimRepository,
+    ConversationRepository,
+    ContextPackageRepository,
+    CriticReportRepository,
+    EvaluationCaseResultRepository,
+    EvaluationRunRepository,
+    EvidenceRefRepository,
+    FailureCaseRepository,
+    LLMRawOutputRepository,
+    MemoryRepository,
+    PersonaVersionRepository,
+    RetrievalEvaluationCaseResultRepository,
+    RetrievalEvaluationRunRepository,
+    SourceWorkRepository,
+    UserRepository,
+)
+from personality_jelly.testing.stub_provider import StubProvider
+
+
+class CliError(Exception):
+    """User-facing CLI error."""
+
+
+@dataclass(frozen=True)
+class DemoPersonaContext:
+    source_work: SourceWork
+    character: Character
+    persona_version: PersonaVersion
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "demo":
+            return _run_demo(args)
+        if args.command == "turn":
+            return _run_turn(args)
+        if args.command == "list":
+            return _run_list(args)
+        if args.command == "show":
+            return _run_show(args)
+        if args.command == "eval":
+            return _run_eval(args)
+        if args.command == "archive":
+            return _run_archive(args)
+        if args.command == "edit":
+            return _run_edit(args)
+        if args.command == "review":
+            return _run_review(args)
+        if args.command == "summarize":
+            return _run_summarize(args)
+        if args.command == "db":
+            return _run_db(args)
+        if args.command == "config":
+            return _run_config(args)
+        parser.print_help()
+        return 1
+    except CliError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="pjelly")
+    subparsers = parser.add_subparsers(dest="command")
+
+    demo = subparsers.add_parser("demo", help="Run a local end-to-end demo.")
+    demo.add_argument("source", type=Path, help="TXT or Markdown source file.")
+    demo.add_argument("--character", required=True, help="Target character name.")
+    demo.add_argument("--alias", action="append", default=[], help="Character alias; may repeat.")
+    demo.add_argument("--user-message", default="请记住，我喜欢在夜里写作。")
+    demo.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    demo.add_argument(
+        "--memory-db",
+        action="store_true",
+        help="Use an in-memory SQLite database for an isolated one-shot run.",
+    )
+    demo.add_argument(
+        "--reuse-existing",
+        action="store_true",
+        help=(
+            "Reuse matching source, character, persona, user, and conversation rows "
+            "when present."
+        ),
+    )
+    demo.add_argument("--user", default="demo-user", help="Display name for the demo user.")
+    demo.add_argument(
+        "--interaction-mode",
+        choices=[mode.value for mode in InteractionMode],
+        default=None,
+        help="Optional interaction mode override. Defaults to automatic classification.",
+    )
+    demo.add_argument(
+        "--provider",
+        choices=("stub", "env"),
+        default="stub",
+        help="LLM provider source: stub for deterministic local output, env for PJ_* settings.",
+    )
+    demo.add_argument(
+        "--retry-on-critic",
+        action="store_true",
+        help="Retry once when Critic suggests retry.",
+    )
+
+    turn = subparsers.add_parser("turn", help="Send one message to an existing conversation.")
+    turn.add_argument("conversation_id", help="Existing conversation id.")
+    turn.add_argument("--message", required=True, help="User message content.")
+    turn.add_argument(
+        "--interaction-mode",
+        choices=[mode.value for mode in InteractionMode],
+        default=None,
+        help="Optional interaction mode override. Defaults to automatic classification.",
+    )
+    turn.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    turn.add_argument(
+        "--provider",
+        choices=("stub", "env"),
+        default="stub",
+        help="LLM provider source: stub for deterministic local output, env for PJ_* settings.",
+    )
+    turn.add_argument(
+        "--retry-on-critic",
+        action="store_true",
+        help="Retry once when Critic suggests retry.",
+    )
+
+    list_parser = subparsers.add_parser("list", help="List persisted resources.")
+    list_subparsers = list_parser.add_subparsers(dest="resource")
+    list_conversations = list_subparsers.add_parser(
+        "conversations",
+        help="List recent conversations.",
+    )
+    list_conversations.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    list_conversations.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of conversations to print.",
+    )
+    list_memories = list_subparsers.add_parser(
+        "memories",
+        help="List memories for a user and character.",
+    )
+    list_memories.add_argument("--user-id", required=True, help="User id.")
+    list_memories.add_argument("--character-id", required=True, help="Character id.")
+    list_memories.add_argument(
+        "--scope",
+        choices=[scope.value for scope in MemoryScope],
+        default=None,
+        help="Optional memory scope filter.",
+    )
+    list_memories.add_argument(
+        "--status",
+        choices=[status.value for status in MemoryStatus],
+        default=MemoryStatus.ACCEPTED.value,
+        help="Optional memory status filter. Defaults to accepted.",
+    )
+    list_memories.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    list_claims = list_subparsers.add_parser(
+        "claims",
+        help="List canon claims for a character.",
+    )
+    list_claims.add_argument("--character-id", required=True, help="Character id.")
+    list_claims.add_argument(
+        "--status",
+        choices=[status.value for status in ClaimStatus],
+        default=None,
+        help="Optional claim status filter.",
+    )
+    list_claims.add_argument(
+        "--claim-type",
+        choices=[claim_type.value for claim_type in ClaimType],
+        default=None,
+        help="Optional claim type filter.",
+    )
+    list_claims.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    list_failure_cases = list_subparsers.add_parser(
+        "failure-cases",
+        help="List critic failure cases.",
+    )
+    list_failure_cases.add_argument(
+        "--category",
+        default=None,
+        help="Optional failure category filter, usually retry or log.",
+    )
+    list_failure_cases.add_argument(
+        "--conversation-id",
+        default=None,
+        help="Optional conversation id filter.",
+    )
+    list_failure_cases.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of failure cases to print.",
+    )
+    list_failure_cases.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    list_eval_runs = list_subparsers.add_parser(
+        "eval-runs",
+        help="List evaluation runs.",
+    )
+    list_eval_runs.add_argument(
+        "--character-id",
+        default=None,
+        help="Optional character id filter.",
+    )
+    list_eval_runs.add_argument(
+        "--test-suite",
+        default=None,
+        help="Optional test suite filter.",
+    )
+    list_eval_runs.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of evaluation runs to print.",
+    )
+    list_eval_runs.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    list_llm_traces = list_subparsers.add_parser(
+        "llm-traces",
+        help="List structured LLM trace records.",
+    )
+    list_llm_traces.add_argument(
+        "--operation",
+        default=None,
+        help="Optional operation filter.",
+    )
+    list_llm_traces.add_argument(
+        "--schema-name",
+        default=None,
+        help="Optional schema name filter.",
+    )
+    list_llm_traces.add_argument(
+        "--provider-name",
+        default=None,
+        help="Optional provider name filter.",
+    )
+    list_llm_traces.add_argument(
+        "--model-name",
+        default=None,
+        help="Optional model name filter.",
+    )
+    list_llm_traces.add_argument(
+        "--with-errors",
+        action="store_true",
+        help="Only include traces with validation errors.",
+    )
+    list_llm_traces.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of trace records to print.",
+    )
+    list_llm_traces.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    list_retrieval_eval_runs = list_subparsers.add_parser(
+        "retrieval-eval-runs",
+        help="List retrieval evaluation runs.",
+    )
+    list_retrieval_eval_runs.add_argument(
+        "--character-id",
+        default=None,
+        help="Optional character id filter.",
+    )
+    list_retrieval_eval_runs.add_argument(
+        "--source-work-id",
+        default=None,
+        help="Optional source work id filter.",
+    )
+    list_retrieval_eval_runs.add_argument(
+        "--test-suite",
+        default=None,
+        help="Optional test suite filter.",
+    )
+    list_retrieval_eval_runs.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum number of retrieval evaluation runs to print.",
+    )
+    list_retrieval_eval_runs.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+
+    archive_parser = subparsers.add_parser("archive", help="Archive persisted resources.")
+    archive_subparsers = archive_parser.add_subparsers(dest="resource")
+    archive_memory = archive_subparsers.add_parser("memory", help="Archive a memory.")
+    archive_memory.add_argument("memory_id", help="Memory id.")
+    archive_memory.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+
+    edit_parser = subparsers.add_parser("edit", help="Edit persisted resources.")
+    edit_subparsers = edit_parser.add_subparsers(dest="resource")
+    edit_memory = edit_subparsers.add_parser("memory", help="Edit a memory.")
+    edit_memory.add_argument("memory_id", help="Memory id.")
+    edit_memory.add_argument("--content", required=True, help="Corrected memory content.")
+    edit_memory.add_argument(
+        "--reason",
+        default="User corrected this memory.",
+        help="Reason recorded for the correction.",
+    )
+    edit_memory.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+
+    review_parser = subparsers.add_parser("review", help="Review persisted resources.")
+    review_subparsers = review_parser.add_subparsers(dest="resource")
+    review_memory = review_subparsers.add_parser("memory", help="Accept or reject a candidate memory.")
+    review_memory.add_argument("memory_id", help="Memory id.")
+    review_memory.add_argument(
+        "--decision",
+        choices=("accept", "reject"),
+        required=True,
+        help="Review decision for a candidate memory.",
+    )
+    review_memory.add_argument("--reason", required=True, help="Reason recorded for the review.")
+    review_memory.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+
+    summarize_parser = subparsers.add_parser(
+        "summarize",
+        help="Summarize persisted resources.",
+    )
+    summarize_subparsers = summarize_parser.add_subparsers(dest="resource")
+    summarize_conversation_parser = summarize_subparsers.add_parser(
+        "conversation",
+        help="Summarize a conversation into its stored summary field.",
+    )
+    summarize_conversation_parser.add_argument("conversation_id", help="Existing conversation id.")
+    summarize_conversation_parser.add_argument(
+        "--messages",
+        type=int,
+        default=20,
+        help="Maximum number of recent messages to include.",
+    )
+    summarize_conversation_parser.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    summarize_conversation_parser.add_argument(
+        "--provider",
+        choices=("stub", "env"),
+        default="stub",
+        help="LLM provider source: stub for deterministic local output, env for PJ_* settings.",
+    )
+
+    show_parser = subparsers.add_parser("show", help="Show a persisted resource.")
+    show_subparsers = show_parser.add_subparsers(dest="resource")
+    show_conversation = show_subparsers.add_parser(
+        "conversation",
+        help="Show conversation details and recent messages.",
+    )
+    show_conversation.add_argument("conversation_id", help="Existing conversation id.")
+    show_conversation.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_conversation.add_argument(
+        "--messages",
+        type=int,
+        default=10,
+        help="Maximum number of recent messages to print.",
+    )
+    show_context = show_subparsers.add_parser(
+        "context-package",
+        help="Show a stored context package.",
+    )
+    show_context.add_argument("context_package_id", help="Context package id.")
+    show_context.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_critic = show_subparsers.add_parser(
+        "critic-report",
+        help="Show a stored critic report.",
+    )
+    show_critic.add_argument("critic_report_id", help="Critic report id.")
+    show_critic.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_character = show_subparsers.add_parser(
+        "character",
+        help="Show a character profile summary.",
+    )
+    show_character.add_argument("character_id", help="Character id.")
+    show_character.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_failure_case = show_subparsers.add_parser(
+        "failure-case",
+        help="Show a stored critic failure case.",
+    )
+    show_failure_case.add_argument("failure_case_id", help="Failure case id.")
+    show_failure_case.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_eval_run = show_subparsers.add_parser(
+        "eval-run",
+        help="Show a stored evaluation run.",
+    )
+    show_eval_run.add_argument("run_id", help="Evaluation run id.")
+    show_eval_run.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_eval_run.add_argument(
+        "--failed-only",
+        action="store_true",
+        help="Only show failed benchmark cases.",
+    )
+    show_eval_run.add_argument(
+        "--export-cases-file",
+        type=Path,
+        default=None,
+        help="Write this run's OOC benchmark cases to a JSON cases file.",
+    )
+    show_eval_run.add_argument(
+        "--overwrite-cases-file",
+        action="store_true",
+        help="Allow --export-cases-file to replace an existing file.",
+    )
+    show_eval_run.add_argument(
+        "--append-cases-file",
+        action="store_true",
+        help="Append exported cases to an existing --export-cases-file by case id.",
+    )
+    show_llm_trace = show_subparsers.add_parser(
+        "llm-trace",
+        help="Show a structured LLM trace record.",
+    )
+    show_llm_trace.add_argument("trace_id", help="LLM raw output trace id.")
+    show_llm_trace.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_retrieval_eval_run = show_subparsers.add_parser(
+        "retrieval-eval-run",
+        help="Show a stored retrieval evaluation run.",
+    )
+    show_retrieval_eval_run.add_argument("run_id", help="Retrieval evaluation run id.")
+    show_retrieval_eval_run.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    show_retrieval_eval_run.add_argument(
+        "--export-cases-file",
+        type=Path,
+        default=None,
+        help="Write this run's retrieval cases to a JSON cases file.",
+    )
+    show_retrieval_eval_run.add_argument(
+        "--failed-only",
+        action="store_true",
+        help="Only show and export failed retrieval cases.",
+    )
+    show_retrieval_eval_run.add_argument(
+        "--export-case-limit",
+        type=int,
+        default=4,
+        help="Retrieval limit to store in exported cases from this run.",
+    )
+    show_retrieval_eval_run.add_argument(
+        "--overwrite-cases-file",
+        action="store_true",
+        help="Allow --export-cases-file to replace an existing file.",
+    )
+    show_retrieval_eval_run.add_argument(
+        "--append-cases-file",
+        action="store_true",
+        help="Append exported cases to an existing --export-cases-file by case id.",
+    )
+
+    eval_parser = subparsers.add_parser("eval", help="Run evaluation tasks.")
+    eval_subparsers = eval_parser.add_subparsers(dest="resource")
+    ooc_benchmark = eval_subparsers.add_parser(
+        "ooc-benchmark",
+        help="Run the MVP OOC and canon pollution benchmark.",
+    )
+    ooc_benchmark.add_argument("--character-id", required=True, help="Character id to evaluate.")
+    ooc_benchmark.add_argument(
+        "--persona-version-id",
+        default=None,
+        help="Persona version id. Defaults to the latest version for the character.",
+    )
+    ooc_benchmark.add_argument(
+        "--test-suite",
+        default="mvp_default",
+        help="Test suite label to record with the run.",
+    )
+    ooc_benchmark.add_argument(
+        "--case-suite",
+        choices=sorted(BENCHMARK_CASE_SUITES),
+        default="mvp_default",
+        help="Benchmark case library to run.",
+    )
+    ooc_benchmark.add_argument(
+        "--cases-file",
+        type=Path,
+        default=None,
+        help="JSON file with explicit OOC benchmark cases.",
+    )
+    ooc_benchmark.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    ooc_benchmark.add_argument(
+        "--provider",
+        choices=("stub", "env"),
+        default="stub",
+        help="LLM provider source: stub for deterministic local output, env for PJ_* settings.",
+    )
+    ooc_benchmark.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate benchmark inputs and list cases without creating rows or calling providers.",
+    )
+    ooc_benchmark.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print case prompts, modes, and evaluation reasons.",
+    )
+    retrieval_benchmark = eval_subparsers.add_parser(
+        "retrieval-benchmark",
+        help="Run source retrieval quality benchmark cases.",
+    )
+    retrieval_benchmark.add_argument("--character-id", required=True, help="Character id to evaluate.")
+    retrieval_benchmark.add_argument(
+        "--test-suite",
+        default="retrieval_default",
+        help="Test suite label to record with the run.",
+    )
+    retrieval_benchmark.add_argument(
+        "--max-cases",
+        type=int,
+        default=20,
+        help=(
+            "Maximum number of verified-claim evidence cases to generate "
+            "when --cases-file is omitted."
+        ),
+    )
+    retrieval_benchmark.add_argument(
+        "--no-empty-case",
+        action="store_true",
+        help="Skip the generated empty-result fallback case when --cases-file is omitted.",
+    )
+    retrieval_benchmark.add_argument(
+        "--cases-file",
+        type=Path,
+        default=None,
+        help="JSON file with explicit retrieval benchmark cases.",
+    )
+    retrieval_benchmark.add_argument(
+        "--export-cases-file",
+        type=Path,
+        default=None,
+        help="Write the resolved retrieval benchmark cases to a JSON file.",
+    )
+    retrieval_benchmark.add_argument(
+        "--overwrite-cases-file",
+        action="store_true",
+        help="Allow --export-cases-file to replace an existing file.",
+    )
+    retrieval_benchmark.add_argument(
+        "--append-cases-file",
+        action="store_true",
+        help="Append exported cases to an existing --export-cases-file by case id.",
+    )
+    retrieval_benchmark.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    retrieval_benchmark.add_argument(
+        "--provider",
+        choices=("stub", "env"),
+        default="stub",
+        help="Embedding provider source: stub for deterministic local fallback, env for PJ_* settings.",
+    )
+    retrieval_benchmark.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate generated cases without creating rows or calling embedding providers.",
+    )
+    retrieval_benchmark.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print case queries, expected/retrieved chunks, scores, and reasons.",
+    )
+
+    db_parser = subparsers.add_parser("db", help="Manage database schema migrations.")
+    db_subparsers = db_parser.add_subparsers(dest="resource")
+    db_status = db_subparsers.add_parser("status", help="Show database migration status.")
+    db_status.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+    db_migrate = db_subparsers.add_parser("migrate", help="Apply pending database migrations.")
+    db_migrate.add_argument(
+        "--database-url",
+        default=None,
+        help="Database URL. Defaults to PJ_DATABASE_URL or sqlite:///personality_jelly.db.",
+    )
+
+    config_parser = subparsers.add_parser("config", help="Inspect runtime configuration.")
+    config_subparsers = config_parser.add_subparsers(dest="resource")
+    config_subparsers.add_parser("show", help="Show sanitized runtime configuration.")
+    config_subparsers.add_parser(
+        "check",
+        help="Check configured provider construction without making network requests.",
+    )
+    return parser
+
+
+def _run_demo(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
+    embedding_provider, embedding_config = _resolve_embedding_provider(
+        args.provider,
+        settings=settings,
+    )
+    resources = create_database_resources(database_url)
+
+    with resources.session_factory() as session:
+        demo_context = _prepare_demo_persona(
+            session,
+            args=args,
+            provider=provider,
+            model_config=model_config,
+        )
+        user = _resolve_demo_user(
+            session,
+            display_name=args.user,
+            reuse_existing=args.reuse_existing,
+        )
+        conversation = _resolve_demo_conversation(
+            session,
+            user_id=user.id,
+            character_id=demo_context.character.id,
+            persona_version_id=demo_context.persona_version.id,
+            reuse_existing=args.reuse_existing,
+        )
+        provider_roles, model_roles = build_turn_role_bundles(
+            provider=provider,
+            model_config=model_config,
+            retriever=embedding_provider,
+            retrieval_embedding=embedding_config,
+        )
+        turn_result = run_turn_workflow(
+            session,
+            conversation_id=conversation.id,
+            content=args.user_message,
+            provider_roles=provider_roles,
+            model_roles=model_roles,
+            interaction_mode=(
+                InteractionMode(args.interaction_mode)
+                if args.interaction_mode is not None
+                else None
+            ),
+            retry_on_critic=args.retry_on_critic,
+        )
+        turn = turn_result.runtime_result
+        session.commit()
+
+    print(f"database_url={database_url}")
+    print(f"source_work_id={demo_context.source_work.id}")
+    print(f"character_id={demo_context.character.id}")
+    print(f"persona_version_id={demo_context.persona_version.id}")
+    print(f"conversation_id={conversation.id}")
+    print(f"context_package_id={turn.context_package.id}")
+    print(f"user_message_id={turn.user_message.id}")
+    print(f"assistant_message_id={turn.assistant_message.id}")
+    print(f"assistant={turn.assistant_message.content}")
+    print(f"critic_report_id={turn.critic_report.id if turn.critic_report else 'none'}")
+    print(f"critic_action={turn.critic_report.suggested_action if turn.critic_report else 'none'}")
+    print(f"retry_count={turn.retry_count}")
+    print(
+        "rejected_assistant_message_id="
+        f"{turn.rejected_assistant_message.id if turn.rejected_assistant_message else 'none'}"
+    )
+    print(
+        "rejected_critic_report_id="
+        f"{turn.rejected_critic_report.id if turn.rejected_critic_report else 'none'}"
+    )
+    print(f"failure_case_count={len(turn.failure_cases)}")
+    for index, failure_case in enumerate(turn.failure_cases, start=1):
+        print(f"failure_case.{index}.id={failure_case.id}")
+        print(f"failure_case.{index}.category={failure_case.category}")
+    print(f"memory_count={len(turn.memories)}")
+    return 0
+
+
+def _run_turn(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
+    embedding_provider, embedding_config = _resolve_embedding_provider(
+        args.provider,
+        settings=settings,
+    )
+    resources = create_database_resources(database_url)
+
+    with resources.session_factory() as session:
+        try:
+            conversation = ConversationRepository(session).require(args.conversation_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+        provider_roles, model_roles = build_turn_role_bundles(
+            provider=provider,
+            model_config=model_config,
+            retriever=embedding_provider,
+            retrieval_embedding=embedding_config,
+        )
+        turn_result = run_turn_workflow(
+            session,
+            conversation_id=conversation.id,
+            content=args.message,
+            provider_roles=provider_roles,
+            model_roles=model_roles,
+            interaction_mode=(
+                InteractionMode(args.interaction_mode)
+                if args.interaction_mode is not None
+                else None
+            ),
+            retry_on_critic=args.retry_on_critic,
+        )
+        turn = turn_result.runtime_result
+        session.commit()
+
+    print(f"database_url={database_url}")
+    print(f"conversation_id={conversation.id}")
+    print(f"context_package_id={turn.context_package.id}")
+    print(f"user_message_id={turn.user_message.id}")
+    print(f"assistant_message_id={turn.assistant_message.id}")
+    print(f"assistant={turn.assistant_message.content}")
+    print(f"critic_report_id={turn.critic_report.id if turn.critic_report else 'none'}")
+    print(f"critic_action={turn.critic_report.suggested_action if turn.critic_report else 'none'}")
+    print(f"retry_count={turn.retry_count}")
+    print(
+        "rejected_assistant_message_id="
+        f"{turn.rejected_assistant_message.id if turn.rejected_assistant_message else 'none'}"
+    )
+    print(
+        "rejected_critic_report_id="
+        f"{turn.rejected_critic_report.id if turn.rejected_critic_report else 'none'}"
+    )
+    print(f"failure_case_count={len(turn.failure_cases)}")
+    for index, failure_case in enumerate(turn.failure_cases, start=1):
+        print(f"failure_case.{index}.id={failure_case.id}")
+        print(f"failure_case.{index}.category={failure_case.category}")
+    print(f"memory_count={len(turn.memories)}")
+    return 0
+
+
+def _run_list(args: argparse.Namespace) -> int:
+    if args.resource == "conversations":
+        return _run_list_conversations(args)
+    if args.resource == "memories":
+        return _run_list_memories(args)
+    if args.resource == "claims":
+        return _run_list_claims(args)
+    if args.resource == "failure-cases":
+        return _run_list_failure_cases(args)
+    if args.resource == "eval-runs":
+        return _run_list_eval_runs(args)
+    if args.resource == "llm-traces":
+        return _run_list_llm_traces(args)
+    if args.resource == "retrieval-eval-runs":
+        return _run_list_retrieval_eval_runs(args)
+    raise CliError("list resource is required")
+
+
+def _run_archive(args: argparse.Namespace) -> int:
+    if args.resource == "memory":
+        return _run_archive_memory(args)
+    raise CliError("archive resource is required")
+
+
+def _run_edit(args: argparse.Namespace) -> int:
+    if args.resource == "memory":
+        return _run_edit_memory(args)
+    raise CliError("edit resource is required")
+
+
+def _run_review(args: argparse.Namespace) -> int:
+    if args.resource == "memory":
+        return _run_review_memory(args)
+    raise CliError("review resource is required")
+
+
+def _run_summarize(args: argparse.Namespace) -> int:
+    if args.resource == "conversation":
+        return _run_summarize_conversation(args)
+    raise CliError("summarize resource is required")
+
+
+def _run_show(args: argparse.Namespace) -> int:
+    if args.resource == "conversation":
+        return _run_show_conversation(args)
+    if args.resource == "context-package":
+        return _run_show_context_package(args)
+    if args.resource == "critic-report":
+        return _run_show_critic_report(args)
+    if args.resource == "character":
+        return _run_show_character(args)
+    if args.resource == "failure-case":
+        return _run_show_failure_case(args)
+    if args.resource == "eval-run":
+        return _run_show_eval_run(args)
+    if args.resource == "llm-trace":
+        return _run_show_llm_trace(args)
+    if args.resource == "retrieval-eval-run":
+        return _run_show_retrieval_eval_run(args)
+    raise CliError("show resource is required")
+
+
+def _run_eval(args: argparse.Namespace) -> int:
+    if args.resource == "ooc-benchmark":
+        return _run_ooc_benchmark(args)
+    if args.resource == "retrieval-benchmark":
+        return _run_retrieval_benchmark(args)
+    raise CliError("eval resource is required")
+
+
+def _run_db(args: argparse.Namespace) -> int:
+    if args.resource == "status":
+        return _run_db_status(args)
+    if args.resource == "migrate":
+        return _run_db_migrate(args)
+    raise CliError("db resource is required")
+
+
+def _run_db_status(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    status = get_migration_status(engine)
+
+    print(f"database_url={database_url}")
+    print(f"current_version={status.current_version or 'none'}")
+    print(f"target_version={status.target_version}")
+    print(f"migration_table={str(status.has_schema_migrations_table).lower()}")
+    print(f"application_tables={str(status.has_application_tables).lower()}")
+    print(f"applied_count={len(status.applied)}")
+    print(f"pending_count={len(status.pending)}")
+    for index, migration in enumerate(status.pending, start=1):
+        print(f"pending.{index}.version={migration.version}")
+        print(f"pending.{index}.description={migration.description}")
+    return 0
+
+
+def _run_db_migrate(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    result = migrate_database(engine)
+
+    print(f"database_url={database_url}")
+    print(f"current_version={result.status.current_version or 'none'}")
+    print(f"target_version={result.status.target_version}")
+    print(f"baselined_existing_database={str(result.baselined_existing_database).lower()}")
+    print(f"applied_count={len(result.applied)}")
+    for index, migration in enumerate(result.applied, start=1):
+        print(f"applied.{index}.version={migration.version}")
+        print(f"applied.{index}.description={migration.description}")
+    print(f"pending_count={len(result.status.pending)}")
+    return 0
+
+
+def _run_list_conversations(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        raise CliError("--limit must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            conversations = list_conversations(session, limit=args.limit).items
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"conversation_count={len(conversations)}")
+        for index, conversation in enumerate(conversations, start=1):
+            print(f"conversation.{index}.id={conversation.id}")
+            user_name = conversation.user.display_name if conversation.user else None
+            print(f"conversation.{index}.user={user_name or conversation.user_id}")
+            character_name = (
+                conversation.character.canonical_name
+                if conversation.character
+                else conversation.character_id
+            )
+            print(f"conversation.{index}.character={character_name}")
+            print(f"conversation.{index}.mode={conversation.current_mode}")
+            print(f"conversation.{index}.persona_version_id={conversation.persona_version_id}")
+    return 0
+
+
+def _run_list_memories(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+    scope = MemoryScope(args.scope) if args.scope is not None else None
+    status = MemoryStatus(args.status) if args.status is not None else None
+
+    with session_factory() as session:
+        memories = list_memories(
+            session,
+            args.user_id,
+            args.character_id,
+            scope=scope,
+            status=status,
+            validate_links=False,
+        ).items
+
+        print(f"database_url={database_url}")
+        print(f"memory_count={len(memories)}")
+        for index, memory in enumerate(memories, start=1):
+            print(f"memory.{index}.id={memory.id}")
+            print(f"memory.{index}.scope={memory.scope}")
+            print(f"memory.{index}.status={memory.status}")
+            print(f"memory.{index}.importance={memory.importance}")
+            print(f"memory.{index}.content={memory.content}")
+            print(f"memory.{index}.reason={memory.reason}")
+    return 0
+
+
+def _run_list_claims(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+    status = ClaimStatus(args.status) if args.status is not None else None
+    claim_type = ClaimType(args.claim_type) if args.claim_type is not None else None
+
+    with session_factory() as session:
+        try:
+            result = list_claims(
+                session,
+                args.character_id,
+                status=status,
+                claim_type=claim_type,
+                expand_evidence=True,
+            )
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+        claims = result.items
+
+        print(f"database_url={database_url}")
+        print(f"character_id={args.character_id}")
+        print(f"claim_count={len(claims)}")
+        for index, claim in enumerate(claims, start=1):
+            print(f"claim.{index}.id={claim.id}")
+            print(f"claim.{index}.type={claim.claim_type}")
+            print(f"claim.{index}.status={claim.status}")
+            print(f"claim.{index}.confidence={claim.confidence}")
+            print(f"claim.{index}.evidence_count={len(claim.evidence_ids)}")
+            print(f"claim.{index}.content={claim.content}")
+            print(f"claim.{index}.reasoning={claim.reasoning or ''}")
+    return 0
+
+
+def _run_list_failure_cases(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        raise CliError("--limit must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            failure_cases = list_failure_cases(
+                session,
+                conversation_id=args.conversation_id,
+                limit=args.limit,
+                category=args.category,
+            ).items
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"failure_case_count={len(failure_cases)}")
+        for index, failure_case in enumerate(failure_cases, start=1):
+            print(f"failure_case.{index}.id={failure_case.id}")
+            print(f"failure_case.{index}.category={failure_case.category}")
+            print(f"failure_case.{index}.conversation_id={failure_case.conversation_id}")
+            print(f"failure_case.{index}.assistant_message_id={failure_case.assistant_message_id}")
+            print(f"failure_case.{index}.critic_report_id={failure_case.critic_report_id}")
+            print(f"failure_case.{index}.reason={failure_case.reason}")
+    return 0
+
+
+def _run_list_eval_runs(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        raise CliError("--limit must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            runs = list_evaluation_runs(
+                session,
+                limit=args.limit,
+                character_id=args.character_id,
+                test_suite=args.test_suite,
+            ).items
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"eval_run_count={len(runs)}")
+        for index, run in enumerate(runs, start=1):
+            print(f"eval_run.{index}.id={run.id}")
+            print(f"eval_run.{index}.status={run.status}")
+            print(f"eval_run.{index}.test_suite={run.test_suite}")
+            print(f"eval_run.{index}.character_id={run.character_id}")
+            print(f"eval_run.{index}.persona_version_id={run.persona_version_id}")
+            print(f"eval_run.{index}.total={run.total_cases}")
+            print(f"eval_run.{index}.passed={run.passed_cases}")
+            print(f"eval_run.{index}.failed={run.failed_cases}")
+    return 0
+
+
+def _run_list_llm_traces(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        raise CliError("--limit must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            traces = list_llm_traces(
+                session,
+                limit=args.limit,
+                operation=args.operation,
+                schema_name=args.schema_name,
+                provider_name=args.provider_name,
+                model_name=args.model_name,
+                with_errors=args.with_errors,
+            ).items
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"llm_trace_count={len(traces)}")
+        for index, trace in enumerate(traces, start=1):
+            print(f"llm_trace.{index}.id={trace.id}")
+            print(f"llm_trace.{index}.operation={trace.operation}")
+            print(f"llm_trace.{index}.schema_name={trace.schema_name}")
+            print(f"llm_trace.{index}.provider_name={trace.provider_name}")
+            print(f"llm_trace.{index}.model_name={trace.model_name or 'none'}")
+            print(f"llm_trace.{index}.validation_error_count={trace.validation_error_count}")
+            print(f"llm_trace.{index}.created_at={trace.created_at.isoformat()}")
+    return 0
+
+
+def _run_list_retrieval_eval_runs(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        raise CliError("--limit must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            runs = list_retrieval_evaluation_runs(
+                session,
+                limit=args.limit,
+                character_id=args.character_id,
+                source_work_id=args.source_work_id,
+                test_suite=args.test_suite,
+            ).items
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"retrieval_eval_run_count={len(runs)}")
+        for index, run in enumerate(runs, start=1):
+            print(f"retrieval_eval_run.{index}.id={run.id}")
+            print(f"retrieval_eval_run.{index}.status={run.status}")
+            print(f"retrieval_eval_run.{index}.test_suite={run.test_suite}")
+            print(f"retrieval_eval_run.{index}.source_work_id={run.source_work_id}")
+            print(f"retrieval_eval_run.{index}.character_id={run.character_id}")
+            print(f"retrieval_eval_run.{index}.embedding_model={run.embedding_model or 'none'}")
+            print(f"retrieval_eval_run.{index}.total={run.total_cases}")
+            print(f"retrieval_eval_run.{index}.passed={run.passed_cases}")
+            print(f"retrieval_eval_run.{index}.failed={run.failed_cases}")
+    return 0
+
+
+def _run_show_conversation(args: argparse.Namespace) -> int:
+    if args.messages < 0:
+        raise CliError("--messages must be 0 or greater")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            conversation = inspect_conversation(
+                session,
+                args.conversation_id,
+                options=ConversationInspectionOptions(message_limit=args.messages),
+            )
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"conversation_id={conversation.id}")
+        print(f"user_id={conversation.user_id}")
+        user_name = conversation.user.display_name if conversation.user else None
+        print(f"user={user_name or conversation.user_id}")
+        print(f"character_id={conversation.character_id}")
+        character_name = (
+            conversation.character.canonical_name
+            if conversation.character
+            else conversation.character_id
+        )
+        print(f"character={character_name}")
+        print(f"persona_version_id={conversation.persona_version_id}")
+        print(f"mode={conversation.current_mode}")
+        _print_summary_layers(conversation.summary)
+        print(f"message_count={conversation.message_count or 0}")
+        for index, message in enumerate(conversation.messages, start=1):
+            print(f"message.{index}.id={message.id}")
+            print(f"message.{index}.role={message.role}")
+            print(f"message.{index}.content={message.content}")
+    return 0
+
+
+def _run_show_character(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            character = get_character_detail(
+                session,
+                args.character_id,
+                include_claims=True,
+                expand_claim_evidence=True,
+            )
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+
+        status_counts = _claim_status_counts(character.claims)
+        type_counts = _claim_type_counts(character.claims)
+
+        print(f"database_url={database_url}")
+        print(f"character_id={character.id}")
+        print(f"canonical_name={character.canonical_name}")
+        print(f"aliases={','.join(character.aliases)}")
+        print(f"source_work_id={character.source_work_id}")
+        print(f"source_work_title={character.source_work.title if character.source_work else ''}")
+        persona = character.latest_persona_version
+        print(f"latest_persona_version_id={persona.id if persona else 'none'}")
+        print(f"latest_persona_version_number={persona.version_number if persona else 'none'}")
+        print(f"claim_count={character.claim_count or 0}")
+        for status in ClaimStatus:
+            print(f"claim_status.{status.value}={status_counts[status.value]}")
+        for claim_type in ClaimType:
+            print(f"claim_type.{claim_type.value}={type_counts[claim_type.value]}")
+        print(f"evidence_count={character.evidence_count or 0}")
+        if persona is not None:
+            print("core_self<<END")
+            print(persona.core_self or "")
+            print("END")
+    return 0
+
+
+def _run_show_context_package(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            context_package = inspect_context_package(
+                session,
+                args.context_package_id,
+                options=ContextPackageInspectionOptions(),
+            )
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"context_package_id={context_package.id}")
+        print(f"conversation_id={context_package.conversation_id}")
+        print(f"interaction_mode={context_package.interaction_mode}")
+        print(f"persona_version_id={context_package.persona_version_id}")
+        print(f"claim_ids={','.join(context_package.claim_ids)}")
+        print(f"memory_ids={','.join(context_package.memory_ids)}")
+        print(f"retrieved_chunk_ids={','.join(context_package.retrieved_chunk_ids)}")
+        print("assembled_prompt<<END")
+        print(context_package.assembled_prompt)
+        print("END")
+    return 0
+
+
+def _run_show_critic_report(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            critic_report = get_critic_report_detail(session, args.critic_report_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"critic_report_id={critic_report.id}")
+        print(f"message_id={critic_report.message_id}")
+        print(f"ooc_risk={critic_report.ooc_risk}")
+        print(f"fact_risk={critic_report.fact_risk}")
+        print(f"memory_risk={critic_report.memory_risk}")
+        print(f"mode_risk={critic_report.mode_risk}")
+        print(f"suggested_action={critic_report.suggested_action}")
+        print("reasons<<END")
+        for reason in critic_report.reasons:
+            print(f"- {reason}")
+        print("END")
+    return 0
+
+
+def _run_show_failure_case(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            failure_case = get_failure_case_detail(session, args.failure_case_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"failure_case_id={failure_case.id}")
+        print(f"category={failure_case.category}")
+        print(f"conversation_id={failure_case.conversation_id}")
+        print(f"user_message_id={failure_case.user_message_id}")
+        print(f"assistant_message_id={failure_case.assistant_message_id}")
+        print(f"context_package_id={failure_case.context_package_id}")
+        print(f"critic_report_id={failure_case.critic_report_id}")
+        critic_action = (
+            failure_case.critic_report.suggested_action
+            if failure_case.critic_report
+            else "none"
+        )
+        print(f"critic_action={critic_action}")
+        print(f"reason={failure_case.reason}")
+        print(f"notes={failure_case.notes or ''}")
+        print("user_message<<END")
+        print(failure_case.user_message.content if failure_case.user_message else "")
+        print("END")
+        print("assistant_message<<END")
+        print(failure_case.assistant_message.content if failure_case.assistant_message else "")
+        print("END")
+    return 0
+
+
+def _run_show_eval_run(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            run = get_evaluation_run_detail(
+                session,
+                args.run_id,
+                failed_only=args.failed_only,
+            )
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+        shown_case_results = run.cases
+        stored_case_count = _stored_eval_case_count(session, run.id)
+        try:
+            exported_cases_file = _export_ooc_eval_run_cases_if_requested(
+                args,
+                shown_case_results,
+            )
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"run_id={run.id}")
+        print(f"status={run.status}")
+        print(f"test_suite={run.test_suite}")
+        print(f"character_id={run.character_id}")
+        print(f"persona_version_id={run.persona_version_id}")
+        _print_total_pass_fail_counts(
+            total_cases=run.total_cases,
+            passed_cases=run.passed_cases,
+            failed_cases=run.failed_cases,
+        )
+        _print_stored_case_count_summary(
+            stored_case_count=stored_case_count,
+            shown_case_count=len(shown_case_results),
+            exported_cases_file=exported_cases_file,
+        )
+        _print_ooc_benchmark_report(run.diagnostics)
+        for index, case_result in enumerate(shown_case_results, start=1):
+            _print_stored_ooc_case_result(index, case_result, case_result.assistant_message)
+    return 0
+
+
+def _export_ooc_eval_run_cases_if_requested(
+    args: argparse.Namespace,
+    case_results,
+) -> Path | None:
+    if args.export_cases_file is None:
+        return None
+    cases = build_ooc_benchmark_cases_from_results(
+        [_evaluation_case_summary_to_domain(case_result) for case_result in case_results],
+        failed_only=False,
+    )
+    return export_ooc_benchmark_cases_file(
+        args.export_cases_file,
+        cases,
+        append=args.append_cases_file,
+        overwrite=args.overwrite_cases_file,
+    )
+
+
+def _run_show_llm_trace(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            trace = get_llm_trace_detail(session, args.trace_id)
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"llm_trace_id={trace.id}")
+        print(f"operation={trace.operation}")
+        print(f"schema_name={trace.schema_name}")
+        print(f"provider_name={trace.provider_name}")
+        print(f"model_name={trace.model_name or 'none'}")
+        print(f"validation_error_count={len(trace.validation_errors)}")
+        print(f"created_at={trace.created_at.isoformat()}")
+        print("response_schema<<END")
+        print(_json_block(trace.response_schema))
+        print("END")
+        print("raw_output<<END")
+        print(trace.raw_output)
+        print("END")
+        print("parsed_output<<END")
+        print(_json_block(trace.parsed_output))
+        print("END")
+        print("validation_errors<<END")
+        for error in trace.validation_errors:
+            print(error)
+        print("END")
+    return 0
+
+
+def _run_show_retrieval_eval_run(args: argparse.Namespace) -> int:
+    if args.export_case_limit < 1:
+        raise CliError("--export-case-limit must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            run = get_retrieval_evaluation_run_detail(
+                session,
+                args.run_id,
+                failed_only=args.failed_only,
+                include_chunks=False,
+            )
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+        shown_case_results = run.cases
+        stored_case_count = _stored_retrieval_case_count(session, run.id)
+        try:
+            exported_cases_file = _export_retrieval_eval_run_cases_if_requested(
+                args,
+                shown_case_results,
+            )
+        except ValueError as exc:
+            raise CliError(str(exc)) from exc
+
+        print(f"database_url={database_url}")
+        print(f"run_id={run.id}")
+        print(f"status={run.status}")
+        print(f"test_suite={run.test_suite}")
+        print(f"source_work_id={run.source_work_id}")
+        print(f"character_id={run.character_id}")
+        print(f"embedding_model={run.embedding_model or 'none'}")
+        _print_total_pass_fail_counts(
+            total_cases=run.total_cases,
+            passed_cases=run.passed_cases,
+            failed_cases=run.failed_cases,
+        )
+        _print_stored_case_count_summary(
+            stored_case_count=stored_case_count,
+            shown_case_count=len(shown_case_results),
+            exported_cases_file=exported_cases_file,
+        )
+        _print_retrieval_benchmark_report(run.diagnostics)
+        for index, case_result in enumerate(shown_case_results, start=1):
+            _print_stored_retrieval_case_result(index, case_result)
+    return 0
+
+
+def _export_retrieval_eval_run_cases_if_requested(
+    args: argparse.Namespace,
+    case_results,
+) -> Path | None:
+    if args.export_cases_file is None:
+        return None
+    cases = build_retrieval_benchmark_cases_from_results(
+        [
+            _retrieval_case_summary_to_domain(case_result)
+            for case_result in case_results
+        ],
+        failed_only=False,
+        limit=args.export_case_limit,
+    )
+    return export_retrieval_benchmark_cases_file(
+        args.export_cases_file,
+        cases,
+        append=args.append_cases_file,
+        overwrite=args.overwrite_cases_file,
+    )
+
+
+def _stored_eval_case_count(session, run_id: str) -> int:
+    return len(EvaluationCaseResultRepository(session).list_by_run(run_id))
+
+
+def _stored_retrieval_case_count(session, run_id: str) -> int:
+    return len(RetrievalEvaluationCaseResultRepository(session).list_by_run(run_id))
+
+
+def _evaluation_case_summary_to_domain(case_result) -> EvaluationCaseResult:
+    return EvaluationCaseResult(
+        id=case_result.id,
+        run_id=case_result.run_id,
+        case_id=case_result.case_id,
+        prompt=case_result.prompt,
+        interaction_mode=case_result.interaction_mode,
+        assistant_message_id=case_result.assistant_message_id,
+        critic_report_id=case_result.critic_report_id,
+        status=case_result.status,
+        reasons=case_result.reasons,
+        category=case_result.category,
+        created_at=case_result.created_at,
+    )
+
+
+def _retrieval_case_summary_to_domain(case_result) -> RetrievalEvaluationCaseResult:
+    return RetrievalEvaluationCaseResult(
+        id=case_result.id,
+        run_id=case_result.run_id,
+        case_id=case_result.case_id,
+        query=case_result.query,
+        expected_chunk_ids=case_result.expected_chunk_ids,
+        retrieved_chunk_ids=case_result.retrieved_chunk_ids,
+        retrieved_scores=case_result.retrieved_scores,
+        status=case_result.status,
+        recall=case_result.recall,
+        first_relevant_rank=case_result.first_relevant_rank,
+        ranking_score=case_result.ranking_score,
+        reasons=case_result.reasons,
+        created_at=case_result.created_at,
+    )
+
+
+def _run_archive_memory(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            memory = MemoryRepository(session).update_status(
+                args.memory_id,
+                status=MemoryStatus.ARCHIVED,
+            )
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+        session.commit()
+
+    print(f"database_url={database_url}")
+    print(f"memory_id={memory.id}")
+    print(f"status={memory.status}")
+    return 0
+
+
+def _run_edit_memory(args: argparse.Namespace) -> int:
+    content = args.content.strip()
+    if not content:
+        raise CliError("--content cannot be empty")
+    reason = args.reason.strip()
+    if not reason:
+        raise CliError("--reason cannot be empty")
+
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            memory = MemoryRepository(session).update_content(
+                args.memory_id,
+                content=content,
+                reason=reason,
+            )
+        except LookupError as exc:
+            raise CliError(str(exc)) from exc
+        session.commit()
+
+    print(f"database_url={database_url}")
+    print(f"memory_id={memory.id}")
+    print(f"status={memory.status}")
+    print(f"content={memory.content}")
+    print(f"reason={memory.reason}")
+    return 0
+
+
+def _run_review_memory(args: argparse.Namespace) -> int:
+    reason = args.reason.strip()
+    if not reason:
+        raise CliError("--reason cannot be empty")
+    target_status = (
+        MemoryStatus.ACCEPTED
+        if args.decision == "accept"
+        else MemoryStatus.REJECTED
+    )
+
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            memory = MemoryRepository(session).review_candidate(
+                args.memory_id,
+                status=target_status,
+                reason=reason,
+            )
+        except (LookupError, ValueError) as exc:
+            raise CliError(str(exc)) from exc
+        session.commit()
+
+    print(f"database_url={database_url}")
+    print(f"memory_id={memory.id}")
+    print(f"status={memory.status}")
+    print(f"reason={memory.reason}")
+    return 0
+
+
+def _run_summarize_conversation(args: argparse.Namespace) -> int:
+    if args.messages < 1:
+        raise CliError("--messages must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            result = summarize_conversation(
+                session,
+                conversation_id=args.conversation_id,
+                provider=provider,
+                model_config=model_config,
+                max_messages=args.messages,
+            )
+        except (LookupError, ValueError) as exc:
+            raise CliError(str(exc)) from exc
+        session.commit()
+
+    print(f"database_url={database_url}")
+    print(f"conversation_id={result.conversation.id}")
+    print(f"summary={result.conversation.summary}")
+    _print_summary_layers(result.conversation.summary)
+    return 0
+
+
+def _run_ooc_benchmark(args: argparse.Namespace) -> int:
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    try:
+        cases = _load_ooc_benchmark_cases(args)
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
+    if args.dry_run:
+        return _dry_run_ooc_benchmark(args, database_url=database_url, cases=cases)
+
+    provider, model_config = _resolve_demo_provider(args.provider, settings=settings)
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            result = run_ooc_benchmark(
+                session,
+                character_id=args.character_id,
+                persona_version_id=args.persona_version_id,
+                provider=provider,
+                model_config=model_config,
+                test_suite=args.test_suite,
+                cases=cases,
+            )
+        except (LookupError, ValueError) as exc:
+            raise CliError(str(exc)) from exc
+        session.commit()
+
+    _print_ooc_benchmark_run_summary(
+        database_url=database_url,
+        run_id=result.run.id,
+        status=result.run.status,
+        test_suite=result.run.test_suite,
+        case_suite=args.case_suite,
+        cases_source=_ooc_cases_source(args),
+        cases_file=args.cases_file,
+        character_id=result.run.character_id,
+        persona_version_id=result.run.persona_version_id,
+        total_cases=result.run.total_cases,
+        passed_cases=result.run.passed_cases,
+        failed_cases=result.run.failed_cases,
+    )
+    _print_ooc_benchmark_report(summarize_ooc_benchmark(result.case_results))
+    for index, case_result in enumerate(result.case_results, start=1):
+        _print_ooc_case_result(index, case_result, verbose=args.verbose)
+    return 0
+
+
+def _dry_run_ooc_benchmark(
+    args: argparse.Namespace,
+    *,
+    database_url: str,
+    cases: tuple[BenchmarkCase, ...],
+) -> int:
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            character = CharacterRepository(session).require(args.character_id)
+            persona = _resolve_benchmark_persona(
+                session,
+                character_id=character.id,
+                persona_version_id=args.persona_version_id,
+            )
+        except (LookupError, ValueError) as exc:
+            raise CliError(str(exc)) from exc
+
+    _print_ooc_benchmark_run_summary(
+        database_url=database_url,
+        run_id="dry-run",
+        status="dry_run",
+        test_suite=args.test_suite,
+        case_suite=args.case_suite,
+        cases_source=_ooc_cases_source(args),
+        cases_file=args.cases_file,
+        character_id=character.id,
+        persona_version_id=persona.id,
+        total_cases=len(cases),
+        passed_cases=0,
+        failed_cases=0,
+    )
+    print(f"provider={args.provider}")
+    print("will_create_run=false")
+    print("will_call_provider=false")
+    _print_ooc_benchmark_cases_summary(cases)
+    for index, benchmark_case in enumerate(cases, start=1):
+        _print_ooc_benchmark_case(index, benchmark_case, verbose=args.verbose)
+    return 0
+
+
+def _load_ooc_benchmark_cases(args: argparse.Namespace) -> tuple[BenchmarkCase, ...]:
+    if args.cases_file is not None:
+        return load_ooc_benchmark_cases_file(args.cases_file)
+    return get_benchmark_cases(args.case_suite)
+
+
+def _ooc_cases_source(args: argparse.Namespace) -> str:
+    return "cases_file" if args.cases_file is not None else "built_in_suite"
+
+
+def _resolve_benchmark_persona(
+    session,
+    *,
+    character_id: str,
+    persona_version_id: str | None,
+) -> PersonaVersion:
+    persona_repository = PersonaVersionRepository(session)
+    persona = (
+        persona_repository.require(persona_version_id)
+        if persona_version_id is not None
+        else persona_repository.latest_for_character(character_id)
+    )
+    if persona is None:
+        raise ValueError(f"Character {character_id!r} has no persona version")
+    if persona.character_id != character_id:
+        raise ValueError(
+            f"Persona version {persona.id!r} does not belong to character {character_id!r}"
+        )
+    return persona
+
+
+def _print_ooc_benchmark_run_summary(
+    *,
+    database_url: str,
+    run_id: str,
+    status: str,
+    test_suite: str,
+    case_suite: str,
+    cases_source: str,
+    cases_file: Path | None,
+    character_id: str,
+    persona_version_id: str,
+    total_cases: int,
+    passed_cases: int,
+    failed_cases: int,
+) -> None:
+    print(f"database_url={database_url}")
+    print(f"run_id={run_id}")
+    print(f"status={status}")
+    print(f"test_suite={test_suite}")
+    print(f"case_suite={case_suite}")
+    print(f"cases_source={cases_source}")
+    if cases_file is not None:
+        print(f"cases_file={cases_file}")
+    print(f"character_id={character_id}")
+    print(f"persona_version_id={persona_version_id}")
+    _print_benchmark_run_count_summary(
+        total_cases=total_cases,
+        passed_cases=passed_cases,
+        failed_cases=failed_cases,
+    )
+
+
+def _print_ooc_benchmark_report(report) -> None:
+    print(f"report.total_cases={report.total_cases}")
+    print(f"report.passed_cases={report.passed_cases}")
+    print(f"report.failed_cases={report.failed_cases}")
+    print(f"report.pass_rate={_format_decimal(report.pass_rate)}")
+    print(f"report.mode_count={len(report.mode_reports)}")
+    for index, mode_report in enumerate(report.mode_reports, start=1):
+        print(f"report.mode.{index}.interaction_mode={mode_report.interaction_mode}")
+        print(f"report.mode.{index}.total_cases={mode_report.total_cases}")
+        print(f"report.mode.{index}.passed_cases={mode_report.passed_cases}")
+        print(f"report.mode.{index}.failed_cases={mode_report.failed_cases}")
+        print(f"report.mode.{index}.pass_rate={_format_decimal(mode_report.pass_rate)}")
+
+
+def _print_ooc_benchmark_cases_summary(cases: tuple[BenchmarkCase, ...]) -> None:
+    print(f"cases_summary.total_cases={len(cases)}")
+    interaction_modes = sorted(
+        {benchmark_case.interaction_mode for benchmark_case in cases},
+        key=lambda mode: mode.value,
+    )
+    print(f"cases_summary.mode_count={len(interaction_modes)}")
+    for index, interaction_mode in enumerate(interaction_modes, start=1):
+        mode_cases = [
+            benchmark_case
+            for benchmark_case in cases
+            if benchmark_case.interaction_mode == interaction_mode
+        ]
+        print(f"cases_summary.mode.{index}.interaction_mode={interaction_mode}")
+        print(f"cases_summary.mode.{index}.total_cases={len(mode_cases)}")
+
+
+def _print_retrieval_benchmark_report(report) -> None:
+    print(f"report.total_cases={report.total_cases}")
+    print(f"report.evidence_case_count={report.evidence_case_count}")
+    print(f"report.empty_case_count={report.empty_case_count}")
+    print(f"report.pass_rate={_format_decimal(report.pass_rate)}")
+    print(f"report.evidence_pass_rate={_format_decimal(report.evidence_pass_rate)}")
+    print(f"report.empty_pass_rate={_format_decimal(report.empty_pass_rate)}")
+    print(f"report.average_recall={_format_decimal(report.average_recall)}")
+    print(
+        "report.average_ranking_score="
+        f"{_format_decimal(report.average_ranking_score)}"
+    )
+    print(f"report.first_relevant_at_one_count={report.first_relevant_at_one_count}")
+    print(f"report.no_relevant_result_count={report.no_relevant_result_count}")
+    print(
+        "report.retrieved_empty_when_expected_empty_count="
+        f"{report.retrieved_empty_when_expected_empty_count}"
+    )
+    print(
+        "report.retrieved_nonempty_when_expected_empty_count="
+        f"{report.retrieved_nonempty_when_expected_empty_count}"
+    )
+    print(f"report.missing_expected_chunk_count={report.missing_expected_chunk_count}")
+
+
+def _print_total_pass_fail_counts(
+    *,
+    total_cases: int,
+    passed_cases: int,
+    failed_cases: int,
+) -> None:
+    print(f"total={total_cases}")
+    print(f"passed={passed_cases}")
+    print(f"failed={failed_cases}")
+
+
+def _print_benchmark_run_count_summary(
+    *,
+    total_cases: int,
+    passed_cases: int,
+    failed_cases: int,
+) -> None:
+    _print_total_pass_fail_counts(
+        total_cases=total_cases,
+        passed_cases=passed_cases,
+        failed_cases=failed_cases,
+    )
+    print(f"pass_rate={_format_ratio(passed_cases, total_cases)}")
+    print(f"failed_case_count={failed_cases}")
+
+
+def _print_stored_case_count_summary(
+    *,
+    stored_case_count: int,
+    shown_case_count: int,
+    exported_cases_file: Path | None,
+) -> None:
+    print(f"stored_case_count={stored_case_count}")
+    print(f"case_count={shown_case_count}")
+    if exported_cases_file is not None:
+        print(f"exported_cases_file={exported_cases_file}")
+
+
+def _print_reasons_block(prefix: str, reasons: list[str]) -> None:
+    print(f"{prefix}.reasons<<END")
+    for reason in reasons:
+        print(f"- {reason}")
+    print("END")
+
+
+def _print_ooc_benchmark_case(
+    index: int,
+    benchmark_case: BenchmarkCase,
+    *,
+    verbose: bool,
+) -> None:
+    print(f"case.{index}.id={benchmark_case.id}")
+    print(f"case.{index}.category={benchmark_case.category}")
+    print(f"case.{index}.interaction_mode={benchmark_case.interaction_mode}")
+    if verbose:
+        print(f"case.{index}.prompt={benchmark_case.prompt}")
+
+
+def _print_ooc_case_result(
+    index: int,
+    case_result: EvaluationCaseResult,
+    *,
+    verbose: bool,
+) -> None:
+    prefix = f"case.{index}"
+    print(f"{prefix}.id={case_result.case_id}")
+    print(f"{prefix}.status={case_result.status}")
+    print(f"{prefix}.category={case_result.category}")
+    print(f"{prefix}.critic_report_id={case_result.critic_report_id or 'none'}")
+    if verbose:
+        print(f"{prefix}.interaction_mode={case_result.interaction_mode}")
+        print(f"{prefix}.assistant_message_id={case_result.assistant_message_id}")
+        print(f"{prefix}.prompt={case_result.prompt}")
+        _print_reasons_block(prefix, case_result.reasons)
+
+
+def _print_stored_ooc_case_result(
+    index: int,
+    case_result: EvaluationCaseResult,
+    assistant_message: Message | None,
+) -> None:
+    prefix = f"case.{index}"
+    print(f"{prefix}.id={case_result.case_id}")
+    print(f"{prefix}.status={case_result.status}")
+    print(f"{prefix}.category={case_result.category}")
+    print(f"{prefix}.interaction_mode={case_result.interaction_mode}")
+    print(f"{prefix}.assistant_message_id={case_result.assistant_message_id}")
+    conversation_id = assistant_message.conversation_id if assistant_message else "none"
+    context_package_id = (
+        assistant_message.context_package_id
+        if assistant_message and assistant_message.context_package_id
+        else "none"
+    )
+    print(f"{prefix}.conversation_id={conversation_id}")
+    print(f"{prefix}.context_package_id={context_package_id}")
+    print(f"{prefix}.critic_report_id={case_result.critic_report_id or 'none'}")
+    print(f"{prefix}.prompt={case_result.prompt}")
+    _print_reasons_block(prefix, case_result.reasons)
+
+
+def _print_retrieval_benchmark_case(
+    index: int,
+    benchmark_case: RetrievalBenchmarkCase,
+    *,
+    verbose: bool,
+) -> None:
+    print(f"case.{index}.id={benchmark_case.id}")
+    print(f"case.{index}.expected_count={len(benchmark_case.expected_chunk_ids)}")
+    print(f"case.{index}.limit={benchmark_case.limit}")
+    print(f"case.{index}.expected_chunk_ids={','.join(benchmark_case.expected_chunk_ids)}")
+    if verbose:
+        print(f"case.{index}.query={benchmark_case.query}")
+
+
+def _print_retrieval_case_result(
+    index: int,
+    case_result: RetrievalEvaluationCaseResult,
+    *,
+    verbose: bool,
+) -> None:
+    prefix = f"case.{index}"
+    print(f"{prefix}.id={case_result.case_id}")
+    print(f"{prefix}.status={case_result.status}")
+    print(f"{prefix}.recall={case_result.recall}")
+    print(f"{prefix}.first_relevant_rank={case_result.first_relevant_rank or 'none'}")
+    if verbose:
+        _print_retrieval_case_result_details(index, case_result, include_scores=True)
+        _print_retrieval_case_diagnostics(index, case_result)
+
+
+def _print_stored_retrieval_case_result(
+    index: int,
+    case_result: RetrievalEvaluationCaseResult,
+) -> None:
+    prefix = f"case.{index}"
+    print(f"{prefix}.id={case_result.case_id}")
+    print(f"{prefix}.status={case_result.status}")
+    print(f"{prefix}.recall={case_result.recall}")
+    print(f"{prefix}.first_relevant_rank={case_result.first_relevant_rank or 'none'}")
+    _print_retrieval_case_result_details(index, case_result, include_scores=False)
+    _print_retrieval_case_diagnostics(index, case_result)
+
+
+def _print_retrieval_case_result_details(
+    index: int,
+    case_result: RetrievalEvaluationCaseResult,
+    *,
+    include_scores: bool,
+) -> None:
+    prefix = f"case.{index}"
+    print(f"{prefix}.ranking_score={case_result.ranking_score}")
+    print(f"{prefix}.expected_chunk_ids={','.join(case_result.expected_chunk_ids)}")
+    print(f"{prefix}.retrieved_chunk_ids={','.join(case_result.retrieved_chunk_ids)}")
+    if include_scores:
+        print(
+            f"{prefix}.retrieved_scores="
+            f"{_format_optional_decimal_list(case_result.retrieved_scores)}"
+        )
+    print(f"{prefix}.query={case_result.query}")
+    _print_reasons_block(prefix, case_result.reasons)
+
+
+def _print_summary_layers(summary: str | None) -> None:
+    layers = parse_layered_summary(summary)
+    print(f"summary.short_term_scene_state={layers.short_term_scene_state}")
+    print(f"summary.user_memory_candidate_count={len(layers.user_memory_candidates)}")
+    for index, item in enumerate(layers.user_memory_candidates, start=1):
+        print(f"summary.user_memory_candidate.{index}={item}")
+    print(f"summary.relationship_memory_note_count={len(layers.relationship_memory_notes)}")
+    for index, item in enumerate(layers.relationship_memory_notes, start=1):
+        print(f"summary.relationship_memory_note.{index}={item}")
+    print(f"summary.reflective_note_count={len(layers.reflective_notes)}")
+    for index, item in enumerate(layers.reflective_notes, start=1):
+        print(f"summary.reflective_note.{index}={item}")
+
+
+def _run_retrieval_benchmark(args: argparse.Namespace) -> int:
+    if args.max_cases < 1:
+        raise CliError("--max-cases must be greater than 0")
+    settings = Settings()
+    database_url = _resolve_database_url(args, settings)
+    if args.dry_run:
+        return _dry_run_retrieval_benchmark(
+            args,
+            database_url=database_url,
+            settings=settings,
+        )
+
+    if args.provider == "stub":
+        embedding_provider: LLMProvider | None = StubProvider()
+        embedding_config: EmbeddingConfig | None = EmbeddingConfig(model="stub-embedding")
+    else:
+        embedding_provider, embedding_config = _resolve_embedding_provider(
+            args.provider,
+            settings=settings,
+        )
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            explicit_cases = _load_explicit_retrieval_benchmark_cases(args)
+            cases = explicit_cases
+            cases_source = "cases_file" if explicit_cases is not None else "generated"
+            exported_cases_file = None
+            if cases is None and args.export_cases_file is not None:
+                character = CharacterRepository(session).require(args.character_id)
+                cases = build_default_retrieval_benchmark_cases(
+                    session,
+                    character_id=character.id,
+                    max_cases=args.max_cases,
+                    include_empty_case=not args.no_empty_case,
+                )
+            if cases is not None:
+                exported_cases_file = _export_retrieval_benchmark_cases_if_requested(
+                    args,
+                    cases,
+                )
+            result = run_retrieval_benchmark(
+                session,
+                character_id=args.character_id,
+                provider=embedding_provider,
+                embedding_config=embedding_config,
+                test_suite=args.test_suite,
+                cases=cases,
+                max_cases=args.max_cases,
+                include_empty_case=not args.no_empty_case,
+            )
+        except (LookupError, ValueError) as exc:
+            raise CliError(str(exc)) from exc
+        session.commit()
+
+    _print_retrieval_benchmark_run_summary(
+        database_url=database_url,
+        run_id=result.run.id,
+        status=result.run.status,
+        test_suite=result.run.test_suite,
+        source_work_id=result.run.source_work_id,
+        character_id=result.run.character_id,
+        embedding_model=result.run.embedding_model,
+        total_cases=result.run.total_cases,
+        passed_cases=result.run.passed_cases,
+        failed_cases=result.run.failed_cases,
+    )
+    print(f"cases_source={cases_source}")
+    if args.cases_file is not None:
+        print(f"cases_file={args.cases_file}")
+    if exported_cases_file is not None:
+        print(f"exported_cases_file={exported_cases_file}")
+    _print_retrieval_benchmark_report(
+        summarize_retrieval_benchmark(result.case_results)
+    )
+    for index, case_result in enumerate(result.case_results, start=1):
+        _print_retrieval_case_result(index, case_result, verbose=args.verbose)
+    return 0
+
+
+def _print_retrieval_case_diagnostics(
+    index: int,
+    case_result: RetrievalEvaluationCaseResult,
+) -> None:
+    diagnostics = build_retrieval_case_diagnostics(
+        expected_chunk_ids=case_result.expected_chunk_ids,
+        retrieved_chunk_ids=case_result.retrieved_chunk_ids,
+    )
+    print(f"case.{index}.expected_count={diagnostics.expected_count}")
+    print(f"case.{index}.retrieved_count={diagnostics.retrieved_count}")
+    print(
+        "case."
+        f"{index}.top_retrieved_chunk_id={diagnostics.top_retrieved_chunk_id or 'none'}"
+    )
+    print(
+        "case."
+        f"{index}.missing_expected_chunk_ids="
+        f"{','.join(diagnostics.missing_expected_chunk_ids) or 'none'}"
+    )
+    print(
+        "case."
+        f"{index}.top_retrieved_chunk_expected="
+        f"{str(diagnostics.top_retrieved_chunk_expected).lower()}"
+    )
+
+
+def _dry_run_retrieval_benchmark(
+    args: argparse.Namespace,
+    *,
+    database_url: str,
+    settings: Settings,
+) -> int:
+    engine = create_database_engine(database_url)
+    ensure_database_ready(engine)
+    session_factory = create_session_factory(engine)
+
+    with session_factory() as session:
+        try:
+            cases = _load_explicit_retrieval_benchmark_cases(args)
+            cases_source = "cases_file" if cases is not None else "generated"
+            character = CharacterRepository(session).require(args.character_id)
+            if cases is None:
+                cases = build_default_retrieval_benchmark_cases(
+                    session,
+                    character_id=character.id,
+                    max_cases=args.max_cases,
+                    include_empty_case=not args.no_empty_case,
+                )
+            _export_retrieval_benchmark_cases_if_requested(args, cases)
+        except (LookupError, ValueError) as exc:
+            raise CliError(str(exc)) from exc
+
+    embedding_config = (
+        EmbeddingConfig(model="stub-embedding")
+        if args.provider == "stub"
+        else _resolve_embedding_config(settings)
+    )
+    _print_retrieval_benchmark_run_summary(
+        database_url=database_url,
+        run_id="dry-run",
+        status="dry_run",
+        test_suite=args.test_suite,
+        source_work_id=character.source_work_id,
+        character_id=character.id,
+        embedding_model=embedding_config.model if embedding_config is not None else None,
+        total_cases=len(cases),
+        passed_cases=0,
+        failed_cases=0,
+    )
+    print(f"provider={args.provider}")
+    print("will_create_run=false")
+    print("will_call_provider=false")
+    print("will_call_embedding_provider=false")
+    print(f"cases_source={cases_source}")
+    if args.cases_file is not None:
+        print(f"cases_file={args.cases_file}")
+    if args.export_cases_file is not None:
+        print(f"exported_cases_file={args.export_cases_file}")
+    _print_retrieval_benchmark_cases_summary(cases)
+    for index, benchmark_case in enumerate(cases, start=1):
+        _print_retrieval_benchmark_case(index, benchmark_case, verbose=args.verbose)
+    return 0
+
+
+def _print_retrieval_benchmark_cases_summary(
+    cases: tuple[RetrievalBenchmarkCase, ...],
+) -> None:
+    summary = summarize_retrieval_benchmark_cases(cases)
+    print(f"cases_summary.total_cases={summary.total_cases}")
+    print(f"cases_summary.evidence_case_count={summary.evidence_case_count}")
+    print(f"cases_summary.empty_case_count={summary.empty_case_count}")
+    print(f"cases_summary.expected_chunk_ref_count={summary.expected_chunk_ref_count}")
+    print(f"cases_summary.min_limit={summary.min_limit}")
+    print(f"cases_summary.max_limit={summary.max_limit}")
+
+
+def _load_explicit_retrieval_benchmark_cases(
+    args: argparse.Namespace,
+) -> tuple[RetrievalBenchmarkCase, ...] | None:
+    if args.cases_file is None:
+        return None
+    return load_retrieval_benchmark_cases_file(args.cases_file)
+
+
+def _export_retrieval_benchmark_cases_if_requested(
+    args: argparse.Namespace,
+    cases: tuple[RetrievalBenchmarkCase, ...],
+) -> Path | None:
+    if args.export_cases_file is None:
+        return None
+    return export_retrieval_benchmark_cases_file(
+        args.export_cases_file,
+        cases,
+        append=args.append_cases_file,
+        overwrite=args.overwrite_cases_file,
+    )
+
+
+def _print_retrieval_benchmark_run_summary(
+    *,
+    database_url: str,
+    run_id: str,
+    status: str,
+    test_suite: str,
+    source_work_id: str,
+    character_id: str,
+    embedding_model: str | None,
+    total_cases: int,
+    passed_cases: int,
+    failed_cases: int,
+) -> None:
+    print(f"database_url={database_url}")
+    print(f"run_id={run_id}")
+    print(f"status={status}")
+    print(f"test_suite={test_suite}")
+    print(f"source_work_id={source_work_id}")
+    print(f"character_id={character_id}")
+    print(f"embedding_model={embedding_model or 'none'}")
+    _print_benchmark_run_count_summary(
+        total_cases=total_cases,
+        passed_cases=passed_cases,
+        failed_cases=failed_cases,
+    )
+
+
+def _run_config(args: argparse.Namespace) -> int:
+    if args.resource == "show":
+        return _run_config_show(args)
+    if args.resource == "check":
+        return _run_config_check(args)
+    raise CliError("config resource is required")
+
+
+def _run_config_show(args: argparse.Namespace) -> int:
+    settings = Settings()
+    print(f"config_file={settings.resolved_config_file}")
+    print(f"database_url={settings.database_url}")
+    print(f"default_language={settings.default_language}")
+    print(f"log_level={settings.log_level}")
+    print(f"llm.provider={_display_value(settings.llm_provider)}")
+    print(f"llm.base_url={settings.llm_base_url}")
+    print(f"llm.model={_display_value(settings.llm_model)}")
+    print(f"llm.timeout_seconds={settings.llm_timeout_seconds:g}")
+    print(f"llm.json_response_format={settings.llm_json_response_format}")
+    print(f"llm.api_key_configured={_bool_text(bool(settings.llm_api_key))}")
+    embedding_provider = settings.embedding_provider or settings.llm_provider
+    print(f"embedding.provider={_display_value(embedding_provider)}")
+    print(f"embedding.base_url={settings.embedding_base_url or settings.llm_base_url}")
+    print(f"embedding.model={_display_value(settings.embedding_model)}")
+    print(
+        "embedding.timeout_seconds="
+        f"{(settings.embedding_timeout_seconds or settings.llm_timeout_seconds):g}"
+    )
+    print(
+        "embedding.api_key_configured="
+        f"{_bool_text(bool(settings.embedding_api_key or settings.llm_api_key))}"
+    )
+    return 0
+
+
+def _run_config_check(args: argparse.Namespace) -> int:
+    settings = Settings()
+    llm_model = settings.llm_model.strip() if settings.llm_model else ""
+    embedding_model = settings.embedding_model.strip() if settings.embedding_model else ""
+    embedding_provider = settings.embedding_provider or settings.llm_provider
+    embedding_uses_llm_credentials = not bool(settings.embedding_api_key)
+
+    print(f"config_file={settings.resolved_config_file}")
+    print(f"llm.provider={_display_value(settings.llm_provider)}")
+    print(f"llm.model={_display_value(settings.llm_model)}")
+    print(f"llm.api_key_configured={_bool_text(bool(settings.llm_api_key))}")
+    print(f"embedding.provider={_display_value(embedding_provider)}")
+    print(f"embedding.model={_display_value(settings.embedding_model)}")
+    print(
+        "embedding.api_key_configured="
+        f"{_bool_text(bool(settings.embedding_api_key or settings.llm_api_key))}"
+    )
+    print(f"embedding.uses_llm_credentials={_bool_text(embedding_uses_llm_credentials)}")
+
+    errors: list[str] = []
+    llm_status = _provider_check_status(
+        lambda: build_llm_provider(settings),
+        errors=errors,
+        label="llm",
+    )
+    if not llm_model:
+        errors.append("llm.model is not configured")
+    embedding_status = "skipped"
+    if embedding_model:
+        embedding_status = _provider_check_status(
+            lambda: build_embedding_provider(settings),
+            errors=errors,
+            label="embedding",
+        )
+    else:
+        errors.append("embedding.model is not configured; semantic retrieval will use fallback")
+
+    print(f"llm.status={llm_status}")
+    print(f"embedding.status={embedding_status}")
+    print(f"error_count={len(errors)}")
+    for index, error in enumerate(errors, start=1):
+        print(f"error.{index}={error}")
+    return 0 if not errors else 2
+
+
+def _provider_check_status(build_provider, *, errors: list[str], label: str) -> str:
+    try:
+        build_provider()
+    except ValueError as exc:
+        errors.append(f"{label}: {exc}")
+        return "error"
+    return "ok"
+
+
+def _resolve_database_url(args: argparse.Namespace, settings: Settings) -> str:
+    try:
+        return resolve_database_url(
+            settings=settings,
+            database_url=args.database_url,
+            memory_db=getattr(args, "memory_db", False),
+        )
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
+
+
+def _resolve_embedding_config(settings: Settings) -> EmbeddingConfig | None:
+    return resolve_embedding_config(settings)
+
+
+def _resolve_embedding_provider(
+    provider_source: str,
+    *,
+    settings: Settings | None = None,
+) -> tuple[LLMProvider | None, EmbeddingConfig | None]:
+    try:
+        return resolve_embedding_provider(
+            provider_source,
+            settings=settings or Settings(),
+            stub_provider_factory=StubProvider,
+            embedding_provider_factory=build_embedding_provider,
+        )
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
+
+
+def _resolve_demo_provider(
+    provider_source: str,
+    *,
+    settings: Settings | None = None,
+) -> tuple[LLMProvider, ModelConfig]:
+    try:
+        return resolve_roleplay_provider(
+            provider_source,
+            settings=settings or Settings(),
+            stub_provider_factory=StubProvider,
+            llm_provider_factory=build_llm_provider,
+        )
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
+
+
+def _display_value(value: str | None) -> str:
+    if value is None or not value.strip():
+        return "none"
+    return value
+
+
+def _bool_text(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _format_ratio(numerator: int, denominator: int) -> str:
+    if denominator == 0:
+        return "0.000"
+    return _format_decimal(numerator / denominator)
+
+
+def _format_decimal(value: float) -> str:
+    return f"{value:.3f}"
+
+
+def _format_optional_decimal_list(values: list[float | None]) -> str:
+    return ",".join("none" if value is None else _format_decimal(value) for value in values)
+
+
+def _json_block(value) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2)
+
+
+def _prepare_demo_persona(
+    session,
+    *,
+    args: argparse.Namespace,
+    provider: LLMProvider,
+    model_config: ModelConfig,
+) -> DemoPersonaContext:
+    source_work = None
+    if args.reuse_existing:
+        loaded_title = args.source.stem
+        source_work = SourceWorkRepository(session).find_by_title(loaded_title)
+
+    if source_work is None:
+        ingestion = ingest_text_file(session, args.source)
+        source_work = ingestion.source_work
+    else:
+        ingestion = SourceIngestionResult(source_work=source_work, chunks=[])
+
+    character_repository = CharacterRepository(session)
+    character = (
+        character_repository.find_by_source_work_and_name(source_work.id, args.character)
+        if args.reuse_existing
+        else None
+    )
+    if character is None:
+        character = create_character(
+            session,
+            source_work_id=source_work.id,
+            canonical_name=args.character,
+            aliases=args.alias,
+        ).character
+
+    persona = (
+        PersonaVersionRepository(session).latest_for_character(character.id)
+        if args.reuse_existing
+        else None
+    )
+    if persona is not None:
+        return DemoPersonaContext(
+            source_work=ingestion.source_work,
+            character=character,
+            persona_version=persona,
+        )
+
+    setup_result = build_character_persona(
+        session,
+        source_work_id=source_work.id,
+        character_id=character.id,
+        provider=provider,
+        model_config=model_config,
+    )
+    return DemoPersonaContext(
+        source_work=ingestion.source_work,
+        character=setup_result.character,
+        persona_version=setup_result.persona_version,
+    )
+
+
+def _resolve_demo_user(session, *, display_name: str, reuse_existing: bool) -> User:
+    user = UserRepository(session).find_by_display_name(display_name) if reuse_existing else None
+    return user or create_user(session, display_name=display_name).user
+
+
+def _resolve_demo_conversation(
+    session,
+    *,
+    user_id: str,
+    character_id: str,
+    persona_version_id: str,
+    reuse_existing: bool,
+) -> Conversation:
+    conversation = (
+        ConversationRepository(session).latest_for_user_character(user_id, character_id)
+        if reuse_existing
+        else None
+    )
+    return conversation or create_conversation(
+        session,
+        user_id=user_id,
+        character_id=character_id,
+        persona_version_id=persona_version_id,
+    ).conversation
+
+
+def _claim_status_counts(claims) -> dict[str, int]:
+    counts = {status.value: 0 for status in ClaimStatus}
+    for claim in claims:
+        counts[str(claim.status)] += 1
+    return counts
+
+
+def _claim_type_counts(claims) -> dict[str, int]:
+    counts = {claim_type.value: 0 for claim_type in ClaimType}
+    for claim in claims:
+        counts[str(claim.claim_type)] += 1
+    return counts
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
